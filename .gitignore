@@ -8,6 +8,9 @@ node_modules
 out/
 build
 dist
+# sandbox QC-build leftovers (mount permissions prevent cleanup)
+tmp/
+pp-next-build/
 
 # env
 .env

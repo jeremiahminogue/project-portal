@@ -7,12 +7,16 @@ import { StatusChip } from "@/components/pe/status-chip";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { getProjects } from "@/lib/queries";
+import { getCurrentUser, initialsFor } from "@/lib/auth/user";
 
 export default async function DashboardPage() {
-  const projects = await getProjects();
+  // Kick off both fetches in parallel — they don't depend on each other.
+  const [projects, me] = await Promise.all([getProjects(), getCurrentUser()]);
+  const userEmail = me.user?.email ?? undefined;
+  const userInitials = initialsFor(me.profile, me.user?.email ?? null);
   return (
     <>
-      <AppHeader />
+      <AppHeader userInitials={userInitials} userEmail={userEmail} />
       <PageShell>
         <div className="mb-8">
           <h1 className="text-3xl font-semibold text-pe-body">Your projects</h1>

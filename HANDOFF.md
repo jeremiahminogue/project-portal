@@ -11,7 +11,9 @@ This file is the "what's next" list. README.md is the "what is this". Read this 
 
 Code is built; all pages read through the live query layer and every live query is fully hydrated (profiles, routing steps, nested chat messages round-trip in one PostgREST call). End-to-end file upload flow is shipped. PE wordmark is wired in. A `/api/health` endpoint reports env-var presence for post-deploy smoke-testing. Credentials landed (Supabase + R2 + Resend env vars saved). Resend's `send.puebloelectrics.com` DNS records were added at GoDaddy.
 
-`npx tsc --noEmit` → exit 0. `next build` → **14 routes**, 0 errors.
+**Auth step-one complete (2026-04-21 afternoon):** platform-level superadmin (Jeremiah) that bypasses per-project RLS, a cached `getCurrentUser()` helper pulling real user info into the header, and a motion-polished login screen. Migration `0002_superadmin.sql` must be pushed alongside `0001_init.sql`.
+
+`npx tsc --noEmit` → exit 0. `next build` → compiles clean, page-type validation passes, static generation 9/9. The in-sandbox `next build` still hits an `EPERM` on the post-compile finalize step (known mount-permission issue, not a code issue — see §Gotchas).
 
 What's *not* done, in order of priority:
 
@@ -28,8 +30,9 @@ What's *not* done, in order of priority:
 11. ~~Hydration upgrades — joins for `submittal_routing_steps`, `profiles` (author/uploadedBy), `project_members` (directory), `chat_messages`.~~ **Done 2026-04-21 evening** — all five live queries now round-trip real data (names, companies, routing chains, nested chat messages) via PostgREST nested selects. See PROGRESS.md for the per-file diff.
 12. ~~Drop `pe_logo.png` into `public/brand/`.~~ **Done 2026-04-21 night** — asset is `public/brand/Pueblo_Electrics-1.png`, wired into `PELogo` via `next/image` with correct intrinsic dims + `priority`.
 13. Schema adds for richer hydration (future, optional) — `reactions`, `attachments`, `chat_subjects.description`, `chat_message_reads`, `update_comments` / `update_likes`. Pages render fine without them today.
-14. **Create git repo + push to GitHub** — `git init` inside the Cowork sandbox left a poisoned `.git/` (mount blocks `unlink`), so the flow must run on Jeremiah's own machine. Full runbook at workspace-root `REPO_SETUP.md` (it starts with `rm -rf .git` to clear the stub). `.gitignore` at workspace root covers OS cruft; `project-portal/.gitignore` covers app-level ignores.
-15. Deploy to Vercel — then hit `GET /api/health` to confirm env vars landed.
+14. ~~Auth step-one: superadmin + cached auth helper + login motion.~~ **Done 2026-04-21 afternoon** — see §4 for the superadmin model and §8 for the step-two admin UI.
+15. **Create git repo + push to GitHub** — `git init` inside the Cowork sandbox left a poisoned `.git/` (mount blocks `unlink`), so the flow must run on Jeremiah's own machine. Full runbook at workspace-root `REPO_SETUP.md` (it starts with `rm -rf .git` to clear the stub). `.gitignore` at workspace root covers OS cruft; `project-portal/.gitignore` covers app-level ignores.
+16. Deploy to Vercel — then hit `GET /api/health` to confirm env vars landed.
 
 ### Env vars Jeremiah has already saved into `.env.local`
 - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
@@ -47,8 +50,8 @@ npx supabase init                   # creates supabase/config.toml (ok to commit
 npx supabase login                  # browser OAuth
 npx supabase projects create        # or use an existing project
 npx supabase link --project-ref YOUR_PROJECT_REF
-npx supabase db push                # runs migrations/0001_init.sql
-npx supabase db seed                # runs seed.sql (optional — seeds CSF #1646)
+npx supabase db push                # runs migrations/0001_init.sql + 0002_superadmin.sql
+npx supabase db seed                # runs seed.sql (optional — seeds CSF #1646 + flags Jeremiah as superadmin)
 ```
 
 Where to find each env var:
@@ -97,11 +100,38 @@ Used by: magic-link emails + per-activity digest emails. Neither is wired yet.
 
 Shipped:
 
-- `app/login/page.tsx` + `app/login/login-form.tsx` — magic-link email form. Invite-only (`shouldCreateUser: false`).
+- `app/login/page.tsx` + `app/login/login-form.tsx` — magic-link email form. Invite-only (`shouldCreateUser: false`). Motion-polished 2026-04-21 afternoon: logo/card/footer entrance cascade, button press affordance (`active:scale-[0.98]`), spinner on send, success confirmation with icon zoom, error banner auto-clears on retype. Zero new deps — uses `tailwindcss-animate` utilities already in the stack.
 - `app/auth/callback/route.ts` — exchanges `?code=` for session, redirects to `?next=` (open-redirect-safe).
 - `app/auth/signout/route.ts` — POST-only sign out.
 - `middleware.ts` (root) — gates `/`, `/projects/**`, `/directory`. Env-var-guarded: traffic passes through when Supabase env vars are absent (keeps mock-data dev working).
 - `lib/supabase/middleware.ts` — `createMiddlewareClient` helper for the `@supabase/ssr` cookie dance.
+- `lib/auth/user.ts` (added 2026-04-21 afternoon) — the one place server components ask "who's logged in?". Cached per-request via `React.cache()` so N components on a page do one DB round-trip. Exports `getCurrentUser()`, `requireUser()`, `requireSuperadmin()`, `initialsFor()`.
+
+### Superadmin model (added 2026-04-21 afternoon)
+
+Jeremiah has platform-level superadmin that bypasses the per-project RLS gate. Model:
+
+- `profiles.is_superadmin boolean default false` — column added in `supabase/migrations/0002_superadmin.sql`. Partial index on the `true` subset (vast majority of rows are `false`).
+- `public.is_superadmin()` — `SECURITY DEFINER` helper with scoped `search_path = public`. Execute revoked from `public`, granted to `authenticated`. Reads `profiles.is_superadmin` for the current `auth.uid()`.
+- Twelve tables each got four additive permissive RLS policies (select/insert/update/delete) keyed on `public.is_superadmin()`. Because Postgres RLS is permissive, ANY matching policy grants — the existing per-project policies are untouched, so non-superadmins are unaffected.
+- `seed.sql` sets Jeremiah (`jeremiah@puebloelectrics.com`) to `is_superadmin = true`; all other seeded profiles stay `false`.
+
+**Using the helper in pages:**
+```ts
+import { getCurrentUser, initialsFor } from "@/lib/auth/user";
+
+export default async function Page() {
+  const me = await getCurrentUser();
+  // me.user, me.profile, me.isSuperadmin — null-safe for anonymous traffic
+  return <AppHeader userInitials={initialsFor(me.profile, me.user?.email ?? null)} userEmail={me.user?.email ?? undefined} />;
+}
+```
+
+For pages that should redirect anon users:
+```ts
+const me = await requireUser();             // -> redirects to /login if anon
+const admin = await requireSuperadmin();    // -> redirects to / if not superadmin
+```
 
 **Inviting a user (once Supabase is live):**
 The flow is invite-only by design. To let someone in:
@@ -212,15 +242,32 @@ R2 helper library: `lib/r2.ts` (`getR2Config`, `getR2Client`, `createPresignedUp
 
 ---
 
-## 6. Branding Polish
+## 7. Branding Polish
 
-- Drop `pe_logo.png` (from `skills/oac-agenda/assets/pe_logo.png` in the parent project) into `public/brand/pe_logo.png`.
-- Update `components/pe/pe-logo.tsx` to render the real image via `next/image`.
-- Add favicon + `public/apple-touch-icon.png` + OG image.
+- ~~Drop `pe_logo.png` into `public/brand/pe_logo.png`.~~ Done — asset is `public/brand/Pueblo_Electrics-1.png`, wired via `next/image` with correct intrinsic dims + `priority`.
+- Add favicon + `public/apple-touch-icon.png` + OG image (future).
 
 ---
 
-## 7. Deploy to Vercel
+## 8. Step-Two — Admin UI for Project Access (PENDING)
+
+Auth step-one landed Jeremiah's superadmin + `requireSuperadmin()`. The next step is the UI that uses them.
+
+**Goal:** a PE-admin-only page that lets Jeremiah (or any other superadmin) add/remove people from projects without touching the Supabase dashboard.
+
+**Sketch:**
+- Route: `app/admin/members/page.tsx` — gated with `await requireSuperadmin();` at the top of the server component. Non-privileged users bounce to `/`.
+- Data shape needed: list of `profiles` + for each, which `project_members` rows they currently have (project id + role). The admin can toggle membership per project and change role per membership.
+- Mutations: server actions that use the service-role Supabase client to insert/delete/update `project_members`. (RLS bypass is the whole point — the service role already ignores RLS, but `requireSuperadmin()` is the belt-and-braces check at the UI layer.)
+- Invite flow: a "Invite by email" action that calls `supabase.auth.admin.inviteUserByEmail(email)` then inserts the `project_members` row in one transaction. The target address gets a magic link; after they click through they already have access to the project.
+
+**Don't do:**
+- Don't expose the service-role key to the client. All mutations are server actions or route handlers.
+- Don't skip `requireSuperadmin()` just because RLS would still block non-admins — a server-action 500 from RLS is a worse UX than a redirect to the dashboard.
+
+---
+
+## 9. Deploy to Vercel
 
 ```bash
 npx vercel link            # one-time; creates .vercel/ (gitignored)

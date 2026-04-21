@@ -3,6 +3,7 @@ import { AppHeader } from "@/components/pe/app-header";
 import { ProjectHeader } from "@/components/pe/project-header";
 import { ProjectNav } from "@/components/pe/project-nav";
 import { getProject } from "@/lib/queries";
+import { getCurrentUser, initialsFor } from "@/lib/auth/user";
 
 export default async function ProjectLayout({
   children,
@@ -12,15 +13,22 @@ export default async function ProjectLayout({
   params: { slug: string };
 }) {
   const { slug } = params;
-  const project = await getProject(slug);
+  // Parallel: slug lookup + current user — independent.
+  const [project, me] = await Promise.all([
+    getProject(slug),
+    getCurrentUser(),
+  ]);
 
   if (!project) {
     notFound();
   }
 
+  const userEmail = me.user?.email ?? undefined;
+  const userInitials = initialsFor(me.profile, me.user?.email ?? null);
+
   return (
     <>
-      <AppHeader />
+      <AppHeader userInitials={userInitials} userEmail={userEmail} />
       <ProjectHeader project={project} />
       <ProjectNav slug={slug} />
       {children}

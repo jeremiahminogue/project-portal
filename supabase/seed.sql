@@ -10,11 +10,13 @@ begin;
 -- For development, you can manually create these auth users via Supabase dashboard
 -- or extend this seed to call auth.users() API (not supported in SQL seed).
 
-insert into profiles (id, full_name, email, role, company, title, avatar_url)
+-- Jeremiah is the platform superadmin (see migration 0002_superadmin.sql).
+-- Everyone else is a per-project user.
+insert into profiles (id, full_name, email, role, company, title, avatar_url, is_superadmin)
 values
-  ('11111111-1111-1111-1111-111111111111'::uuid, 'Jeremiah Minogue', 'jeremiah@puebloelectrics.com', 'admin', 'Pueblo Electric', 'Project Manager', null),
-  ('22222222-2222-2222-2222-222222222222'::uuid, 'Tiffany Chen', 'tiffany@puebloelectrics.com', 'member', 'Pueblo Electric', 'Field Inspector', null),
-  ('33333333-3333-3333-3333-333333333333'::uuid, 'Michele Gutierrez', 'michele@example.com', 'guest', 'CSF #1646 Owner', 'Facility Manager', null);
+  ('11111111-1111-1111-1111-111111111111'::uuid, 'Jeremiah Minogue', 'jeremiah@puebloelectrics.com', 'admin', 'Pueblo Electric', 'Project Manager', null, true),
+  ('22222222-2222-2222-2222-222222222222'::uuid, 'Tiffany Chen', 'tiffany@puebloelectrics.com', 'member', 'Pueblo Electric', 'Field Inspector', null, false),
+  ('33333333-3333-3333-3333-333333333333'::uuid, 'Michele Gutierrez', 'michele@example.com', 'guest', 'CSF #1646 Owner', 'Facility Manager', null, false);
 
 -- Insert one project: CSF Fire Alarm #1646
 insert into projects (id, slug, name, customer, customer_rep, address, phase, percent_complete, next_milestone, next_milestone_date)
