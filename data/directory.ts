@@ -1,0 +1,110 @@
+import type { DirectoryEntry } from "./types";
+
+export const directory: DirectoryEntry[] = [
+  // Pueblo Electric (host)
+  {
+    id: "pe-001",
+    name: "Jeremiah Minogue",
+    role: "Operations Manager",
+    organization: "Pueblo Electric",
+    email: "jeremiah@puebloelectrics.com",
+    status: "Admin",
+  },
+  {
+    id: "pe-002",
+    name: "Matt McCoy",
+    role: "Project Manager",
+    organization: "Pueblo Electric",
+    email: "mattm@puebloelectrics.com",
+    status: "Member",
+  },
+  {
+    id: "pe-003",
+    name: "Nate Eastburn",
+    role: "Superintendent",
+    organization: "Pueblo Electric",
+    email: "nate@puebloelectrics.com",
+    status: "Member",
+  },
+  {
+    id: "pe-004",
+    name: "Wes Castillo",
+    role: "Foreman",
+    organization: "Pueblo Electric",
+    email: "wes@puebloelectrics.com",
+    status: "Member",
+  },
+  // Wember Inc. (owner's rep)
+  {
+    id: "wmb-001",
+    name: "Michelle Gutierrez",
+    role: "Senior PM",
+    organization: "Wember Inc.",
+    email: "mgutierrez@wemberinc.com",
+    status: "Guest-Admin",
+  },
+  {
+    id: "wmb-002",
+    name: "Nick Palaski",
+    role: "Project Manager",
+    organization: "Wember Inc.",
+    email: "npalaski@wemberinc.com",
+    status: "Guest",
+  },
+  // BCER (engineer)
+  {
+    id: "bcer-001",
+    name: "Claire Mestler",
+    role: "Reviewer",
+    organization: "BCER",
+    email: "cmestler@bcer.com",
+    status: "Reviewer",
+  },
+  {
+    id: "bcer-002",
+    name: "Todd Brand",
+    role: "Lead Engineer",
+    organization: "BCER",
+    email: "tbrand@bcer.com",
+    status: "Reviewer",
+  },
+  {
+    id: "bcer-003",
+    name: "Madison Hoxsie",
+    role: "PM",
+    organization: "BCER",
+    email: "mhoxsie@bcer.com",
+    status: "Reviewer",
+  },
+  // JCI
+  {
+    id: "jci-001",
+    name: "Taylor Boggio",
+    role: "FA Designer",
+    organization: "JCI",
+    status: "Guest",
+  },
+  {
+    id: "jci-002",
+    name: "Justin Schawe",
+    role: "PM",
+    organization: "JCI",
+    status: "Guest",
+  },
+  // CO Dept. of Agriculture (Owner)
+  {
+    id: "coda-001",
+    name: "Michelle Hines",
+    role: "Ops Mgr",
+    organization: "CO Dept. of Agriculture",
+    status: "Owner",
+  },
+  // Pueblo Fire Dept. (AHJ)
+  {
+    id: "pfd-001",
+    name: "Paul Haley",
+    role: "AHJ",
+    organization: "Pueblo Fire Dept.",
+    status: "AHJ",
+  },
+];

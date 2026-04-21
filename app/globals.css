@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* semantic tokens, mapped to PE palette */
+    --background: 0 0% 99%;
+    --foreground: 0 0% 18%; /* pe-body #2D2D2D */
+
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 18%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 18%;
+
+    --primary: 133 71% 40%; /* pe-green #1DAF3F */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 24%;
+
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 42%; /* pe-sub #6B6B6B */
+
+    --accent: 133 71% 95%;
+    --accent-foreground: 133 71% 24%;
+
+    --destructive: 0 75% 50%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 0 0% 90%;
+    --input: 0 0% 92%;
+    --ring: 133 71% 40%;
+
+    --radius: 16px;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html {
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    @apply bg-background text-foreground font-sans;
+    letter-spacing: -0.011em;
+  }
+  h1, h2, h3, h4 {
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ------- PE glass / surface utilities ------- */
+@layer components {
+  .glass {
+    @apply bg-white/70 backdrop-blur-xl border border-white/60 shadow-sm;
+  }
+  .glass-strong {
+    @apply bg-white/85 backdrop-blur-2xl border border-white/70 shadow-md;
+  }
+  .surface-subtle {
+    background: linear-gradient(180deg, #FAFAFA 0%, #F4F4F5 100%);
+  }
+  .accent-band {
+    background: linear-gradient(90deg, #1DAF3F 0%, #18923A 100%);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

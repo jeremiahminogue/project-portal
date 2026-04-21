@@ -1,0 +1,52 @@
+import type { Update } from "./types";
+
+export const updates: Update[] = [
+  {
+    id: "update-001",
+    type: "OAC Recap",
+    title: "OAC #003 — Agenda & Meeting Prep",
+    body: "Today at 11 AM we'll hit: Events Ctr design complete, BCER review kickoff 04/22, Palace of Ag sequencing (5 sub-packages), ERRCS antenna confirmation from Pueblo FD, and connex delivery planning for Wed/Thu. Attached: agenda + 3-week look-ahead.",
+    author: "Jeremiah Minogue",
+    postedDate: "2026-04-21",
+    postedTime: "2 hours ago",
+    likes: 6,
+    commentCount: 2,
+    attachments: [
+      { name: "OAC #003 Agenda.pdf", size: "1.4 MB", type: "pdf" },
+      { name: "3-Week Look-Ahead.docx", size: "112 KB", type: "docx" },
+    ],
+  },
+  {
+    id: "update-002",
+    type: "Phase Kickoff",
+    title: "Events Center BCER Review begins Tuesday 04/22",
+    body: "First package into BCER review. Target completion 05/05, then AHJ intake Tue 05/06. JCI shop drawings are in Drawings & Specs. Comments welcome in #design-coordination.",
+    author: "Jeremiah Minogue",
+    postedDate: "2026-04-20",
+    postedTime: "Yesterday",
+    likes: 3,
+    commentCount: 1,
+  },
+  {
+    id: "update-003",
+    type: "Safety",
+    title: "Site access during connex delivery (04/23 – 04/24)",
+    body: "Connex arrives Wed AM; unload Thu morning. Hard-hat, hi-viz, and staged entry through NE gate only. Michelle H. coordinating with ops. Reminder — no public access to staging yard during unload.",
+    author: "Wes",
+    postedDate: "2026-04-20",
+    postedTime: "Mon 04/20",
+    likes: 4,
+    commentCount: 0,
+  },
+  {
+    id: "update-004",
+    type: "Weekly",
+    title: "Week in review — Survey wraps, design hand-off in flight",
+    body: "Survey phase closes 04/21. Events Ctr design 100%. SOV v3 submitted to Wember. Paul Haley call-out on ERRCS — AI #12 stays open. Goal this week: clean BCER intake, connex on the ground, Palace of Ag kickoff on schedule.",
+    author: "Jeremiah Minogue",
+    postedDate: "2026-04-19",
+    postedTime: "Sun 04/19",
+    likes: 8,
+    commentCount: 3,
+  },
+];
