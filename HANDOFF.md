@@ -118,7 +118,12 @@ Jeremiah has platform-level superadmin that bypasses the per-project RLS gate. M
 
 **Using the helper in pages:**
 ```ts
+// Server components / route handlers / server actions:
 import { getCurrentUser, initialsFor } from "@/lib/auth/user";
+
+// Client components ("use client") — MUST use the client-safe module,
+// otherwise the build fails with "server-only cannot be used in pages/":
+import { initialsFor } from "@/lib/auth/initials";
 
 export default async function Page() {
   const me = await getCurrentUser();
@@ -249,21 +254,25 @@ R2 helper library: `lib/r2.ts` (`getR2Config`, `getR2Client`, `createPresignedUp
 
 ---
 
-## 8. Step-Two — Admin UI for Project Access (PENDING)
+## 8. Step-Two — Admin UI for User & Project Access (DONE, 2026-04-22)
 
-Auth step-one landed Jeremiah's superadmin + `requireSuperadmin()`. The next step is the UI that uses them.
+Shipped in commit `bda357c admin user management`. Lives under `/admin/*`, gated globally by `requireSuperadmin()` in `app/admin/layout.tsx`. See the 2026-04-22 (afternoon) session log at the bottom of this file for the full build breakdown; the high-level shape is:
 
-**Goal:** a PE-admin-only page that lets Jeremiah (or any other superadmin) add/remove people from projects without touching the Supabase dashboard.
+- **Routes:** `/admin` → redirects to `/admin/users`; `/admin/users` lists every user with search + status filters; `/admin/users/[id]` is the per-user detail pane with profile edit, password reset, email confirm, superadmin toggle, grant/revoke project access, and delete.
+- **Server actions** (`app/admin/actions.ts`): 8 actions, each fenced by `await requireSuperadmin()` as the first statement. Use the service-role client (`lib/supabase/admin.ts`) to bypass RLS on writes. Actions return `{ ok, error? }` — never throw on user-visible failures.
+- **Admin queries** (`lib/queries/admin.ts`): `listAllUsers()`, `listAllProjects()`, `getAdminUserDetail(id)`. Short-circuit to empty arrays when Supabase env vars are missing, so local dev without creds still renders.
+- **Header link:** `AppHeader` accepts `isSuperadmin` and renders the "Admin" pill when true. Dashboard and project layout pass the flag through from `getCurrentUser()`.
 
-**Sketch:**
-- Route: `app/admin/members/page.tsx` — gated with `await requireSuperadmin();` at the top of the server component. Non-privileged users bounce to `/`.
-- Data shape needed: list of `profiles` + for each, which `project_members` rows they currently have (project id + role). The admin can toggle membership per project and change role per membership.
-- Mutations: server actions that use the service-role Supabase client to insert/delete/update `project_members`. (RLS bypass is the whole point — the service role already ignores RLS, but `requireSuperadmin()` is the belt-and-braces check at the UI layer.)
-- Invite flow: a "Invite by email" action that calls `supabase.auth.admin.inviteUserByEmail(email)` then inserts the `project_members` row in one transaction. The target address gets a magic link; after they click through they already have access to the project.
+**Guardrails already baked in:**
+- Last-superadmin demotion is blocked (`setSuperadminAction` counts remaining superadmins before allowing self-demote).
+- Self-delete is blocked in `deleteUserAction`.
+- Auth-user / profile creation is transactional-ish: if the profile upsert fails after auth.users row is created, the auth user is rolled back to avoid orphans.
+- Service-role key never leaves the server (`createAdminClient()` is `import "server-only"`).
 
-**Don't do:**
-- Don't expose the service-role key to the client. All mutations are server actions or route handlers.
-- Don't skip `requireSuperadmin()` just because RLS would still block non-admins — a server-action 500 from RLS is a worse UX than a redirect to the dashboard.
+**Known gaps / next polish:**
+- No invite-by-email flow yet — users get a password at create time. A future action could call `supabase.auth.admin.inviteUserByEmail(email)` and insert the `project_members` row in one shot.
+- No audit log table. Every privileged write goes through server actions, so a `admin_audit_log` table + a small wrapper helper around the service-role client would capture who-did-what-when.
+- No paginated user list — fine at tens/low-hundreds. Swap to server-side search when we cross that threshold.
 
 ---
 
@@ -287,6 +296,7 @@ Custom domain: `portal.puebloelectrics.com` → add in Vercel, update DNS CNAME 
 - **Radix Tabs uncontrolled.** The Submittals page uses `<Tabs defaultValue="submittals">` uncontrolled, which lets the parent stay a server component. Don't "upgrade" it to controlled unless a genuinely-needed feature requires it.
 - **ISO date format.** Everything in `data/*.ts` and the SQL schema uses ISO 8601. Never pass `Date` objects as props — they serialize to `{}` across the server-client boundary. `toISOString()` or a pre-formatted string, always.
 - **Next 14 `params`.** Route segment params in Next 14 are already-resolved objects, not Promises. Don't `await` them. (Next 15 changes this; revisit when upgrading.)
+- **`server-only` poisons the whole module.** `lib/auth/user.ts` has `import "server-only"` at the top. Any `"use client"` file that imports *anything* from that module — even a pure helper like `initialsFor` — fails the Vercel build with a misleading "pages/ directory" error (fix shipped 2026-04-22). Rule: client components import helpers from `@/lib/auth/initials` (client-safe); server code keeps using `@/lib/auth/user` (re-exports `initialsFor` for back-compat). When adding new auth helpers, decide first: does it touch Supabase / cookies / `redirect()`? Yes → `user.ts`. No → `initials.ts` (or a new client-safe file).
 
 ---
 
@@ -361,7 +371,7 @@ Jeremiah has acknowledged this is outstanding. Next agent should offer to pilot 
 - Item 15 (git repo + push to GitHub): **Done.** Repo is live, remote `origin` wired, `main` is up-to-date.
 - Item 16 (Deploy to Vercel): **Done.** Live URL responding 200 on `/login`, `/api/health` reports all env vars present.
 - Item 13 (schema adds for richer hydration): still deferred, not blocking.
-- Item 8 (admin UI for project access via `requireSuperadmin()`): still pending, good next build target.
+- Item 8 (admin UI for project access via `requireSuperadmin()`): **Done** in commit `bda357c` on 2026-04-22 afternoon. See new session log below.
 
 ### What the next agent should verify before starting new work
 
@@ -377,3 +387,57 @@ Jeremiah has acknowledged this is outstanding. Next agent should offer to pilot 
 - Force redeploy: `git commit --allow-empty -m "chore: redeploy" && git push`.
 - Supabase migrations: `npx supabase db push` from `C:\DEV\project-portal` (project linked via `supabase link --project-ref xjpkqxsgudlvfwgkxtcb`).
 - Health check: `curl https://project-portal-jade.vercel.app/api/health`.
+
+---
+
+## 2026-04-22 (afternoon) — Admin UI for User & Project Access
+
+**What shipped** — a full superadmin console at `/admin/users` with a per-user detail screen that covers everything a PE admin needs to run the portal without ever opening the Supabase dashboard. Code is already on `main` at commit `bda357c admin user management` (2,434 insertions across 15 files) and was pushed to `origin/main` before this session opened.
+
+### Files added
+
+- `app/admin/layout.tsx` — shell for the `/admin/*` subtree. Runs `await requireSuperadmin()` up-front so every nested page inherits the gate. Renders the global `AppHeader` (with `isSuperadmin` = true) plus a thin admin sub-nav ("Users" tab + "Admin console" badge).
+- `app/admin/page.tsx` — 10-line redirect to `/admin/users`. Room to become a KPI dashboard when we add more admin surfaces.
+- `app/admin/users/page.tsx` — server component; `Promise.all([listAllUsers(), listAllProjects()])` in parallel, passes to the client list.
+- `app/admin/users/users-page-client.tsx` — searchable user list with status tabs (All / Active / Pending / Admins) and an inline "Create user" slide-over. Submit → server action creates `auth.users` + `profiles` → redirects into the detail page so the operator can assign project access immediately.
+- `app/admin/users/[id]/page.tsx` — per-user server component. Loads the detail via `getAdminUserDetail(id)`; 404s cleanly if the user doesn't exist.
+- `app/admin/users/[id]/user-detail-client.tsx` — the big one (987 lines). Six cards: Identity header, Profile edit, Account (password reset + email-confirm + superadmin toggle), Project Access (grant with role picker / change role / revoke), Danger Zone (delete). Every mutation goes through a server action; every form is `useTransition`-pending-aware so the UI stays responsive.
+- `app/admin/actions.ts` — 8 server actions: `createUserAction`, `updateProfileAction`, `setPasswordAction`, `confirmEmailAction`, `setSuperadminAction`, `grantProjectAccessAction`, `updateMembershipRoleAction`, `revokeProjectAccessAction`, `deleteUserAction`. Each starts with `await requireSuperadmin()`; each returns `{ ok: true } | { ok: false, error }` so forms render friendly inline errors.
+- `lib/queries/admin.ts` — typed read layer (`listAllUsers`, `listAllProjects`, `getAdminUserDetail`). One `admin.listUsers()` + one `profiles` fetch + one `project_members` fetch, stitched client-side. No N+1s.
+- `lib/supabase/admin.ts` — service-role client factory. `import "server-only"` so it can never be bundled to the browser.
+
+### Files changed
+
+- `components/pe/app-header.tsx` — added optional `isSuperadmin` prop. When true, renders an "Admin" pill link (ShieldCheck icon) between "People" and the Settings divider. Defaults to false so unauthenticated / non-admin chrome doesn't accidentally leak the surface.
+- `app/page.tsx` — dashboard now reads `me.isSuperadmin` from `getCurrentUser()` and passes it to `<AppHeader isSuperadmin={...} />`.
+- `app/projects/[slug]/layout.tsx` — same change for every project sub-route.
+- `lib/queries/index.ts` — re-exports `listAllUsers`, `listAllProjects`, `getAdminUserDetail` and the `Admin*` types from the new admin query module.
+- `middleware.ts` — `/admin/**` added to the protected-paths matcher so unauthenticated hits bounce to `/login?next=/admin/...`. The superadmin check happens inside the layout; middleware just enforces "you must be signed in."
+
+### Design decisions
+
+- **Superadmin check lives in the layout, not middleware.** Middleware only knows "is this request authenticated?" — distinguishing superadmin from ordinary user requires a DB read, which is layout-level work. Keeps middleware fast and the authz logic close to the UI it's gating.
+- **Server actions, not route handlers.** Every mutation is a server action invoked via `<form action={action}>`. Zero client-side JSON handling, zero custom fetch. The `useTransition()` hook on the client gives us the pending spinner for free.
+- **Service role is the ONLY privileged path.** `createAdminClient()` reads `SUPABASE_SERVICE_ROLE_KEY` server-side. The browser never sees it. `requireSuperadmin()` fires before any service-role call — belt-and-braces on top of RLS.
+- **Last-superadmin safety rail.** `setSuperadminAction` counts remaining superadmins before honoring a self-demote. If it's the last one, the action returns an error banner rather than locking everyone out.
+- **Self-delete safety rail.** `deleteUserAction` rejects `userId === me.user.id`.
+- **Orphan-safe user creation.** If `auth.users` creation succeeds but the `profiles` upsert fails, we roll back the auth user. Never leave half-created accounts.
+- **Nested route, not flat.** `/admin/users/[id]` rather than `/admin/users?id=…` — gives each user a stable bookmarkable URL matching the rest of the app's URL design.
+- **Client-side search + filter.** User count will be in the tens to low hundreds for the foreseeable future. Server-side search adds latency and complexity that isn't earning its keep yet.
+- **Create-user panel is inline, not a separate route.** Submit redirects into the detail page, which is where the operator naturally wants to go next (assign project access).
+
+### QC gate
+
+- `npx tsc --noEmit` in the mounted folder → **exit 0**.
+- `npx next build` — couldn't complete inside the Cowork sandbox this session; the swc binary needed (`@next/swc-linux-x64-gnu`) isn't installed in `node_modules` and the sandbox can't reach `registry.npmjs.org` to download it. **Build needs to be run from Jeremiah's Windows box** (`npm run build` in `C:\DEV\project-portal`), where `@next/swc-win32-x64-msvc` is installed and working. The code typechecks clean and Vercel's Linux build machines have no trouble pulling the swc binary — the prod deploy for `bda357c` on Vercel is what actually proves the build.
+
+### Working-tree noise
+
+Sandbox `git status` shows ~50 files as "modified" but `git diff --ignore-all-space HEAD` returns an empty diff — it's pure whitespace/line-ending flip caused by the Cowork mount, not real changes. Do NOT commit these. If they bother you, `git checkout -- .` on the Windows side clears them; the tracked file bytes are already correct on origin.
+
+### What the next agent should do
+
+1. **Verify `/admin/users` in prod.** Sign in at `https://project-portal-jade.vercel.app/login` with Jeremiah's creds, click the "Admin" pill in the header, confirm the user list renders and the detail page loads. If `bda357c` hasn't deployed yet, trigger a redeploy with `git commit --allow-empty -m "chore: redeploy" && git push`.
+2. **Sanity test the server actions.** Create a throwaway test user, assign them a role on one project, change the role, revoke, delete. Watch the network tab — every mutation should be a POST to the current page URL (server action boundary), not a custom endpoint.
+3. **Don't skip the secret rotation.** Item from the 2026-04-22 morning session (§ "OUTSTANDING — Secret rotation") is still pending. The admin UI works fine against the current keys, but those keys are in the chat transcript from earlier and should be rotated before new agents get scrolling access.
+4. **Good next build target:** an audit log. Every server action would insert into `admin_audit_log` (actor, target, action, before/after JSON, timestamp). Gives us a tamper-evident record of who did what, and surfaces the last 50 events on the admin dashboard landing page.

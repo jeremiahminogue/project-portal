@@ -3,6 +3,12 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+// Re-exported from the client-safe module so existing server-side callers
+// (which do `import { getCurrentUser, initialsFor } from "@/lib/auth/user"`)
+// keep working. Client components should import `initialsFor` directly
+// from `@/lib/auth/initials` — this file is `server-only`.
+export { initialsFor } from "./initials";
+
 /**
  * # Auth helpers — the one place server components ask "who's logged in?"
  *
@@ -158,35 +164,5 @@ export async function requireSuperadmin(
   return { user: me.user, profile: me.profile };
 }
 
-/**
- * Compute 1–2 character initials from a profile + email. Stable so the
- * avatar doesn't flicker between renders.
- *
- *   "Jeremiah Minogue"  → "JM"
- *   "Jeremiah"          → "JE"   (first two letters of the single name)
- *   null + "j@pe.com"   → "J"    (first letter of the email local-part)
- *   null + null         → "?"
- */
-export function initialsFor(
-  profile: Pick<ProfileRow, "full_name"> | null,
-  email: string | null,
-): string {
-  const name = profile?.full_name?.trim();
-  if (name) {
-    const parts = name.split(/\s+/).filter(Boolean);
-    if (parts.length >= 2) {
-      return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
-    }
-    if (parts.length === 1 && parts[0]!.length >= 2) {
-      return parts[0]!.slice(0, 2).toUpperCase();
-    }
-    if (parts.length === 1) {
-      return parts[0]![0]!.toUpperCase();
-    }
-  }
-  const local = email?.split("@")[0]?.trim();
-  if (local && local.length > 0) {
-    return local[0]!.toUpperCase();
-  }
-  return "?";
-}
+// `initialsFor` lives in `./initials` (client-safe) and is re-exported
+// at the top of this file.
