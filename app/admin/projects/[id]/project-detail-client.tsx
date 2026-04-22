@@ -330,7 +330,7 @@ function EditProjectCard({ detail }: { detail: AdminProjectDetail }) {
             <Input
               name="nextMilestone"
               defaultValue={detail.nextMilestone ?? ""}
-              placeholder="BCER Review"
+              placeholder="Upcoming milestone"
               disabled={isPending}
             />
           </div>

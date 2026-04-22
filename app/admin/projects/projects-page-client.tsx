@@ -419,7 +419,7 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
                 name="name"
                 value={name}
                 onChange={(e) => onNameChange(e.target.value)}
-                placeholder="Colorado State Fairgrounds — Fire Alarm"
+                placeholder="Project name"
                 autoFocus
                 required
                 disabled={isPending}
@@ -439,14 +439,14 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
                     setSlug(e.target.value.toLowerCase());
                     setSlugTouched(true);
                   }}
-                  placeholder="1646"
+                  placeholder="project-number"
                   required
                   disabled={isPending}
                   className="pl-9 font-mono text-xs"
                 />
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Used in URLs (e.g. <span className="font-mono">/projects/{slug || "1646"}</span>).
+                Used in URLs (e.g. <span className="font-mono">/projects/{slug || "project-number"}</span>).
                 Lowercase letters, numbers, dashes, underscores.
               </p>
             </div>
@@ -459,7 +459,7 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
                 <Briefcase className="pointer-events-none absolute inset-y-0 left-0 my-auto ml-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   name="customer"
-                  placeholder="CO Dept. of Agriculture"
+                  placeholder="Customer name"
                   required
                   disabled={isPending}
                   className="pl-9"
@@ -473,7 +473,7 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
               </label>
               <Input
                 name="customerRep"
-                placeholder="Nick Palaski"
+                placeholder="Primary contact"
                 disabled={isPending}
               />
             </div>
@@ -484,7 +484,7 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
               </label>
               <Input
                 name="address"
-                placeholder="1001 Beulah Ave, Pueblo CO"
+                placeholder="Street, City State"
                 disabled={isPending}
               />
             </div>
@@ -527,7 +527,7 @@ function CreateProjectPanel({ onClose }: { onClose: () => void }) {
                 </label>
                 <Input
                   name="nextMilestone"
-                  placeholder="BCER Review"
+                  placeholder="Upcoming milestone"
                   disabled={isPending}
                 />
               </div>

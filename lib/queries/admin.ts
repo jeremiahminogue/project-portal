@@ -378,17 +378,26 @@ export async function getProjectDetail(
   }
   if (!projectRow) return null;
 
-  // Now load members in parallel with the auth.users list (needed for email).
-  const [membersRes, authUsersRes] = await Promise.all([
+  // Fetch members, profiles, and auth.users in parallel, then stitch.
+  // We don't use PostgREST's nested `profiles!inner(...)` embed here because
+  // there's no direct FK between `project_members` and `profiles` — both point
+  // at `auth.users(id)`, which PostgREST can't auto-resolve into a join.
+  const [membersRes, profilesRes, authUsersRes] = await Promise.all([
     supabase
       .from("project_members")
-      .select("id, user_id, role, profiles!inner(full_name, company, title, is_superadmin)")
+      .select("id, user_id, role")
       .eq("project_id", projectId),
+    supabase
+      .from("profiles")
+      .select("id, full_name, company, title, is_superadmin"),
     supabase.auth.admin.listUsers({ page: 1, perPage: 1000 }),
   ]);
 
   if (membersRes.error) {
     throw new Error(`getProjectDetail (members): ${membersRes.error.message}`);
+  }
+  if (profilesRes.error) {
+    throw new Error(`getProjectDetail (profiles): ${profilesRes.error.message}`);
   }
   if (authUsersRes.error) {
     throw new Error(`getProjectDetail (auth): ${authUsersRes.error.message}`);
@@ -399,32 +408,27 @@ export async function getProjectDetail(
     emailById.set(u.id, u.email ?? "");
   }
 
-  // PostgREST types nested `profiles!inner` as T | T[] | null. Normalize.
-  type MemberRowRaw = {
-    id: string;
-    user_id: string;
-    role: "admin" | "member" | "guest" | "readonly";
-    profiles:
-      | {
-          full_name: string | null;
-          company: string | null;
-          title: string | null;
-          is_superadmin: boolean | null;
-        }
-      | {
-          full_name: string | null;
-          company: string | null;
-          title: string | null;
-          is_superadmin: boolean | null;
-        }[]
-      | null;
-  };
+  const profileById = new Map<
+    string,
+    {
+      full_name: string | null;
+      company: string | null;
+      title: string | null;
+      is_superadmin: boolean;
+    }
+  >();
+  for (const p of profilesRes.data ?? []) {
+    profileById.set(p.id, {
+      full_name: p.full_name ?? null,
+      company: p.company ?? null,
+      title: p.title ?? null,
+      is_superadmin: Boolean(p.is_superadmin),
+    });
+  }
 
-  const members: AdminProjectMemberRow[] = (
-    (membersRes.data ?? []) as MemberRowRaw[]
-  )
+  const members: AdminProjectMemberRow[] = (membersRes.data ?? [])
     .map((m) => {
-      const prof = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles;
+      const prof = profileById.get(m.user_id);
       return {
         membershipId: m.id,
         userId: m.user_id,
@@ -432,7 +436,7 @@ export async function getProjectDetail(
         fullName: prof?.full_name ?? null,
         company: prof?.company ?? null,
         title: prof?.title ?? null,
-        role: m.role,
+        role: m.role as "admin" | "member" | "guest" | "readonly",
         isSuperadmin: Boolean(prof?.is_superadmin),
       };
     })
