@@ -7,6 +7,8 @@ import { createMiddlewareClient } from "@/lib/supabase/middleware";
  * Protects:
  *   - /projects and /projects/**
  *   - /directory
+ *   - /admin and /admin/**  (superadmin gate is enforced by the page itself
+ *     via `requireSuperadmin()`; middleware just bounces anon traffic)
  *
  * Public:
  *   - /login
@@ -64,6 +66,7 @@ function isProtectedPath(pathname: string): boolean {
   if (pathname === "/") return true;
   if (pathname.startsWith("/projects")) return true;
   if (pathname.startsWith("/directory")) return true;
+  if (pathname.startsWith("/admin")) return true;
   return false;
 }
 

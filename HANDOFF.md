@@ -321,3 +321,59 @@ Custom domain: `portal.puebloelectrics.com` → add in Vercel, update DNS CNAME 
 3. If you're adding a page, follow the pattern: resolve project via `projects.find(p => p.id === params.slug)` + `notFound()` if missing + wrap content in `<PageShell>`. The layout handles the rest of the chrome.
 4. If you're adding a shadcn primitive, put it in `components/ui/` with the same pattern (forwardRef, displayName, `cn()`, variants via `cva`).
 5. Don't break the rule: **PE-specific things live in `components/pe/`, generic primitives live in `components/ui/`**.
+
+---
+
+## 2026-04-22 Update — Auth, Deploy, and Secret Rotation
+
+Picked up from a fresh agent session. Everything below is delta on top of the 2026-04-21 state above.
+
+### What landed today (all on `main`, pushed to origin)
+
+1. **Migrations pushed to Supabase.** Project ref `xjpkqxsgudlvfwgkxtcb`. Fixed two forward-reference bugs in `0001_init.sql` along the way:
+   - `update_updated_at_column()` moved to the top of the file so triggers can reference it.
+   - `projects` SELECT policy (which references `project_members`) moved to AFTER `project_members` is created.
+2. **Magic-link auth swapped for email+password.** See `app/login/login-form.tsx` — sign-in / sign-up pill toggle, password show/hide eye icon, 8-char min on sign-up, handles both "confirm email" ON and OFF. `login/page.tsx` subtitle updated to match. The magic-link callback route (`app/auth/callback/route.ts`) is still there as dead code; harmless but can be removed if desired.
+3. **Superadmin bootstrap for Jeremiah.** Created `auth.users` row + flipped `profiles.is_superadmin = true` via the Supabase Admin API (not `signUp`, so email confirmation is bypassed). Creds: `jeremiah@puebloelectrics.com` / `Ilovecarrie1!`. Auth UUID: `7c5b8668-b6b9-4961-975d-6f082fa5accb`. One-off scripts (`scripts/_bootstrap-superadmin.mjs` and `_verify-signin.mjs`) were deleted after use — resurrect from git history (commit `77e5236`) if another superadmin needs bootstrapping.
+4. **Migration `0003_fix_rls_recursion.sql` shipped.** The original `project_members` self-referencing policies caused Postgres `infinite recursion detected in policy for relation 'project_members'` at runtime. Fixed by wrapping membership checks in `SECURITY DEFINER` helpers `public.is_project_member(p_project_id, p_user_id)` and `public.is_project_admin(...)`. **Any future policies that check membership on `project_members` itself MUST use these helpers, not inline `exists (select 1 from project_members ...)` subqueries** — otherwise the recursion comes back.
+5. **Vercel deploy is live and working** at `https://project-portal-jade.vercel.app/`. Latest commit on prod: `06b10d6 chore: trigger redeploy to pick up env vars`.
+
+### Vercel env var gotcha (lesson learned)
+
+Setting/changing env vars in Vercel does NOT rebuild existing deployments. Env vars are injected at build time. If `/api/health` returns all `false` after adding env vars, the fix is a redeploy:
+```bash
+git commit --allow-empty -m "chore: trigger redeploy" && git push
+```
+Then wait ~60s and re-hit `/api/health` — all fields should flip to `true`.
+
+### OUTSTANDING — Secret rotation (IMPORTANT, not yet done)
+
+On 2026-04-22 I (the prior agent) made a mistake and pasted three secret values back into chat while walking Jeremiah through Vercel setup. The conversation transcript now contains them, so they need rotating before anyone else gets access to the chat log or repo. Values to rotate:
+
+1. **Supabase service role key** (`SUPABASE_SERVICE_ROLE_KEY`) — rotate at Supabase dashboard → Project Settings → API → "Generate new service_role key". Update `.env.local` and Vercel env (all 3 scopes: Production, Preview, Development), then redeploy.
+2. **Cloudflare R2 secret access key** (`R2_SECRET_ACCESS_KEY`) — rotate at Cloudflare → R2 → Manage R2 API Tokens → revoke old token, issue new "Object Read & Write" scoped to `project-portal-files`. Updates `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY`. Same .env + Vercel + redeploy dance.
+3. **Resend API key** (`RESEND_API_KEY`) — rotate at resend.com → API Keys → delete old, create new. Update .env + Vercel + redeploy.
+
+Jeremiah has acknowledged this is outstanding. Next agent should offer to pilot this if it hasn't been done yet. **Do NOT echo any of the new values back into chat** — use the Vercel Import dialog (user uploads their own .env.local) or `vercel env add NAME production < value.txt`. This rule is encoded in `feedback_secret_handling.md` memory — read it before touching env vars.
+
+### Current state of TODOs from the 2026-04-21 list
+
+- Item 15 (git repo + push to GitHub): **Done.** Repo is live, remote `origin` wired, `main` is up-to-date.
+- Item 16 (Deploy to Vercel): **Done.** Live URL responding 200 on `/login`, `/api/health` reports all env vars present.
+- Item 13 (schema adds for richer hydration): still deferred, not blocking.
+- Item 8 (admin UI for project access via `requireSuperadmin()`): still pending, good next build target.
+
+### What the next agent should verify before starting new work
+
+1. `curl https://project-portal-jade.vercel.app/api/health` — expect all `env.*` fields `true`.
+2. In a browser, sign in at `/login` with Jeremiah's creds. Should land on the dashboard without the "infinite recursion" error.
+3. `git log --oneline -5` from `C:\DEV\project-portal` — tip should be at or past `06b10d6`.
+4. Supabase dashboard → Authentication → Users — should show one confirmed user for Jeremiah at UUID `7c5b8668-...`.
+5. Check whether secret rotation has happened yet — ask Jeremiah, or compare the keys in `.env.local` against what the dashboard currently shows.
+
+### Build / deploy quick refs
+
+- Local dev: `cd C:\DEV\project-portal && npm run dev` (pinned to Next 14.2.35).
+- Force redeploy: `git commit --allow-empty -m "chore: redeploy" && git push`.
+- Supabase migrations: `npx supabase db push` from `C:\DEV\project-portal` (project linked via `supabase link --project-ref xjpkqxsgudlvfwgkxtcb`).
+- Health check: `curl https://project-portal-jade.vercel.app/api/health`.

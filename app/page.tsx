@@ -16,7 +16,11 @@ export default async function DashboardPage() {
   const userInitials = initialsFor(me.profile, me.user?.email ?? null);
   return (
     <>
-      <AppHeader userInitials={userInitials} userEmail={userEmail} />
+      <AppHeader
+        userInitials={userInitials}
+        userEmail={userEmail}
+        isSuperadmin={me.isSuperadmin}
+      />
       <PageShell>
         <div className="mb-8">
           <h1 className="text-3xl font-semibold text-pe-body">Your projects</h1>

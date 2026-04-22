@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ShieldCheck } from "lucide-react";
 import { PELogo } from "./pe-logo";
 import { UserMenu } from "./user-menu";
 
@@ -9,13 +10,19 @@ import { UserMenu } from "./user-menu";
  * `userInitials` + `userEmail` are optional so pages that don't have a
  * session (login, callback) can still render the header shell. The avatar
  * falls back to "JM" in dev.
+ *
+ * `isSuperadmin` reveals the Admin link. Defaults to false so non-admin
+ * pages (and pages that haven't been plumbed with the flag yet) don't
+ * accidentally surface it.
  */
 export function AppHeader({
   userInitials = "JM",
   userEmail,
+  isSuperadmin = false,
 }: {
   userInitials?: string;
   userEmail?: string;
+  isSuperadmin?: boolean;
 }) {
   return (
     <header className="sticky top-0 z-30">
@@ -39,6 +46,15 @@ export function AppHeader({
             >
               People
             </Link>
+            {isSuperadmin && (
+              <Link
+                href="/admin/users"
+                className="inline-flex items-center gap-1.5 rounded-full border border-pe-green/30 bg-pe-green/10 px-2.5 py-1 text-xs font-medium text-pe-green-dark transition-colors hover:bg-pe-green/15"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Admin
+              </Link>
+            )}
             <span className="text-muted-foreground/60">|</span>
             <Link
               href="/settings"

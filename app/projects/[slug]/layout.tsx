@@ -28,7 +28,11 @@ export default async function ProjectLayout({
 
   return (
     <>
-      <AppHeader userInitials={userInitials} userEmail={userEmail} />
+      <AppHeader
+        userInitials={userInitials}
+        userEmail={userEmail}
+        isSuperadmin={me.isSuperadmin}
+      />
       <ProjectHeader project={project} />
       <ProjectNav slug={slug} />
       {children}

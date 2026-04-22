@@ -19,3 +19,12 @@ export { getFiles, getFolders } from "./files";
 export { getChatSubjects } from "./chat";
 export { getUpdates } from "./updates";
 export { getDirectory } from "./directory";
+export {
+  listAllUsers,
+  listAllProjects,
+  getUserDetail,
+  type AdminUserRow,
+  type AdminProjectRow,
+  type AdminMembershipRow,
+  type AdminUserDetail,
+} from "./admin";
