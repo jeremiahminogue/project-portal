@@ -441,3 +441,50 @@ Sandbox `git status` shows ~50 files as "modified" but `git diff --ignore-all-sp
 2. **Sanity test the server actions.** Create a throwaway test user, assign them a role on one project, change the role, revoke, delete. Watch the network tab — every mutation should be a POST to the current page URL (server action boundary), not a custom endpoint.
 3. **Don't skip the secret rotation.** Item from the 2026-04-22 morning session (§ "OUTSTANDING — Secret rotation") is still pending. The admin UI works fine against the current keys, but those keys are in the chat transcript from earlier and should be rotated before new agents get scrolling access.
 4. **Good next build target:** an audit log. Every server action would insert into `admin_audit_log` (actor, target, action, before/after JSON, timestamp). Gives us a tamper-evident record of who did what, and surfaces the last 50 events on the admin dashboard landing page.
+
+---
+
+## 2026-04-22 (evening) — Admin UI for Projects (DONE)
+
+Companion surface to the users admin. Operators can now create, edit, and delete projects — and manage their members — without touching the Supabase dashboard.
+
+### Files added
+
+- `app/admin/projects/page.tsx` — server component. Fetches `listProjectsWithStats()` and hands off to the client list.
+- `app/admin/projects/projects-page-client.tsx` — searchable list with phase-filter tabs (All / Pre-Con / Design / Construction / Closed), inline "New project" slide-over, and a green empty-state card for the zero-projects case. Slug auto-suggests from the project name until the operator types into it.
+- `app/admin/projects/[id]/page.tsx` — per-project server component. `Promise.all([getProjectDetail(id), listAllProfilesLite()])` → client detail component. 404s cleanly for an unknown id.
+- `app/admin/projects/[id]/project-detail-client.tsx` — the big one. Four cards:
+  - **Identity header** — folder icon, #slug, phase badge, completion %, member count, created/updated stamps.
+  - **Details** — full edit form (name, slug, customer, customer rep, address, phase picker, %complete, next milestone, target date).
+  - **Members** — avatar list with role picker per row, search + Add button for non-members, SA badge for superadmins (who see every project anyway). Reuses `grantProjectAccessAction`/`updateMembershipRoleAction`/`revokeProjectAccessAction` from `app/admin/actions.ts` and calls `router.refresh()` after each successful mutation because those actions only revalidate the users paths, not the project paths.
+  - **Danger zone** — type-the-slug-to-confirm delete, same pattern as user delete.
+- `app/admin/projects/actions.ts` — three server actions: `createProjectAction`, `updateProjectAction`, `deleteProjectAction`. All gated with `await requireSuperadmin()`. Slug validated with `/^[a-z0-9][a-z0-9_-]*$/` (≤64 chars); DB unique constraint is the authority. Postgres 23505 → friendly duplicate-slug error. Create redirects into the detail page; delete redirects to the list.
+- `app/admin/admin-tabs.tsx` — client component holding the admin sub-nav. Uses `usePathname()` to light the active tab (Users / Projects). Layout stays a server component so the superadmin gate keeps running server-side.
+
+### Files changed
+
+- `app/admin/layout.tsx` — replaced the hardcoded single-tab with `<AdminTabs />`.
+- `app/page.tsx` — dashboard now renders an `<EmptyProjectsState>` when `projects.length === 0`. Superadmins see "Create first project" CTA → `/admin/projects`; non-admins see a friendlier "ask your PE contact" message. Also added a "New project" shortcut in the page header for superadmins when projects exist.
+- `lib/queries/admin.ts` — added `listProjectsWithStats()`, `getProjectDetail(id)`, `listAllProfilesLite()` and their types (`AdminProjectListRow`, `AdminProjectDetail`, `AdminProjectMemberRow`, `AdminProfileLite`). Richer row than the existing `AdminProjectRow` which is still used by the user-detail page; both live side-by-side.
+- `lib/queries/index.ts` — re-exports the new admin query surfaces.
+
+### Design decisions
+
+- **Extended admin queries rather than replacing `AdminProjectRow`.** The user-detail flow (adding project access to a user) only needs id/slug/name/customer. The project list view needs phase, %complete, member count, etc. Keeping both keeps each page's data contract honest.
+- **Reused the existing grant/revoke/updateRole actions.** Project members and user memberships are the same rows; inverting the UI perspective doesn't warrant a second set of server actions. Used `router.refresh()` on the detail client so stale membership lists don't linger after a mutation (since those actions only revalidate `/admin/users/*`).
+- **Slug is editable in the edit form.** Operators who mistype the project number at creation need to fix it. The caveat is shown in a `<p>` under the input. URL breakage is on the operator's head.
+- **Type-the-slug-to-delete confirmation.** Same "friction" pattern as the user delete (which requires typing the email). Reduces accidental clicks.
+- **Phase picker is a 2-col grid, not a select.** Matches the create panel, gives the operator a one-glance read of the label + hint for each phase.
+- **Client-side search + filter.** Project count will be in the tens for years — no need for server pagination.
+
+### QC gate
+
+- `tsc --noEmit` on a `/tmp/pp-tsc/` clone → **exit 0**.
+- `next build` not run this session (same sandbox EPERM issue documented in §Gotchas). Run `npm run build` in `C:\DEV\project-portal` before pushing.
+
+### Known gaps / next up
+
+1. **Audit log** — still the best next build target; now there are 11 mutating actions to log.
+2. **Public project detail page `/projects/[slug]`** — the admin side is done, but the member-facing project surface still reads mock-shaped data for some sections. Separate effort.
+3. **Schedule / submittals / RFIs / chat** hydration on the real project rows — works today via the existing live queries; no change here, just noting the work ladder.
+4. **Revalidation sharpness** — the membership actions in `app/admin/actions.ts` could optionally take a `projectId` field and revalidate `/admin/projects/${projectId}` too. We side-stepped this with `router.refresh()` on the detail client — good enough, and doesn't risk collateral damage to the user-detail flow.

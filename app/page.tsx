@@ -1,11 +1,18 @@
 import Link from "next/link";
-import { MapPin, Users, CheckSquare2, AlertCircle } from "lucide-react";
+import {
+  AlertCircle,
+  CheckSquare2,
+  FolderPlus,
+  MapPin,
+  Plus,
+  Users,
+} from "lucide-react";
 import { AppHeader } from "@/components/pe/app-header";
 import { PageShell } from "@/components/pe/page-shell";
 import { GlassCard } from "@/components/pe/glass-card";
 import { StatusChip } from "@/components/pe/status-chip";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { getProjects } from "@/lib/queries";
 import { getCurrentUser, initialsFor } from "@/lib/auth/user";
 
@@ -22,10 +29,24 @@ export default async function DashboardPage() {
         isSuperadmin={me.isSuperadmin}
       />
       <PageShell>
-        <div className="mb-8">
-          <h1 className="text-3xl font-semibold text-pe-body">Your projects</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Pueblo Electric</p>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-semibold text-pe-body">Your projects</h1>
+            <p className="mt-1 text-sm text-muted-foreground">Pueblo Electric</p>
+          </div>
+          {me.isSuperadmin && projects.length > 0 && (
+            <Button asChild variant="secondary" size="sm">
+              <Link href="/admin/projects">
+                <Plus className="h-4 w-4" />
+                New project
+              </Link>
+            </Button>
+          )}
         </div>
+
+        {projects.length === 0 && (
+          <EmptyProjectsState isSuperadmin={me.isSuperadmin} />
+        )}
 
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {projects.map((project) => (
@@ -132,5 +153,34 @@ export default async function DashboardPage() {
         </div>
       </PageShell>
     </>
+  );
+}
+
+function EmptyProjectsState({ isSuperadmin }: { isSuperadmin: boolean }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-pe-green/20 bg-gradient-to-br from-pe-green/5 via-white to-white p-12 text-center shadow-sm">
+      <div className="absolute -top-16 -right-16 h-48 w-48 rounded-full bg-pe-green/15 blur-3xl" />
+      <div className="relative">
+        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-pe-green/25 bg-white shadow-sm">
+          <FolderPlus className="h-5 w-5 text-pe-green" />
+        </div>
+        <h3 className="mt-4 text-base font-semibold text-pe-body">
+          {isSuperadmin ? "No projects yet" : "No projects to show"}
+        </h3>
+        <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
+          {isSuperadmin
+            ? "Create your first project, then grant customer teams access from the admin console."
+            : "You haven't been added to any projects yet. Ask your Pueblo Electric contact to grant access."}
+        </p>
+        {isSuperadmin && (
+          <Button asChild className="mt-4 active:scale-[0.98] transition-transform duration-75 ease-out">
+            <Link href="/admin/projects">
+              <Plus className="h-4 w-4" />
+              Create first project
+            </Link>
+          </Button>
+        )}
+      </div>
+    </div>
   );
 }

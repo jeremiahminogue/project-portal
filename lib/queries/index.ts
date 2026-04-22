@@ -22,9 +22,16 @@ export { getDirectory } from "./directory";
 export {
   listAllUsers,
   listAllProjects,
+  listProjectsWithStats,
+  listAllProfilesLite,
   getUserDetail,
+  getProjectDetail,
   type AdminUserRow,
   type AdminProjectRow,
+  type AdminProjectListRow,
+  type AdminProjectDetail,
+  type AdminProjectMemberRow,
+  type AdminProfileLite,
   type AdminMembershipRow,
   type AdminUserDetail,
 } from "./admin";

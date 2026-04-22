@@ -1,7 +1,7 @@
-import Link from "next/link";
-import { Users, Shield } from "lucide-react";
+import { Shield } from "lucide-react";
 import { AppHeader } from "@/components/pe/app-header";
 import { requireSuperadmin, initialsFor } from "@/lib/auth/user";
+import { AdminTabs } from "./admin-tabs";
 
 /**
  * Admin shell.
@@ -10,9 +10,9 @@ import { requireSuperadmin, initialsFor } from "@/lib/auth/user";
  * `requireSuperadmin()` redirects to `/` when the caller is logged in but
  * not a superadmin. Middleware bounces anonymous traffic before we get here.
  *
- * We intentionally don't show any "admin" chrome on non-admin pages — the
- * admin surface is a dedicated subtree under /admin, which keeps the
- * mental model simple.
+ * Tab rendering is delegated to `<AdminTabs />` (client component) so
+ * `usePathname` can drive the active-state styling. Keeps the layout itself
+ * a server component so the auth gate stays on the server.
  */
 export default async function AdminLayout({
   children,
@@ -31,38 +31,12 @@ export default async function AdminLayout({
       />
       <div className="border-b border-border/70 bg-white/60 backdrop-blur-sm">
         <div className="mx-auto flex max-w-7xl items-center gap-1 px-6">
-          <AdminTab href="/admin/users" label="Users" icon={Users} />
+          <AdminTabs />
           <AdminBadge />
         </div>
       </div>
       {children}
     </>
-  );
-}
-
-/**
- * Small nav tab. We rely on server-side `usePathname` alternatives later;
- * for now the admin surface only has a single top-level section ("Users"),
- * so the `active` styling is hard-coded. When we add more tabs (Projects,
- * Audit log, …) we'll move this to a client component with `usePathname`.
- */
-function AdminTab({
-  href,
-  label,
-  icon: Icon,
-}: {
-  href: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center gap-2 whitespace-nowrap border-b-2 border-pe-green px-3 py-3 text-sm font-medium text-pe-body transition-colors"
-    >
-      <Icon className="h-4 w-4" />
-      {label}
-    </Link>
   );
 }
 
