@@ -488,3 +488,11 @@ Companion surface to the users admin. Operators can now create, edit, and delete
 2. **Public project detail page `/projects/[slug]`** — the admin side is done, but the member-facing project surface still reads mock-shaped data for some sections. Separate effort.
 3. **Schedule / submittals / RFIs / chat** hydration on the real project rows — works today via the existing live queries; no change here, just noting the work ladder.
 4. **Revalidation sharpness** — the membership actions in `app/admin/actions.ts` could optionally take a `projectId` field and revalidate `/admin/projects/${projectId}` too. We side-stepped this with `router.refresh()` on the detail client — good enough, and doesn't risk collateral damage to the user-detail flow.
+
+### Post-ship fix — PostgREST cannot embed across a shared FK
+
+First deploy of the detail page threw an Application Error (digest `1864739709`) immediately after creating a project. The redirect landed on `/admin/projects/[id]`, which called `getProjectDetail()`, which used `profiles!inner(...)` nested inside a `project_members` select. PostgREST can't resolve that embed: `project_members.user_id` FKs to `auth.users(id)` and `profiles.id` FKs to `auth.users(id)`, but there's **no direct FK between project_members and profiles**. PostgREST only auto-detects direct FK relationships — the shared parent doesn't count.
+
+**Fix (shipped in `lib/queries/admin.ts`):** fetch the three sources in parallel (members, profiles, auth users) and stitch them client-side with `Map`s keyed by `user_id` / `id`. Same pattern as `listAllUsers()`. Scale is tens of users, so this is cheap.
+
+**Rule for future queries:** when you want to join a `project_members`-like row against `profiles`, don't reach for `.select("…, profiles(…)")`. Fetch both tables separately and stitch. Reserve `!inner` for selects that traverse a direct FK, e.g. `project_members.project_id → projects.id` (used in `getUserDetail`).
