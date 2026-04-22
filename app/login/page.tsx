@@ -3,7 +3,7 @@ import { LoginForm } from "./login-form";
 import { PELogo } from "@/components/pe/pe-logo";
 
 /**
- * /login — magic-link sign-in page.
+ * /login — email + password sign-in / sign-up page.
  *
  * Server wrapper: renders chrome + suspense boundary. The form is a
  * client component (needs state + the browser Supabase client).
@@ -11,8 +11,9 @@ import { PELogo } from "@/components/pe/pe-logo";
  * URL params:
  *   ?next=/projects/...   — where to redirect after successful sign-in
  *                            (preserved from middleware bounce)
- *   ?error=...            — rendered as a banner if the callback route
- *                            bounces back with a failure
+ *   ?error=...            — rendered as a banner if something bounced
+ *                            the user back with a failure (e.g. failed
+ *                            confirmation callback)
  *
  * Motion: subtle entrance on the card + logo. Uses tailwindcss-animate
  * utilities (already in the stack) — no framer-motion dependency. Timings
@@ -32,10 +33,10 @@ export default function LoginPage() {
 
           <div className="glass-strong rounded-2xl p-8 shadow-lg shadow-black/[0.03] animate-in fade-in slide-in-from-bottom-3 duration-700 ease-out">
             <h1 className="text-2xl font-semibold text-pe-charcoal tracking-tight">
-              Sign in
+              Welcome
             </h1>
             <p className="mt-2 text-sm text-pe-sub">
-              Enter your email and we&apos;ll send a secure sign-in link.
+              Sign in to your Project Portal, or create an account.
             </p>
 
             <div className="mt-6">
