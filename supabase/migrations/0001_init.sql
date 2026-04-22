@@ -8,6 +8,16 @@
 
 create extension if not exists pgcrypto;
 
+-- Updated-at trigger function (declared up front so the triggers below can
+-- reference it). Using CREATE OR REPLACE so re-runs are safe.
+create or replace function update_updated_at_column()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
 -- Enums
 create type project_phase as enum ('pre_con', 'design', 'construction', 'closeout');
 create type member_role as enum ('admin', 'member', 'guest', 'readonly');
@@ -62,13 +72,8 @@ create index projects_slug_idx on projects(slug);
 
 alter table projects enable row level security;
 
-create policy "Users can view projects they are members of"
-  on projects for select using (
-    exists (
-      select 1 from project_members
-      where project_id = projects.id and user_id = auth.uid()
-    )
-  );
+-- NOTE: the "Users can view projects they are members of" policy is defined
+-- AFTER project_members is created below, to avoid a forward-reference error.
 
 -- Project members: RLS enforcement via project_members
 create table if not exists project_members (
@@ -116,6 +121,15 @@ create policy "Project admins can update project members"
       where pm2.project_id = project_members.project_id
         and pm2.user_id = auth.uid()
         and pm2.role = 'admin'
+    )
+  );
+
+-- Projects SELECT policy (moved here so project_members exists)
+create policy "Users can view projects they are members of"
+  on projects for select using (
+    exists (
+      select 1 from project_members
+      where project_id = projects.id and user_id = auth.uid()
     )
   );
 
@@ -548,11 +562,4 @@ create policy "Project admins can create share tokens"
     end
   );
 
--- Updated at trigger function
-create or replace function update_updated_at_column()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
+-- (update_updated_at_column() is defined at the top of this file.)
