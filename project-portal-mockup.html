@@ -1,0 +1,1477 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pueblo Electric — Project Portal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          pe: {
+            green:    '#1DAF3F',
+            greenDk:  '#169234',
+            greenTn:  '#E8F7EC',
+            charcoal: '#3C3C3C',
+            gray:     '#A8A9AD',
+            black:    '#1A1A1A',
+          },
+          ink: {
+            900: '#1A1A1A',
+            700: '#2D2D2D',
+            500: '#6B6B6B',
+            300: '#999999',
+            100: '#E5E5E7',
+          },
+          canvas: '#F6F6F8',
+        },
+        fontFamily: {
+          sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'SF Pro Display', 'Segoe UI', 'Roboto', 'sans-serif'],
+        },
+        boxShadow: {
+          soft: '0 1px 2px rgba(0,0,0,0.04), 0 12px 32px -12px rgba(0,0,0,0.08)',
+          pop:  '0 1px 2px rgba(0,0,0,0.04), 0 32px 64px -24px rgba(0,0,0,0.14)',
+          rim:  'inset 0 0 0 1px rgba(255,255,255,0.7), 0 1px 2px rgba(0,0,0,0.04)',
+        },
+      }
+    }
+  }
+</script>
+<style>
+  html, body { font-family: 'Inter', system-ui, sans-serif; }
+  body {
+    color: #2D2D2D;
+    background:
+      radial-gradient(1200px 600px at 10% -10%, #E8F7EC 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 0%, #EEF2FF 0%, transparent 55%),
+      linear-gradient(180deg, #FAFAFC 0%, #F4F4F7 100%);
+    min-height: 100vh;
+    letter-spacing: -0.01em;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4 { letter-spacing: -0.02em; }
+  .glass {
+    background: rgba(255,255,255,0.72);
+    backdrop-filter: saturate(140%) blur(24px);
+    -webkit-backdrop-filter: saturate(140%) blur(24px);
+    border: 1px solid rgba(255,255,255,0.9);
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,0.6),
+      0 1px 2px rgba(0,0,0,0.04),
+      0 24px 48px -20px rgba(0,0,0,0.10);
+  }
+  .glass-soft {
+    background: rgba(255,255,255,0.55);
+    backdrop-filter: saturate(140%) blur(16px);
+    -webkit-backdrop-filter: saturate(140%) blur(16px);
+    border: 1px solid rgba(255,255,255,0.7);
+  }
+  .card {
+    background: #ffffff;
+    border: 1px solid rgba(0,0,0,0.05);
+    border-radius: 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03), 0 12px 32px -16px rgba(0,0,0,0.10);
+  }
+  .ring-focus { outline: none; box-shadow: 0 0 0 3px rgba(29,175,63,0.25); }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    font-size: 12px; font-weight: 500; line-height: 1.4;
+    border: 1px solid rgba(0,0,0,0.06);
+    background: rgba(255,255,255,0.7);
+  }
+  .chip.dot::before {
+    content: ""; width: 6px; height: 6px; border-radius: 999px; background: #A8A9AD;
+  }
+  .chip.green { background: #E8F7EC; color: #15803d; border-color: rgba(29,175,63,0.25); }
+  .chip.green.dot::before { background: #1DAF3F; }
+  .chip.amber { background: #FFF7E6; color: #9A5B00; border-color: rgba(255,174,0,0.3); }
+  .chip.amber.dot::before { background: #F59E0B; }
+  .chip.red   { background: #FEECEC; color: #9F1B1B; border-color: rgba(239,68,68,0.3); }
+  .chip.red.dot::before   { background: #EF4444; }
+  .chip.blue  { background: #EAF2FF; color: #1E40AF; border-color: rgba(59,130,246,0.3); }
+  .chip.blue.dot::before  { background: #3B82F6; }
+  .chip.gray  { background: #F2F2F4; color: #3C3C3C; }
+  .chip.gray.dot::before  { background: #6B6B6B; }
+  .chip.purple{ background: #F3EEFF; color: #5B21B6; border-color: rgba(139,92,246,0.3); }
+  .chip.purple.dot::before{ background: #8B5CF6; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 10px;
+    font-size: 14px; font-weight: 500; color: #3C3C3C;
+    transition: background .15s ease, color .15s ease;
+  }
+  .nav-item:hover { background: rgba(0,0,0,0.04); }
+  .nav-item.active { background: #ffffff; color: #1A1A1A; box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06), 0 2px 6px rgba(0,0,0,0.04); }
+  .nav-item.active .dot { background: #1DAF3F; }
+  .nav-item .dot { width: 6px; height: 6px; border-radius: 999px; background: transparent; margin-left: auto; }
+
+  /* schedule bars */
+  .sched-grid { display: grid; grid-template-columns: 180px 1fr; gap: 0; }
+  .sched-row { display: grid; grid-template-columns: 180px 1fr; align-items: center; height: 42px; }
+  .sched-row .label { padding: 0 16px; font-size: 13px; color: #3C3C3C; font-weight: 500; display:flex; align-items:center; gap:8px; }
+  .sched-canvas { position: relative; height: 100%; border-left: 1px solid rgba(0,0,0,0.06); }
+  .sched-bar {
+    position: absolute; top: 8px; height: 26px; border-radius: 8px;
+    display:flex; align-items:center; padding: 0 10px;
+    font-size: 11.5px; font-weight: 500; color: #1A1A1A;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6), 0 2px 8px -2px rgba(0,0,0,0.12);
+    backdrop-filter: blur(6px);
+  }
+  .sched-bar.design { background: linear-gradient(180deg, rgba(29,175,63,0.28), rgba(29,175,63,0.16)); color: #0E6B25; }
+  .sched-bar.bcer   { background: linear-gradient(180deg, rgba(139,92,246,0.30), rgba(139,92,246,0.18)); color: #3F1E8A; }
+  .sched-bar.ahj    { background: linear-gradient(180deg, rgba(59,130,246,0.30), rgba(59,130,246,0.18)); color: #1E3A8A; }
+  .sched-bar.field  { background: linear-gradient(180deg, rgba(245,158,11,0.35), rgba(245,158,11,0.18)); color: #7C3E00; }
+  .sched-bar.milestone { background: linear-gradient(180deg, rgba(236,72,153,0.32), rgba(236,72,153,0.18)); color: #831843; }
+  .sched-bar.internal  { background: linear-gradient(180deg, rgba(107,114,128,0.28), rgba(107,114,128,0.15)); color: #1F2937; }
+
+  .sched-blackout { position: absolute; top: 0; bottom: 0;
+    background: repeating-linear-gradient(45deg, rgba(239,68,68,0.10), rgba(239,68,68,0.10) 6px, rgba(239,68,68,0.03) 6px, rgba(239,68,68,0.03) 12px);
+    border-left: 1px dashed rgba(239,68,68,0.35); border-right: 1px dashed rgba(239,68,68,0.35);
+  }
+  .sched-today {
+    position: absolute; top: -8px; bottom: -8px;
+    width: 2px; background: #1DAF3F; opacity: 0.9;
+    box-shadow: 0 0 0 3px rgba(29,175,63,0.15);
+  }
+  .sched-lookahead {
+    position: absolute; top: 0; bottom: 0;
+    background: linear-gradient(180deg, rgba(29,175,63,0.05), rgba(29,175,63,0.02));
+    border-left: 1px solid rgba(29,175,63,0.25);
+    border-right: 1px solid rgba(29,175,63,0.25);
+    pointer-events: none;
+  }
+
+  /* month header */
+  .sched-months { display: grid; align-items: center; border-bottom: 1px solid rgba(0,0,0,0.06); height: 36px; font-size: 12px; color: #6B6B6B; font-weight: 600; }
+  .sched-months span { padding-left: 8px; border-left: 1px solid rgba(0,0,0,0.05); }
+  .sched-months span:first-child { border-left: none; }
+
+  /* file preview */
+  .paper {
+    background: white; border: 1px solid rgba(0,0,0,0.08);
+    border-radius: 10px;
+    box-shadow: 0 20px 40px -20px rgba(0,0,0,0.25), 0 2px 6px rgba(0,0,0,0.06);
+  }
+
+  /* hide screens by default; JS toggles */
+  [data-screen] { display: none; }
+  [data-screen].active { display: block; }
+
+  /* subtle animations */
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .anim { animation: fadeUp .25s ease both; }
+
+  /* scrollbar polish */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.12); border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.22); }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     TOP BAR
+============================================================ -->
+<header class="glass sticky top-0 z-40 border-b border-black/5">
+  <div class="max-w-[1600px] mx-auto px-6 h-14 flex items-center gap-4">
+    <!-- Brand -->
+    <a href="#/projects" class="flex items-center gap-2.5 shrink-0">
+      <div class="w-7 h-7 rounded-lg bg-gradient-to-br from-pe-green to-pe-greenDk grid place-items-center shadow-rim">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+      </div>
+      <div class="leading-tight">
+        <div class="text-[13px] font-semibold text-ink-900">Pueblo Electric</div>
+        <div class="text-[10.5px] font-medium text-ink-500 -mt-0.5">Project Portal</div>
+      </div>
+    </a>
+
+    <!-- Org / project switcher -->
+    <div class="hidden md:flex items-center gap-2 ml-4">
+      <span class="text-ink-300 text-sm">/</span>
+      <button class="text-sm font-medium text-ink-700 hover:text-ink-900 flex items-center gap-1.5">
+        Pueblo Electric
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <span id="project-breadcrumb" class="hidden items-center gap-2">
+        <span class="text-ink-300 text-sm">/</span>
+        <button class="text-sm font-semibold text-ink-900 flex items-center gap-1.5">
+          <span id="project-breadcrumb-name">CSF Fire Alarm #1646</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+        </button>
+      </span>
+    </div>
+
+    <div class="flex-1"></div>
+
+    <!-- Search -->
+    <div class="hidden lg:flex items-center gap-2 px-3 h-9 w-72 rounded-lg bg-white/70 border border-black/5 text-sm text-ink-500">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+      <span>Search files, submittals, people…</span>
+      <span class="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded bg-black/5 text-ink-500">⌘K</span>
+    </div>
+
+    <!-- New -->
+    <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk transition flex items-center gap-1.5 shadow-rim">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+      New
+    </button>
+
+    <!-- Avatar -->
+    <div class="flex items-center gap-2">
+      <button class="w-9 h-9 rounded-full bg-gradient-to-br from-pe-charcoal to-pe-black text-white text-xs font-semibold grid place-items-center shadow-rim">JM</button>
+    </div>
+  </div>
+</header>
+
+<!-- ============================================================
+     APP SHELL
+============================================================ -->
+<div class="max-w-[1600px] mx-auto px-6 pt-6 pb-16">
+
+<!-- ====================================================
+     SIDEBAR (shows only inside a project)
+==================================================== -->
+<div class="flex gap-6">
+
+  <aside id="sidebar" class="hidden w-[220px] shrink-0">
+    <div class="glass rounded-2xl p-3 sticky top-[76px]">
+      <div class="px-2 pt-1 pb-3">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Project</div>
+        <div class="mt-0.5 text-[15px] font-semibold text-ink-900 leading-tight">CSF Fire Alarm</div>
+        <div class="text-xs text-ink-500">#1646 · Pre-Con</div>
+      </div>
+      <nav class="flex flex-col gap-0.5">
+        <a class="nav-item" data-nav="home"       href="#/project/1646/home">      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9"/><path d="M5 10v10h14V10"/></svg> Overview <span class="dot"></span></a>
+        <a class="nav-item" data-nav="files"      href="#/project/1646/files">     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6l2 2h8v13a1 1 0 0 1-1 1H4z"/></svg> Files <span class="dot"></span></a>
+        <a class="nav-item" data-nav="schedule"   href="#/project/1646/schedule">  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg> Schedule <span class="dot"></span></a>
+        <a class="nav-item" data-nav="submittals" href="#/project/1646/submittals"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> Submittals / RFIs <span class="dot"></span></a>
+        <a class="nav-item" data-nav="chat"       href="#/project/1646/chat">      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg> Chat <span class="dot"></span></a>
+        <a class="nav-item" data-nav="updates"    href="#/project/1646/updates">   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg> Updates <span class="dot"></span></a>
+        <a class="nav-item" data-nav="directory"  href="#/project/1646/directory"> <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a7 7 0 0 1 14 0v1"/></svg> Directory <span class="dot"></span></a>
+      </nav>
+      <div class="mt-3 pt-3 border-t border-black/5 px-2">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-1.5">Next milestone</div>
+        <div class="text-[13px] font-medium text-ink-900 leading-tight">BCER Review — Events Ctr</div>
+        <div class="text-xs text-ink-500 mt-0.5">Starts 04/22 · ends 05/05</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="flex-1 min-w-0">
+
+  <!-- ====================================================
+       SCREEN: PROJECTS DASHBOARD
+  ==================================================== -->
+  <section data-screen="projects" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Pueblo Electric</div>
+        <h1 class="text-[28px] font-bold text-ink-900">Projects</h1>
+        <p class="text-sm text-ink-500 mt-1">Share files, schedules, submittals, and updates with your customers.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 glass-soft rounded-lg p-1">
+          <button class="h-8 px-3 rounded-md bg-white text-ink-900 text-[13px] font-semibold shadow-rim">Active</button>
+          <button class="h-8 px-3 rounded-md text-ink-500 text-[13px] font-medium hover:text-ink-900">Pre-Con</button>
+          <button class="h-8 px-3 rounded-md text-ink-500 text-[13px] font-medium hover:text-ink-900">Closed</button>
+        </div>
+        <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          New project
+        </button>
+      </div>
+    </div>
+
+    <!-- KPI row -->
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="card p-4">
+        <div class="text-xs text-ink-500 font-medium">Active projects</div>
+        <div class="text-2xl font-bold text-ink-900 mt-1">3</div>
+        <div class="text-xs text-ink-500 mt-1">1 in Pre-Con</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-500 font-medium">Open submittals</div>
+        <div class="text-2xl font-bold text-ink-900 mt-1">4</div>
+        <div class="text-xs text-pe-green font-medium mt-1">▲ 2 awaiting review</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-500 font-medium">Open RFIs</div>
+        <div class="text-2xl font-bold text-ink-900 mt-1">5</div>
+        <div class="text-xs text-amber-600 font-medium mt-1">2 due this week</div>
+      </div>
+      <div class="card p-4">
+        <div class="text-xs text-ink-500 font-medium">Files uploaded · 7d</div>
+        <div class="text-2xl font-bold text-ink-900 mt-1">28</div>
+        <div class="text-xs text-ink-500 mt-1">15 meeting notes · 6 submittals</div>
+      </div>
+    </div>
+
+    <!-- Project cards -->
+    <div class="grid grid-cols-2 gap-4">
+      <!-- CSF -->
+      <a href="#/project/1646/home" class="card p-5 hover:shadow-pop transition block group">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="chip green dot">Pre-Con</span>
+              <span class="text-[11.5px] text-ink-500 font-medium">#1646</span>
+            </div>
+            <h3 class="mt-2 text-[17px] font-semibold text-ink-900 leading-snug group-hover:text-pe-greenDk transition">Colorado State Fairgrounds — Fire Alarm</h3>
+            <div class="text-[13px] text-ink-500 mt-0.5">1001 Beulah Ave, Pueblo CO · CO Dept. of Agriculture</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-pe-greenTn to-white border border-pe-green/20 grid place-items-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1DAF3F" stroke-width="2"><path d="M12 2C8 6 6 9 6 13a6 6 0 0 0 12 0c0-2-1-4-2-5-1 2-2 3-4 3 1-3 0-6 0-9z"/></svg>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 pt-3 border-t border-black/5">
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Next milestone</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">BCER Review — Events Ctr</div>
+            <div class="text-[11.5px] text-ink-500">Starts 04/22</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Open items</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">4 submittals · 5 RFIs</div>
+            <div class="text-[11.5px] text-ink-500">13 action items</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Last activity</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">OAC #003 Agenda posted</div>
+            <div class="text-[11.5px] text-ink-500">2 hours ago · JM</div>
+          </div>
+        </div>
+      </a>
+
+      <!-- Mock project 2 -->
+      <a href="#" class="card p-5 hover:shadow-pop transition block group opacity-95">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="chip blue dot">Construction</span>
+              <span class="text-[11.5px] text-ink-500 font-medium">#1612</span>
+            </div>
+            <h3 class="mt-2 text-[17px] font-semibold text-ink-900 leading-snug group-hover:text-pe-greenDk transition">Parkview Medical — ICU Power Upgrade</h3>
+            <div class="text-[13px] text-ink-500 mt-0.5">400 W 16th St, Pueblo CO · Parkview Health</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-100 to-white border border-blue-300/30 grid place-items-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#1E40AF" stroke-width="2"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 pt-3 border-t border-black/5">
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Next milestone</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">Panel install · Phase 2</div>
+            <div class="text-[11.5px] text-ink-500">Starts 05/12</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Open items</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">2 submittals · 0 RFIs</div>
+            <div class="text-[11.5px] text-ink-500">5 action items</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Last activity</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">Pay App #4 uploaded</div>
+            <div class="text-[11.5px] text-ink-500">Yesterday · NE</div>
+          </div>
+        </div>
+      </a>
+
+      <!-- Mock project 3 -->
+      <a href="#" class="card p-5 hover:shadow-pop transition block group opacity-95">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="chip amber dot">Design</span>
+              <span class="text-[11.5px] text-ink-500 font-medium">#1655</span>
+            </div>
+            <h3 class="mt-2 text-[17px] font-semibold text-ink-900 leading-snug group-hover:text-pe-greenDk transition">City of Pueblo — Public Safety Annex</h3>
+            <div class="text-[13px] text-ink-500 mt-0.5">200 S Main St, Pueblo CO · City of Pueblo</div>
+          </div>
+          <div class="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-100 to-white border border-amber-300/30 grid place-items-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2"><path d="M2 20h20"/><path d="M4 20V8l8-4 8 4v12"/><path d="M9 20v-6h6v6"/></svg>
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-3 pt-3 border-t border-black/5">
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Next milestone</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">Design Development 60%</div>
+            <div class="text-[11.5px] text-ink-500">Due 05/30</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Open items</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">1 submittal · 3 RFIs</div>
+            <div class="text-[11.5px] text-ink-500">7 action items</div>
+          </div>
+          <div>
+            <div class="text-[11px] uppercase tracking-wider text-ink-500 font-semibold">Last activity</div>
+            <div class="text-[13px] font-medium text-ink-900 mt-0.5">Coord set C issued</div>
+            <div class="text-[11.5px] text-ink-500">3 days ago · MM</div>
+          </div>
+        </div>
+      </a>
+
+      <!-- New project tile -->
+      <a href="#" class="rounded-2xl border-2 border-dashed border-black/10 hover:border-pe-green/40 hover:bg-white/40 p-5 flex items-center justify-center text-ink-500 hover:text-pe-greenDk transition">
+        <div class="text-center">
+          <div class="w-10 h-10 mx-auto rounded-full bg-white/70 border border-black/5 grid place-items-center mb-2">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          </div>
+          <div class="text-[13px] font-medium">New project</div>
+          <div class="text-[11.5px]">Pick a template or start blank</div>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: PROJECT HOME (CSF #1646)
+  ==================================================== -->
+  <section data-screen="home" class="anim">
+    <!-- Hero -->
+    <div class="glass rounded-2xl p-6 mb-5 relative overflow-hidden">
+      <div class="absolute -top-16 -right-16 w-64 h-64 rounded-full bg-pe-green/15 blur-3xl"></div>
+      <div class="absolute -bottom-24 -left-24 w-72 h-72 rounded-full bg-blue-400/10 blur-3xl"></div>
+      <div class="relative flex items-start justify-between">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="chip green dot">Pre-Con</span>
+            <span class="chip gray">#1646</span>
+            <span class="chip gray">PE No. 2026-06M25</span>
+          </div>
+          <h1 class="mt-3 text-[30px] font-bold text-ink-900 leading-tight">Colorado State Fairgrounds — Fire Alarm</h1>
+          <div class="text-sm text-ink-500 mt-1">Design &amp; Install FA System · 1001 Beulah Ave, Pueblo CO</div>
+          <div class="mt-3 flex items-center gap-4 text-[13px]">
+            <div><span class="text-ink-500">Owner</span> <span class="text-ink-900 font-medium">CO Dept. of Agriculture</span></div>
+            <div class="text-ink-300">·</div>
+            <div><span class="text-ink-500">Owner's rep</span> <span class="text-ink-900 font-medium">Wember Inc.</span></div>
+            <div class="text-ink-300">·</div>
+            <div><span class="text-ink-500">Engineer</span> <span class="text-ink-900 font-medium">BCER</span></div>
+            <div class="text-ink-300">·</div>
+            <div><span class="text-ink-500">FA Mfr</span> <span class="text-ink-900 font-medium">JCI</span></div>
+          </div>
+        </div>
+        <div class="text-right">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Overall</div>
+          <div class="text-[32px] font-bold text-ink-900 leading-none">18%</div>
+          <div class="text-xs text-ink-500">Target complete 06/01/2028</div>
+        </div>
+      </div>
+
+      <div class="relative mt-5 h-1.5 bg-black/5 rounded-full overflow-hidden">
+        <div class="absolute inset-y-0 left-0 bg-gradient-to-r from-pe-green to-pe-greenDk rounded-full" style="width: 18%"></div>
+      </div>
+      <div class="relative mt-2 flex justify-between text-[11px] text-ink-500 font-medium">
+        <span>Design</span><span>Review</span><span>Procurement</span><span>Install</span><span>Close-out</span>
+      </div>
+    </div>
+
+    <!-- Row: next milestone + look-ahead -->
+    <div class="grid grid-cols-3 gap-4 mb-5">
+      <div class="card p-5 col-span-1">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Next milestone</div>
+        <div class="mt-1 text-[18px] font-semibold text-ink-900 leading-snug">BCER Review — Events Ctr</div>
+        <div class="text-sm text-ink-500 mt-1">Starts Tue, 04/22 · ends 05/05</div>
+        <div class="mt-4 flex items-center gap-2">
+          <span class="chip purple dot">BCER</span>
+          <span class="chip gray">14 days</span>
+        </div>
+      </div>
+      <div class="card p-5 col-span-2">
+        <div class="flex items-center justify-between">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">3-Week Look-Ahead</div>
+          <a href="#/project/1646/schedule" class="text-[12px] text-pe-greenDk font-semibold hover:underline">View schedule →</a>
+        </div>
+        <ul class="mt-2 divide-y divide-black/5">
+          <li class="flex items-center gap-3 py-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-pe-green"></span>
+            <span class="text-[13px] text-ink-700 flex-1">Events Ctr BCER Review begins</span>
+            <span class="text-[12px] text-ink-500">Tue 04/22</span>
+          </li>
+          <li class="flex items-center gap-3 py-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+            <span class="text-[13px] text-ink-700 flex-1">Connex delivery to Events Ctr</span>
+            <span class="text-[12px] text-ink-500">Wed 04/23 – Thu 04/24</span>
+          </li>
+          <li class="flex items-center gap-3 py-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-pe-green"></span>
+            <span class="text-[13px] text-ink-700 flex-1">Palace of Ag — Sheep &amp; Swine design kickoff</span>
+            <span class="text-[12px] text-ink-500">Tue 04/22</span>
+          </li>
+          <li class="flex items-center gap-3 py-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+            <span class="text-[13px] text-ink-700 flex-1">Events Ctr AHJ Review begins</span>
+            <span class="text-[12px] text-ink-500">Tue 05/06</span>
+          </li>
+          <li class="flex items-center gap-3 py-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-pe-green"></span>
+            <span class="text-[13px] text-ink-700 flex-1">Palace of Ag — CSU Pavilion design</span>
+            <span class="text-[12px] text-ink-500">Mon 05/12</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Tiles + activity -->
+    <div class="grid grid-cols-3 gap-4">
+      <!-- Tiles -->
+      <div class="col-span-1 grid grid-cols-2 gap-3 content-start">
+        <a href="#/project/1646/files" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-pe-greenTn grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><path d="M4 4h6l2 2h8v13a1 1 0 0 1-1 1H4z"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">Files</div>
+          <div class="text-[11.5px] text-ink-500">247 total · 28 this week</div>
+        </a>
+        <a href="#/project/1646/schedule" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-blue-50 grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1E40AF" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">Schedule</div>
+          <div class="text-[11.5px] text-ink-500">3-wk look-ahead published</div>
+        </a>
+        <a href="#/project/1646/submittals" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-purple-50 grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5B21B6" stroke-width="2"><path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">Submittals</div>
+          <div class="text-[11.5px] text-ink-500">4 open · 2 awaiting PE</div>
+        </a>
+        <a href="#/project/1646/submittals" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-amber-50 grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">RFIs</div>
+          <div class="text-[11.5px] text-ink-500">5 open · 2 due this wk</div>
+        </a>
+        <a href="#/project/1646/chat" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-pink-50 grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#831843" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">Chat</div>
+          <div class="text-[11.5px] text-ink-500">6 subjects · 4 unread</div>
+        </a>
+        <a href="#/project/1646/updates" class="card p-4 hover:shadow-pop transition">
+          <div class="w-8 h-8 rounded-lg bg-gray-100 grid place-items-center mb-2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3C3C3C" stroke-width="2"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+          </div>
+          <div class="text-[13px] font-semibold text-ink-900">Updates</div>
+          <div class="text-[11.5px] text-ink-500">OAC #003 · posted today</div>
+        </a>
+      </div>
+
+      <!-- Activity feed -->
+      <div class="col-span-2 card p-5">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[13px] font-semibold text-ink-900">Recent activity</div>
+          <span class="text-[11.5px] text-ink-500">Live</span>
+        </div>
+        <ul class="divide-y divide-black/5">
+          <li class="flex items-start gap-3 py-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-pe-charcoal to-pe-black text-white text-[11px] font-semibold grid place-items-center shrink-0">JM</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px]"><span class="font-semibold text-ink-900">Jeremiah Minogue</span> <span class="text-ink-500">posted update</span> <span class="font-medium text-ink-900">OAC #003 Agenda</span></div>
+              <div class="text-[11.5px] text-ink-500 mt-0.5">Tue · 2 hours ago · <span class="text-pe-greenDk font-medium">Updates</span></div>
+            </div>
+            <button class="text-[12px] text-pe-greenDk font-semibold hover:underline">Open</button>
+          </li>
+          <li class="flex items-start gap-3 py-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 text-white text-[11px] font-semibold grid place-items-center shrink-0">CM</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px]"><span class="font-semibold text-ink-900">Claire Mestler</span> <span class="text-ink-500">responded to</span> <span class="font-medium text-ink-900">Submittal 003 — Smoke Detectors (Photoelectric)</span></div>
+              <div class="text-[11.5px] text-ink-500 mt-0.5">Tue · 4 hours ago · <span class="chip green dot">Approved</span></div>
+            </div>
+            <button class="text-[12px] text-pe-greenDk font-semibold hover:underline">View</button>
+          </li>
+          <li class="flex items-start gap-3 py-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white text-[11px] font-semibold grid place-items-center shrink-0">TB</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px]"><span class="font-semibold text-ink-900">Taylor Boggio</span> <span class="text-ink-500">uploaded</span> <span class="font-medium text-ink-900">Events Ctr Shop Drawings (Rev A)</span> <span class="text-ink-500">to Drawings &amp; Specs</span></div>
+              <div class="text-[11.5px] text-ink-500 mt-0.5">Tue · 6 hours ago · 14 files · 38.2 MB</div>
+            </div>
+            <button class="text-[12px] text-pe-greenDk font-semibold hover:underline">Preview</button>
+          </li>
+          <li class="flex items-start gap-3 py-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 text-white text-[11px] font-semibold grid place-items-center shrink-0">PH</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px]"><span class="font-semibold text-ink-900">Paul Haley</span> <span class="text-ink-500">commented in</span> <span class="font-medium text-ink-900">#design-coordination</span></div>
+              <div class="text-[13px] text-ink-700 mt-1 italic">"Confirming ERRCS radio antenna will be required. Typically not caught in plan review — build into scope up front."</div>
+              <div class="text-[11.5px] text-ink-500 mt-0.5">Mon · yesterday</div>
+            </div>
+            <button class="text-[12px] text-pe-greenDk font-semibold hover:underline">Open chat</button>
+          </li>
+          <li class="flex items-start gap-3 py-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-pe-green to-pe-greenDk text-white text-[11px] font-semibold grid place-items-center shrink-0">MG</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13px]"><span class="font-semibold text-ink-900">Michelle Gutierrez</span> <span class="text-ink-500">acknowledged</span> <span class="font-medium text-ink-900">SOV Draft v3</span></div>
+              <div class="text-[11.5px] text-ink-500 mt-0.5">Mon · yesterday</div>
+            </div>
+            <button class="text-[12px] text-pe-greenDk font-semibold hover:underline">View file</button>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: FILES
+  ==================================================== -->
+  <section data-screen="files" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Files</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-2 glass-soft rounded-lg h-9 px-3 text-sm text-ink-500">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+          <span>Search files…</span>
+        </div>
+        <button class="h-9 px-3 rounded-lg bg-white border border-black/5 text-sm font-medium hover:bg-black/5 flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M5 10l7 7 7-7M5 21h14"/></svg>
+          Download
+        </button>
+        <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          Upload
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-4 h-[720px]">
+      <!-- Folder tree -->
+      <aside class="col-span-3 glass rounded-2xl p-3 overflow-auto">
+        <div class="px-2 pb-2 text-[11px] uppercase tracking-wider font-semibold text-ink-500">Folders</div>
+        <ul class="flex flex-col gap-0.5 text-[13px]">
+          <li class="nav-item" role="button">📁 Change Order <span class="ml-auto text-[11px] text-ink-300">3</span></li>
+          <li class="nav-item" role="button">📁 Close Out Documents <span class="ml-auto text-[11px] text-ink-300">0</span></li>
+          <li class="nav-item" role="button">📁 Contract <span class="ml-auto text-[11px] text-ink-300">8</span></li>
+          <li class="nav-item" role="button">📁 Drawings &amp; Specs <span class="ml-auto text-[11px] text-ink-300">42</span></li>
+          <li class="nav-item" role="button">📁 Estimate Info <span class="ml-auto text-[11px] text-ink-300">14</span></li>
+          <li class="nav-item active" role="button">📂 Meeting Notes <span class="ml-auto text-[11px] text-pe-greenDk font-semibold">15</span></li>
+          <li class="nav-item" role="button">📁 Notice To Proceed <span class="ml-auto text-[11px] text-ink-300">2</span></li>
+          <li class="nav-item" role="button">📁 O&amp;M's <span class="ml-auto text-[11px] text-ink-300">0</span></li>
+          <li class="nav-item" role="button">📁 Pictures <span class="ml-auto text-[11px] text-ink-300">87</span></li>
+          <li class="nav-item" role="button">📁 Purchase Orders <span class="ml-auto text-[11px] text-ink-300">5</span></li>
+          <li class="nav-item" role="button">📁 RFI <span class="ml-auto text-[11px] text-ink-300">5</span></li>
+          <li class="nav-item" role="button">📁 Safety <span class="ml-auto text-[11px] text-ink-300">6</span></li>
+          <li class="nav-item" role="button">📁 Schedules <span class="ml-auto text-[11px] text-ink-300">4</span></li>
+          <li class="nav-item" role="button">📁 Submittals <span class="ml-auto text-[11px] text-ink-300">6</span></li>
+        </ul>
+      </aside>
+
+      <!-- File list -->
+      <section class="col-span-5 card overflow-hidden flex flex-col">
+        <div class="px-5 py-3 border-b border-black/5 flex items-center justify-between">
+          <div>
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Meeting Notes</div>
+            <div class="text-[15px] font-semibold text-ink-900">15 files · 84.2 MB</div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="text-[12px] text-ink-500 hover:text-ink-900 px-2 h-7 rounded font-medium">Name</button>
+            <button class="text-[12px] text-ink-900 bg-black/5 px-2 h-7 rounded font-semibold">Date ↓</button>
+            <button class="text-[12px] text-ink-500 hover:text-ink-900 px-2 h-7 rounded font-medium">Size</button>
+          </div>
+        </div>
+        <ul class="flex-1 overflow-auto divide-y divide-black/5">
+          <li class="px-5 py-3 hover:bg-pe-greenTn/40 bg-pe-greenTn/60 cursor-pointer flex items-center gap-3 border-l-2 border-pe-green">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-red-600">PDF</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">OAC #003 Agenda_2026.04.21.pdf</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 2 hrs ago · 1.4 MB</div>
+            </div>
+            <span class="chip green dot">New</span>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">OAC #003 Agenda_2026.04.21.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 2 hrs ago · 184 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">3-Week Look-Ahead_2026.04.21.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 3 hrs ago · 112 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">State Fair Notes — Wes &amp; Matt.docx</div>
+              <div class="text-[11.5px] text-ink-500">Matt McCoy · yesterday · 92 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">OAC #002 Minutes_2026.04.07.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 04/08 · 224 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">Special Mtg — AHJ Fire Minutes_2026.04.02.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 04/02 · 140 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">OAC #001 Minutes_2026.03.24.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 03/24 · 198 KB</div>
+            </div>
+          </li>
+          <li class="px-5 py-3 hover:bg-black/5 cursor-pointer flex items-center gap-3">
+            <div class="w-9 h-11 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div class="flex-1 min-w-0">
+              <div class="text-[13.5px] font-semibold text-ink-900 truncate">State Fair Kickoff Meeting Notes 3_10_26.docx</div>
+              <div class="text-[11.5px] text-ink-500">Jeremiah Minogue · 03/10 · 232 KB</div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <!-- Preview -->
+      <aside class="col-span-4 card flex flex-col overflow-hidden">
+        <div class="px-5 py-3 border-b border-black/5 flex items-center justify-between">
+          <div class="min-w-0">
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Preview</div>
+            <div class="text-[13.5px] font-semibold text-ink-900 truncate">OAC #003 Agenda_2026.04.21.pdf</div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button title="Copy link" class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1"/></svg>
+            </button>
+            <button title="Comment" class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </button>
+            <button title="Download" class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12M5 10l7 7 7-7M5 21h14"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-auto p-4 bg-gradient-to-b from-gray-50 to-gray-100">
+          <!-- Mock rendered page -->
+          <div class="paper p-6 mx-auto max-w-[380px]">
+            <!-- Fake PE-branded header band -->
+            <div class="flex items-center justify-between pb-3 border-b-2 border-pe-green">
+              <div>
+                <div class="text-[10px] tracking-[0.2em] text-ink-500 font-semibold">PUEBLO ELECTRIC, INC.</div>
+                <div class="text-[18px] font-bold text-ink-900 leading-tight">OAC Meeting Agenda</div>
+              </div>
+              <div class="w-8 h-8 rounded-md bg-gradient-to-br from-pe-green to-pe-greenDk"></div>
+            </div>
+            <div class="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+              <div><span class="text-ink-500">Project</span><div class="font-semibold text-ink-900">CSF Fire Alarm #1646</div></div>
+              <div><span class="text-ink-500">Meeting</span><div class="font-semibold text-ink-900">OAC #003</div></div>
+              <div><span class="text-ink-500">Date</span><div class="font-semibold text-ink-900">Tue 04/21/2026</div></div>
+              <div><span class="text-ink-500">Location</span><div class="font-semibold text-ink-900">Teams / CSF Hybrid</div></div>
+            </div>
+            <div class="mt-4 space-y-2 text-[10px] leading-relaxed text-ink-700">
+              <div class="font-semibold text-ink-900 text-[11px] mt-3">1. Project Status</div>
+              <div>1.1 Contract status — NTP issued, SOV v3 submitted 04/16.</div>
+              <div>1.2 Survey Work — complete 04/21 (10-day run).</div>
+              <div>1.3 Design Progress — Events Ctr design complete 04/21; Palace of Ag kickoff 04/22 (Sheep &amp; Swine first).</div>
+              <div>1.4 Current Milestone — BCER Review begins 04/22 (Events Ctr).</div>
+              <div class="font-semibold text-ink-900 text-[11px] mt-3">2. Open Items</div>
+              <div>2.1 Building keys &amp; gate access — owed from K. Roberts before 04/23 connex.</div>
+              <div>2.2 SharePoint rollout — PE migration pending.</div>
+              <div>2.3 ERRCS — antenna req'd per P. Haley; build into scope up front.</div>
+              <div class="font-semibold text-ink-900 text-[11px] mt-3">3. Design — Packages in Flight</div>
+              <div>3.1 Events Ctr — to BCER 04/22.</div>
+              <div>3.2 Palace of Ag — 5 sub-packages (sequential).</div>
+            </div>
+            <div class="mt-5 pt-3 border-t border-ink-100 flex items-center justify-between text-[9px] text-ink-500">
+              <span>Pueblo Electric · Confidential</span>
+              <span>Page 1 of 4</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-5 py-3 border-t border-black/5 bg-white/70">
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">Comments · 3</div>
+            <button class="text-[11.5px] text-pe-greenDk font-semibold hover:underline">Add</button>
+          </div>
+          <div class="space-y-2">
+            <div class="text-[12px]"><span class="font-semibold text-ink-900">Michelle G.</span> <span class="text-ink-500">· 1h</span><div class="text-ink-700">Looks good — will distribute at 11am.</div></div>
+            <div class="text-[12px]"><span class="font-semibold text-ink-900">Todd Brand</span> <span class="text-ink-500">· 32m</span><div class="text-ink-700">Noted §3.2 sequence — will flag in review.</div></div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: SCHEDULE
+  ==================================================== -->
+  <section data-screen="schedule" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Schedule</h1>
+        <p class="text-[13px] text-ink-500 mt-1">Paste from MS Project to publish a glassy timeline your customer can actually read.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 glass-soft rounded-lg p-1">
+          <button class="h-8 px-3 rounded-md bg-white text-ink-900 text-[13px] font-semibold shadow-rim">Master</button>
+          <button class="h-8 px-3 rounded-md text-ink-500 text-[13px] font-medium hover:text-ink-900">3-Week Look-Ahead</button>
+          <button class="h-8 px-3 rounded-md text-ink-500 text-[13px] font-medium hover:text-ink-900">Milestones only</button>
+        </div>
+        <button class="h-9 px-3 rounded-lg bg-white border border-black/5 text-sm font-medium hover:bg-black/5 flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+          Paste from MSP
+        </button>
+        <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim flex items-center gap-1.5">Publish</button>
+      </div>
+    </div>
+
+    <!-- Legend -->
+    <div class="flex items-center gap-3 mb-3 flex-wrap">
+      <span class="chip green dot">Design</span>
+      <span class="chip purple dot">BCER Review</span>
+      <span class="chip blue dot">AHJ Review</span>
+      <span class="chip amber dot">Field</span>
+      <span class="chip red dot">Milestone</span>
+      <span class="chip gray dot">Internal</span>
+      <div class="ml-2 flex items-center gap-1.5 text-[11.5px] text-ink-500">
+        <span class="w-4 h-2 rounded-sm" style="background: repeating-linear-gradient(45deg, rgba(239,68,68,0.2), rgba(239,68,68,0.2) 3px, transparent 3px, transparent 6px);"></span>
+        Blackout
+      </div>
+      <div class="flex items-center gap-1.5 text-[11.5px] text-ink-500">
+        <span class="w-0.5 h-3 bg-pe-green"></span> Today
+      </div>
+      <div class="flex items-center gap-1.5 text-[11.5px] text-ink-500">
+        <span class="w-4 h-3 bg-pe-green/10 border-x border-pe-green/30"></span> 3-wk look-ahead
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="card p-0 overflow-hidden">
+      <!-- Month header -->
+      <div class="sched-grid border-b border-black/5">
+        <div></div>
+        <div class="sched-months" style="grid-template-columns: repeat(6, 1fr);">
+          <span>April</span><span>May</span><span>June</span><span>July</span><span>August</span><span>September</span>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="relative">
+        <!-- Today + look-ahead overlays, positioned over the whole chart area -->
+        <!-- window: 04/01 → 09/30  (183 days).  Today 04/21 = (21-1)/183 -->
+        <div class="absolute" style="left: 180px; right: 0; top: 0; bottom: 0;">
+          <div class="sched-lookahead" style="left: 10.93%; width: 11.47%;"></div>
+          <div class="sched-blackout"  style="left: 42.62%; width: 6.01%;"   title="Fair prep 06/18–06/28"></div>
+          <div class="sched-blackout"  style="left: 77.60%; width: 10.93%;"  title="State Fair 08/20–09/08"></div>
+          <div class="sched-today"     style="left: 10.93%;"></div>
+        </div>
+
+        <!-- Rows -->
+        <div class="sched-row"><div class="label"><span class="chip gray dot">INT</span> Survey Work</div><div class="sched-canvas"><div class="sched-bar internal" style="left: 3.83%; width: 7.10%;">04/08 – 04/21</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip green dot">DES</span> Events Ctr Design</div><div class="sched-canvas"><div class="sched-bar design"  style="left: 0%; width: 10.93%;">Events Ctr · complete 04/21</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip green dot">DES</span> Palace of Ag Design</div><div class="sched-canvas"><div class="sched-bar design"  style="left: 11.48%; width: 19.13%;">Sheep &amp; Swine → Ag Palace Bldg · 04/22 – 05/27</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip green dot">DES</span> Maintenance Design</div><div class="sched-canvas"><div class="sched-bar design"  style="left: 31.69%; width: 19.67%;">Maintenance · 05/28 – 07/02</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip green dot">DES</span> Creative Arts Design</div><div class="sched-canvas"><div class="sched-bar design"  style="left: 31.69%; width: 31.69%;">Creative Arts · 05/28 – 07/24</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip green dot">DES</span> Coors Pavilion Design</div><div class="sched-canvas"><div class="sched-bar design"  style="left: 48.63%; width: 19.67%;">Coors Pavilion · 07/14 – 08/18</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip purple dot">BCER</span> Events Ctr BCER</div><div class="sched-canvas"><div class="sched-bar bcer"  style="left: 11.48%; width: 7.65%;">BCER · 04/22 – 05/05</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip purple dot">BCER</span> Palace of Ag BCER</div><div class="sched-canvas"><div class="sched-bar bcer"  style="left: 31.69%; width: 7.65%;">BCER · 05/28 – 06/10</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip purple dot">BCER</span> Maintenance BCER</div><div class="sched-canvas"><div class="sched-bar bcer"  style="left: 51.91%; width: 7.65%;">BCER · 07/03 – 07/16</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip purple dot">BCER</span> Creative Arts BCER</div><div class="sched-canvas"><div class="sched-bar bcer"  style="left: 64.48%; width: 7.10%;">BCER · 07/27 – 08/07</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip blue dot">AHJ</span> Events Ctr AHJ</div><div class="sched-canvas"><div class="sched-bar ahj"   style="left: 19.67%; width: 11.48%;">AHJ · 05/06 – 05/27</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip blue dot">AHJ</span> Palace of Ag AHJ</div><div class="sched-canvas"><div class="sched-bar ahj"   style="left: 39.34%; width: 11.48%;">AHJ · 06/11 – 07/01</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip blue dot">AHJ</span> Maintenance AHJ</div><div class="sched-canvas"><div class="sched-bar ahj"   style="left: 59.56%; width: 7.10%;">AHJ · 07/17 – 07/30</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip blue dot">AHJ</span> Creative Arts AHJ</div><div class="sched-canvas"><div class="sched-bar ahj"   style="left: 71.58%; width: 10.38%;">AHJ · 08/10 – 08/28</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip amber dot">FLD</span> Connex Delivery</div><div class="sched-canvas"><div class="sched-bar field" style="left: 12.02%; width: 1.09%;">04/23 – 04/24</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip red dot">KEY</span> Fair Prep Blackout</div><div class="sched-canvas"><div class="sched-bar milestone" style="left: 42.62%; width: 6.01%;">NO WORK · 06/18 – 06/28</div></div></div>
+        <div class="sched-row"><div class="label"><span class="chip red dot">KEY</span> State Fair Blackout</div><div class="sched-canvas"><div class="sched-bar milestone" style="left: 77.60%; width: 10.93%;">NO WORK · 08/20 – 09/08</div></div></div>
+      </div>
+
+      <!-- Footer legend -->
+      <div class="px-5 py-3 border-t border-black/5 flex items-center justify-between text-[12px] text-ink-500">
+        <div>Window: 04/01/2026 → 09/30/2026 · Source: <span class="text-ink-700 font-medium">Master Schedule 4-21-26.mpp</span></div>
+        <div>Updated by Jeremiah Minogue · 2 hrs ago</div>
+      </div>
+    </div>
+
+    <!-- Paste zone (mock) -->
+    <div class="mt-5 card p-5 border-dashed border-2 border-black/10">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-pe-greenTn grid place-items-center">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#15803d" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>
+        </div>
+        <div class="flex-1">
+          <div class="text-[14px] font-semibold text-ink-900">Paste schedule from MS Project</div>
+          <div class="text-[12.5px] text-ink-500">Select tasks in MSP → Copy → paste here. Portal parses Task · Start · Finish · Predecessor automatically and regenerates the timeline.</div>
+        </div>
+        <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk">Open paste box</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: SUBMITTALS + RFIs
+  ==================================================== -->
+  <section data-screen="submittals" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Submittals &amp; RFIs</h1>
+        <p class="text-[13px] text-ink-500 mt-1">Classic routing — submitted → in review → approved / revise &amp; resubmit / rejected.</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <div class="flex items-center gap-1 glass-soft rounded-lg p-1" id="sr-tabs">
+          <button data-tab="sub" class="h-8 px-3 rounded-md bg-white text-ink-900 text-[13px] font-semibold shadow-rim">Submittals <span class="ml-1 text-ink-500 font-medium">6</span></button>
+          <button data-tab="rfi" class="h-8 px-3 rounded-md text-ink-500 text-[13px] font-medium hover:text-ink-900">RFIs <span class="ml-1 font-medium">5</span></button>
+        </div>
+        <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim flex items-center gap-1.5">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          New submittal
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-12 gap-4">
+      <!-- Table -->
+      <div class="col-span-8 card overflow-hidden" id="sr-table-wrap">
+        <!-- Submittals table -->
+        <table class="w-full text-[13px]" data-tab-pane="sub">
+          <thead class="bg-black/[0.025] text-ink-500 text-[11.5px] uppercase tracking-wider font-semibold">
+            <tr>
+              <th class="text-left px-5 py-2.5 w-20">#</th>
+              <th class="text-left px-2 py-2.5">Title</th>
+              <th class="text-left px-2 py-2.5 w-28">Spec</th>
+              <th class="text-left px-2 py-2.5 w-28">Submitted</th>
+              <th class="text-left px-2 py-2.5 w-28">Due</th>
+              <th class="text-left px-2 py-2.5 w-40">Reviewer</th>
+              <th class="text-left px-5 py-2.5 w-36">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-black/5">
+            <tr class="hover:bg-black/[0.025] cursor-pointer" data-row="S-001">
+              <td class="px-5 py-3 font-mono text-ink-500">S-001</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Fire Alarm Control Panel — Simplex 4100ES</td>
+              <td class="px-2 py-3 text-ink-500">28 31 11</td>
+              <td class="px-2 py-3 text-ink-500">04/09</td>
+              <td class="px-2 py-3 text-ink-500">04/23</td>
+              <td class="px-2 py-3 text-ink-700">Claire Mestler · BCER</td>
+              <td class="px-5 py-3"><span class="chip green dot">Approved</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer bg-pe-greenTn/40" data-row="S-002">
+              <td class="px-5 py-3 font-mono text-ink-500">S-002</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Notification Appliances — Horn/Strobes, Speakers</td>
+              <td class="px-2 py-3 text-ink-500">28 31 13</td>
+              <td class="px-2 py-3 text-ink-500">04/14</td>
+              <td class="px-2 py-3 text-ink-500">04/28</td>
+              <td class="px-2 py-3 text-ink-700">Claire Mestler · BCER</td>
+              <td class="px-5 py-3"><span class="chip amber dot">In Review</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer" data-row="S-003">
+              <td class="px-5 py-3 font-mono text-ink-500">S-003</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Smoke Detectors — Photoelectric (TrueAlarm)</td>
+              <td class="px-2 py-3 text-ink-500">28 31 23</td>
+              <td class="px-2 py-3 text-ink-500">04/14</td>
+              <td class="px-2 py-3 text-ink-500">04/28</td>
+              <td class="px-2 py-3 text-ink-700">Claire Mestler · BCER</td>
+              <td class="px-5 py-3"><span class="chip green dot">Approved</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer" data-row="S-004">
+              <td class="px-5 py-3 font-mono text-ink-500">S-004</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Duct Smoke Detectors w/ Relay Accessories</td>
+              <td class="px-2 py-3 text-ink-500">28 31 23</td>
+              <td class="px-2 py-3 text-ink-500">04/16</td>
+              <td class="px-2 py-3 text-ink-500">04/30</td>
+              <td class="px-2 py-3 text-ink-700">Todd Brand · BCER</td>
+              <td class="px-5 py-3"><span class="chip red dot">Revise &amp; Resubmit</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer" data-row="S-005">
+              <td class="px-5 py-3 font-mono text-ink-500">S-005</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Power Supplies &amp; Battery Calcs</td>
+              <td class="px-2 py-3 text-ink-500">28 31 11</td>
+              <td class="px-2 py-3 text-ink-500">04/18</td>
+              <td class="px-2 py-3 text-ink-500">05/02</td>
+              <td class="px-2 py-3 text-ink-700">Claire Mestler · BCER</td>
+              <td class="px-5 py-3"><span class="chip amber dot">In Review</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer" data-row="S-006">
+              <td class="px-5 py-3 font-mono text-ink-500">S-006</td>
+              <td class="px-2 py-3 font-medium text-ink-900">ERRCS Antenna &amp; BDA Specs</td>
+              <td class="px-2 py-3 text-ink-500">28 31 63</td>
+              <td class="px-2 py-3 text-ink-500">—</td>
+              <td class="px-2 py-3 text-ink-500">05/08</td>
+              <td class="px-2 py-3 text-ink-700">Awaiting JCI scope</td>
+              <td class="px-5 py-3"><span class="chip gray dot">Draft</span></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- RFIs table -->
+        <table class="w-full text-[13px] hidden" data-tab-pane="rfi">
+          <thead class="bg-black/[0.025] text-ink-500 text-[11.5px] uppercase tracking-wider font-semibold">
+            <tr>
+              <th class="text-left px-5 py-2.5 w-24">#</th>
+              <th class="text-left px-2 py-2.5">Question</th>
+              <th class="text-left px-2 py-2.5 w-28">Opened</th>
+              <th class="text-left px-2 py-2.5 w-28">Due</th>
+              <th class="text-left px-2 py-2.5 w-40">Assigned</th>
+              <th class="text-left px-5 py-2.5 w-32">Status</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-black/5">
+            <tr class="hover:bg-black/[0.025] cursor-pointer">
+              <td class="px-5 py-3 font-mono text-ink-500">RFI-001</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Confirm existing conduit pathways at Events Ctr — reusable?</td>
+              <td class="px-2 py-3 text-ink-500">04/10</td>
+              <td class="px-2 py-3 text-ink-500">04/24</td>
+              <td class="px-2 py-3 text-ink-700">Todd Brand · BCER</td>
+              <td class="px-5 py-3"><span class="chip amber dot">Open</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer">
+              <td class="px-5 py-3 font-mono text-ink-500">RFI-002</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Palace of Ag — dropped ceiling vs exposed structure scope?</td>
+              <td class="px-2 py-3 text-ink-500">04/11</td>
+              <td class="px-2 py-3 text-ink-500">04/25</td>
+              <td class="px-2 py-3 text-ink-700">Madison Hoxsie · BCER</td>
+              <td class="px-5 py-3"><span class="chip amber dot">Open</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer">
+              <td class="px-5 py-3 font-mono text-ink-500">RFI-003</td>
+              <td class="px-2 py-3 font-medium text-ink-900">ERRCS coverage requirements — buildings scope boundary?</td>
+              <td class="px-2 py-3 text-ink-500">04/17</td>
+              <td class="px-2 py-3 text-ink-500">05/01</td>
+              <td class="px-2 py-3 text-ink-700">Paul Haley · Pueblo FD</td>
+              <td class="px-5 py-3"><span class="chip green dot">Answered</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer">
+              <td class="px-5 py-3 font-mono text-ink-500">RFI-004</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Yellow card sign-off responsibility &amp; scheduling</td>
+              <td class="px-2 py-3 text-ink-500">04/18</td>
+              <td class="px-2 py-3 text-ink-500">04/25</td>
+              <td class="px-2 py-3 text-ink-700">Nick Palaski · Wember</td>
+              <td class="px-5 py-3"><span class="chip amber dot">Open</span></td>
+            </tr>
+            <tr class="hover:bg-black/[0.025] cursor-pointer">
+              <td class="px-5 py-3 font-mono text-ink-500">RFI-005</td>
+              <td class="px-2 py-3 font-medium text-ink-900">Sprinkler scope interface — who handles tie-in?</td>
+              <td class="px-2 py-3 text-ink-500">04/20</td>
+              <td class="px-2 py-3 text-ink-500">05/04</td>
+              <td class="px-2 py-3 text-ink-700">Taylor Boggio · JCI</td>
+              <td class="px-5 py-3"><span class="chip amber dot">Open</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Detail panel -->
+      <aside class="col-span-4 card overflow-hidden flex flex-col">
+        <div class="px-5 py-4 border-b border-black/5 bg-gradient-to-b from-pe-greenTn/30 to-transparent">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="font-mono text-[12px] text-ink-500">S-002</span>
+            <span class="chip amber dot">In Review</span>
+          </div>
+          <div class="text-[16px] font-semibold text-ink-900 leading-snug">Notification Appliances — Horn/Strobes, Speakers</div>
+          <div class="text-[12px] text-ink-500 mt-1">Spec 28 31 13 · Submitted 04/14 · Due 04/28</div>
+        </div>
+
+        <div class="px-5 py-4 border-b border-black/5">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-2">Routing</div>
+          <div class="space-y-2">
+            <div class="flex items-center gap-3 text-[13px]">
+              <div class="w-6 h-6 rounded-full bg-pe-green text-white text-[10px] font-semibold grid place-items-center">1</div>
+              <div class="flex-1"><span class="font-semibold text-ink-900">Pueblo Electric</span> <span class="text-ink-500">submitted package</span></div>
+              <div class="text-[11.5px] text-ink-500">04/14</div>
+            </div>
+            <div class="ml-3 border-l-2 border-dashed border-black/10 pl-4 py-0.5 text-[11.5px] text-ink-500">Waiting 7 days…</div>
+            <div class="flex items-center gap-3 text-[13px]">
+              <div class="w-6 h-6 rounded-full bg-amber-500 text-white text-[10px] font-semibold grid place-items-center">2</div>
+              <div class="flex-1"><span class="font-semibold text-ink-900">BCER (Claire M.)</span> <span class="text-ink-500">reviewing</span></div>
+              <div class="text-[11.5px] text-ink-500">Now</div>
+            </div>
+            <div class="ml-3 border-l-2 border-dashed border-black/10 pl-4 py-0.5 text-[11.5px] text-ink-400">Next:</div>
+            <div class="flex items-center gap-3 text-[13px] opacity-50">
+              <div class="w-6 h-6 rounded-full bg-black/10 text-ink-500 text-[10px] font-semibold grid place-items-center">3</div>
+              <div class="flex-1"><span class="font-semibold text-ink-900">Wember (Nick P.)</span> <span class="text-ink-500">countersign</span></div>
+              <div class="text-[11.5px] text-ink-500">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-5 py-4 border-b border-black/5">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-2">Package</div>
+          <ul class="space-y-1.5">
+            <li class="flex items-center gap-2 text-[12.5px]">
+              <div class="w-6 h-7 rounded paper grid place-items-center text-[8px] font-bold text-red-600">PDF</div>
+              <span class="text-ink-900 font-medium truncate">Transmittal_S-002_Simplex-Notif.pdf</span>
+              <span class="ml-auto text-ink-500">1.1 MB</span>
+            </li>
+            <li class="flex items-center gap-2 text-[12.5px]">
+              <div class="w-6 h-7 rounded paper grid place-items-center text-[8px] font-bold text-red-600">PDF</div>
+              <span class="text-ink-900 font-medium truncate">Simplex_TrueAlert_HornStrobe_DS.pdf</span>
+              <span class="ml-auto text-ink-500">3.4 MB</span>
+            </li>
+            <li class="flex items-center gap-2 text-[12.5px]">
+              <div class="w-6 h-7 rounded paper grid place-items-center text-[8px] font-bold text-red-600">PDF</div>
+              <span class="text-ink-900 font-medium truncate">Simplex_Speaker_Lineup_DS.pdf</span>
+              <span class="ml-auto text-ink-500">2.8 MB</span>
+            </li>
+            <li class="flex items-center gap-2 text-[12.5px]">
+              <div class="w-6 h-7 rounded paper grid place-items-center text-[8px] font-bold text-blue-700">XLSX</div>
+              <span class="text-ink-900 font-medium truncate">Device_Count_&_Candela_Calc.xlsx</span>
+              <span class="ml-auto text-ink-500">96 KB</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="px-5 py-4 flex-1 overflow-auto">
+          <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-2">Discussion · 2</div>
+          <div class="space-y-3">
+            <div>
+              <div class="text-[12px]"><span class="font-semibold text-ink-900">Taylor Boggio · JCI</span> <span class="text-ink-500">· 6d</span></div>
+              <div class="text-[13px] text-ink-700 mt-0.5">Package submitted. Candela schedule matches BCER device counts in draft Div 28 spec.</div>
+            </div>
+            <div>
+              <div class="text-[12px]"><span class="font-semibold text-ink-900">Claire Mestler · BCER</span> <span class="text-ink-500">· 1d</span></div>
+              <div class="text-[13px] text-ink-700 mt-0.5">Reviewing. Will confirm speaker tap selections by 04/25.</div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="glass-soft rounded-lg px-3 py-2 text-[13px] text-ink-500">Add comment…</div>
+          </div>
+        </div>
+
+        <div class="border-t border-black/5 p-3 bg-white/70 grid grid-cols-3 gap-2">
+          <button class="h-9 rounded-lg bg-pe-green text-white text-[13px] font-semibold hover:bg-pe-greenDk">Approve</button>
+          <button class="h-9 rounded-lg bg-amber-500 text-white text-[13px] font-semibold hover:bg-amber-600">R &amp; R</button>
+          <button class="h-9 rounded-lg bg-white border border-black/10 text-[13px] font-semibold hover:bg-black/5">Reject</button>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: CHAT
+  ==================================================== -->
+  <section data-screen="chat" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Chat</h1>
+        <p class="text-[13px] text-ink-500 mt-1">Project chat room by subject. Clean, simple, searchable.</p>
+      </div>
+      <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim flex items-center gap-1.5">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+        New subject
+      </button>
+    </div>
+
+    <div class="grid grid-cols-12 gap-4 h-[720px]">
+      <!-- Subjects list -->
+      <aside class="col-span-3 glass rounded-2xl p-3 flex flex-col">
+        <div class="px-2 pt-1 pb-2 text-[11px] uppercase tracking-wider font-semibold text-ink-500">Subjects</div>
+        <ul class="flex flex-col gap-0.5 text-[13px]">
+          <li class="nav-item"><span># general</span><span class="ml-auto text-[11px] text-ink-300">12</span></li>
+          <li class="nav-item active"><span># design-coordination</span><span class="ml-auto text-[11px] text-pe-greenDk font-semibold">4 new</span></li>
+          <li class="nav-item"><span># submittals</span><span class="ml-auto text-[11px] text-ink-300">—</span></li>
+          <li class="nav-item"><span># schedule-phasing</span><span class="ml-auto text-[11px] text-ink-300">2</span></li>
+          <li class="nav-item"><span># field-site</span><span class="ml-auto text-[11px] text-ink-300">—</span></li>
+          <li class="nav-item"><span># ahj-coordination</span><span class="ml-auto text-[11px] text-ink-300">1</span></li>
+        </ul>
+        <div class="mt-auto pt-3 border-t border-black/5 text-[11.5px] text-ink-500 px-2">
+          <div class="font-semibold text-ink-700 mb-1">In this room</div>
+          <div class="flex -space-x-1.5 mb-1">
+            <div class="w-6 h-6 rounded-full bg-pe-charcoal text-white text-[9px] font-semibold grid place-items-center border-2 border-white">JM</div>
+            <div class="w-6 h-6 rounded-full bg-blue-600 text-white text-[9px] font-semibold grid place-items-center border-2 border-white">TB</div>
+            <div class="w-6 h-6 rounded-full bg-purple-600 text-white text-[9px] font-semibold grid place-items-center border-2 border-white">CM</div>
+            <div class="w-6 h-6 rounded-full bg-pe-green text-white text-[9px] font-semibold grid place-items-center border-2 border-white">MG</div>
+            <div class="w-6 h-6 rounded-full bg-amber-500 text-white text-[9px] font-semibold grid place-items-center border-2 border-white">PH</div>
+            <div class="w-6 h-6 rounded-full bg-ink-500 text-white text-[9px] font-semibold grid place-items-center border-2 border-white">+5</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Thread -->
+      <section class="col-span-9 card flex flex-col overflow-hidden">
+        <div class="px-5 py-3 border-b border-black/5 flex items-center justify-between">
+          <div>
+            <div class="text-[15px] font-semibold text-ink-900"># design-coordination</div>
+            <div class="text-[12px] text-ink-500">BCER · JCI · PE · Wember — design-level coordination</div>
+          </div>
+          <div class="flex items-center gap-1">
+            <button class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center" title="Search"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg></button>
+            <button class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center" title="Pin"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l4 6h6l-5 4 2 8-7-5-7 5 2-8-5-4h6z"/></svg></button>
+            <button class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center" title="More"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="19" cy="12" r="1.5"/></svg></button>
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-auto px-5 py-4 space-y-4">
+          <div class="text-center text-[11.5px] text-ink-500"><span class="px-2 py-1 bg-black/5 rounded-full">Monday · April 20</span></div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-pe-charcoal to-pe-black text-white text-[11px] font-semibold grid place-items-center shrink-0">JM</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Jeremiah Minogue</span><span class="text-[11.5px] text-ink-500">PE · 8:42 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">Team — Wes and Matt walked Events Ctr this morning. Couple of duration revisions in the packet; I'll drop the notes in Meeting Notes.</div>
+              <div class="mt-2 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-black/5 max-w-sm">
+                <div class="w-8 h-10 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+                <div class="min-w-0"><div class="text-[12.5px] font-medium text-ink-900 truncate">State Fair Notes — Wes &amp; Matt.docx</div><div class="text-[11px] text-ink-500">92 KB</div></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 text-white text-[11px] font-semibold grid place-items-center shrink-0">PH</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Paul Haley</span><span class="text-[11.5px] text-ink-500">Pueblo FD · 11:05 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">Confirming ERRCS radio antenna <strong>will be required</strong> in buildings. Plan review typically does <em>not</em> catch this — PE/JCI/BCER should build it into scope and design up front.</div>
+              <div class="mt-1.5 flex items-center gap-1 text-[11.5px]">
+                <span class="px-1.5 py-0.5 rounded bg-pe-greenTn text-pe-greenDk font-medium">👍 4</span>
+                <span class="px-1.5 py-0.5 rounded bg-black/5 text-ink-500 font-medium">📌 Pinned</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="text-center text-[11.5px] text-ink-500"><span class="px-2 py-1 bg-black/5 rounded-full">Today · April 21</span></div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white text-[11px] font-semibold grid place-items-center shrink-0">TB</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Taylor Boggio</span><span class="text-[11.5px] text-ink-500">JCI · 7:18 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">Events Ctr shop drawings issued — package is in Drawings &amp; Specs. Candela schedule aligned to BCER draft spec.</div>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 text-white text-[11px] font-semibold grid place-items-center shrink-0">CM</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Claire Mestler</span><span class="text-[11.5px] text-ink-500">BCER · 7:41 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">Received. BCER review starts 04/22 — we'll target completion by 05/05 per master schedule.</div>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-pe-charcoal to-pe-black text-white text-[11px] font-semibold grid place-items-center shrink-0">JM</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Jeremiah Minogue</span><span class="text-[11.5px] text-ink-500">PE · 8:02 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">@Michelle — connex delivery is tracking Wed/Thu. Still waiting on building keys and gate access from Ken before 04/23.</div>
+            </div>
+          </div>
+
+          <div class="flex gap-3">
+            <div class="w-8 h-8 rounded-full bg-gradient-to-br from-pe-green to-pe-greenDk text-white text-[11px] font-semibold grid place-items-center shrink-0">MG</div>
+            <div class="flex-1">
+              <div class="flex items-baseline gap-2"><span class="text-[13px] font-semibold text-ink-900">Michelle Gutierrez</span><span class="text-[11.5px] text-ink-500">Wember · 8:14 AM</span></div>
+              <div class="text-[13.5px] text-ink-700 mt-0.5 leading-relaxed">Pulling it now — will confirm by end of day.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Composer -->
+        <div class="border-t border-black/5 p-3 bg-white/70">
+          <div class="glass-soft rounded-xl p-3 flex items-end gap-2">
+            <div class="flex-1 text-[13.5px] text-ink-500 min-h-[28px]">Message #design-coordination…</div>
+            <button class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg></button>
+            <button class="w-8 h-8 rounded-md hover:bg-black/5 grid place-items-center">😀</button>
+            <button class="h-8 px-3 rounded-md bg-pe-green text-white text-[12.5px] font-semibold hover:bg-pe-greenDk">Send</button>
+          </div>
+        </div>
+      </section>
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: UPDATES
+  ==================================================== -->
+  <section data-screen="updates" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Updates</h1>
+        <p class="text-[13px] text-ink-500 mt-1">PM-authored posts — recaps, weekly updates, phase kickoffs.</p>
+      </div>
+      <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim">New update</button>
+    </div>
+
+    <div class="max-w-3xl space-y-4">
+
+      <article class="card p-6">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="chip green dot">OAC Recap</span>
+          <span class="text-[11.5px] text-ink-500">posted 2 hours ago · Jeremiah Minogue</span>
+        </div>
+        <h2 class="text-[20px] font-semibold text-ink-900 leading-snug">OAC #003 — Agenda &amp; Meeting Prep</h2>
+        <p class="text-[13.5px] text-ink-700 mt-2 leading-relaxed">Today at 11 AM we'll hit: Events Ctr design complete, BCER review kickoff 04/22, Palace of Ag sequencing (5 sub-packages), ERRCS antenna confirmation from Pueblo FD, and connex delivery planning for Wed/Thu. Attached: agenda + 3-week look-ahead.</p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <div class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-black/5">
+            <div class="w-8 h-10 rounded paper grid place-items-center text-[9px] font-bold text-red-600">PDF</div>
+            <div><div class="text-[12.5px] font-medium text-ink-900">OAC #003 Agenda.pdf</div><div class="text-[11px] text-ink-500">1.4 MB</div></div>
+          </div>
+          <div class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white border border-black/5">
+            <div class="w-8 h-10 rounded paper grid place-items-center text-[9px] font-bold text-blue-700">DOCX</div>
+            <div><div class="text-[12.5px] font-medium text-ink-900">3-Week Look-Ahead.docx</div><div class="text-[11px] text-ink-500">112 KB</div></div>
+          </div>
+        </div>
+        <div class="mt-4 pt-4 border-t border-black/5 flex items-center justify-between text-[12px] text-ink-500">
+          <div class="flex items-center gap-4"><span>👍 6</span><span>💬 2 comments</span></div>
+          <button class="text-pe-greenDk font-semibold hover:underline">Read full recap →</button>
+        </div>
+      </article>
+
+      <article class="card p-6">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="chip blue dot">Phase Kickoff</span>
+          <span class="text-[11.5px] text-ink-500">posted yesterday · Jeremiah Minogue</span>
+        </div>
+        <h2 class="text-[20px] font-semibold text-ink-900 leading-snug">Events Center BCER Review begins Tuesday 04/22</h2>
+        <p class="text-[13.5px] text-ink-700 mt-2 leading-relaxed">First package into BCER review. Target completion 05/05, then AHJ intake Tue 05/06. JCI shop drawings are in Drawings &amp; Specs. Comments welcome in #design-coordination.</p>
+        <div class="mt-4 pt-4 border-t border-black/5 flex items-center justify-between text-[12px] text-ink-500">
+          <div class="flex items-center gap-4"><span>👍 3</span><span>💬 1 comment</span></div>
+          <button class="text-pe-greenDk font-semibold hover:underline">Open →</button>
+        </div>
+      </article>
+
+      <article class="card p-6">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="chip amber dot">Safety</span>
+          <span class="text-[11.5px] text-ink-500">posted Mon 04/20 · Wes</span>
+        </div>
+        <h2 class="text-[20px] font-semibold text-ink-900 leading-snug">Site access during connex delivery (04/23 – 04/24)</h2>
+        <p class="text-[13.5px] text-ink-700 mt-2 leading-relaxed">Connex arrives Wed AM; unload Thu morning. Hard-hat, hi-viz, and staged entry through NE gate only. Michelle H. coordinating with ops. Reminder — no public access to staging yard during unload.</p>
+        <div class="mt-4 pt-4 border-t border-black/5 flex items-center justify-between text-[12px] text-ink-500">
+          <div class="flex items-center gap-4"><span>👍 4</span><span>💬 0 comments</span></div>
+          <button class="text-pe-greenDk font-semibold hover:underline">Open →</button>
+        </div>
+      </article>
+
+      <article class="card p-6">
+        <div class="flex items-center gap-2 mb-2">
+          <span class="chip purple dot">Weekly</span>
+          <span class="text-[11.5px] text-ink-500">posted Sun 04/19 · Jeremiah Minogue</span>
+        </div>
+        <h2 class="text-[20px] font-semibold text-ink-900 leading-snug">Week in review — Survey wraps, design hand-off in flight</h2>
+        <p class="text-[13.5px] text-ink-700 mt-2 leading-relaxed">Survey phase closes 04/21. Events Ctr design 100%. SOV v3 submitted to Wember. Paul Haley call-out on ERRCS — AI #12 stays open. Goal this week: clean BCER intake, connex on the ground, Palace of Ag kickoff on schedule.</p>
+        <div class="mt-4 pt-4 border-t border-black/5 flex items-center justify-between text-[12px] text-ink-500">
+          <div class="flex items-center gap-4"><span>👍 8</span><span>💬 3 comments</span></div>
+          <button class="text-pe-greenDk font-semibold hover:underline">Open →</button>
+        </div>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ====================================================
+       SCREEN: DIRECTORY
+  ==================================================== -->
+  <section data-screen="directory" class="anim">
+    <div class="flex items-end justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500">CSF Fire Alarm</div>
+        <h1 class="text-[26px] font-bold text-ink-900">Directory</h1>
+        <p class="text-[13px] text-ink-500 mt-1">Everyone on the project.</p>
+      </div>
+      <button class="h-9 px-3.5 rounded-lg bg-pe-green text-white text-sm font-semibold hover:bg-pe-greenDk shadow-rim">Invite</button>
+    </div>
+
+    <div class="grid grid-cols-2 gap-4">
+      <div class="card p-5">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-3">Pueblo Electric (host)</div>
+        <ul class="divide-y divide-black/5">
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-charcoal text-white text-[11px] font-semibold grid place-items-center">JM</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Jeremiah Minogue</div><div class="text-[11.5px] text-ink-500">Operations Manager · jeremiah@</div></div><span class="chip green dot">Admin</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-charcoal text-white text-[11px] font-semibold grid place-items-center">MM</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Matt McCoy</div><div class="text-[11.5px] text-ink-500">Project Manager · mattm@</div></div><span class="chip gray">Member</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-charcoal text-white text-[11px] font-semibold grid place-items-center">NE</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Nate Eastburn</div><div class="text-[11.5px] text-ink-500">Superintendent · nate@</div></div><span class="chip gray">Member</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-charcoal text-white text-[11px] font-semibold grid place-items-center">WC</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Wes Castillo</div><div class="text-[11.5px] text-ink-500">Foreman · wes@</div></div><span class="chip gray">Member</span></li>
+        </ul>
+      </div>
+      <div class="card p-5">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-3">Wember Inc. (owner's rep)</div>
+        <ul class="divide-y divide-black/5">
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-green text-white text-[11px] font-semibold grid place-items-center">MG</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Michelle Gutierrez</div><div class="text-[11.5px] text-ink-500">Senior PM · mgutierrez@wemberinc.com</div></div><span class="chip blue dot">Guest-Admin</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-green text-white text-[11px] font-semibold grid place-items-center">NP</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Nick Palaski</div><div class="text-[11.5px] text-ink-500">Project Manager · npalaski@wemberinc.com</div></div><span class="chip blue dot">Guest</span></li>
+        </ul>
+      </div>
+      <div class="card p-5">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-3">BCER (engineer)</div>
+        <ul class="divide-y divide-black/5">
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-purple-600 text-white text-[11px] font-semibold grid place-items-center">CM</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Claire Mestler</div><div class="text-[11.5px] text-ink-500">Reviewer · cmestler@bcer.com</div></div><span class="chip purple dot">Reviewer</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-purple-600 text-white text-[11px] font-semibold grid place-items-center">TB</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Todd Brand</div><div class="text-[11.5px] text-ink-500">Lead Engineer · tbrand@bcer.com</div></div><span class="chip purple dot">Reviewer</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-purple-600 text-white text-[11px] font-semibold grid place-items-center">MH</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Madison Hoxsie</div><div class="text-[11.5px] text-ink-500">PM · mhoxsie@bcer.com</div></div><span class="chip purple dot">Reviewer</span></li>
+        </ul>
+      </div>
+      <div class="card p-5">
+        <div class="text-[11px] uppercase tracking-wider font-semibold text-ink-500 mb-3">JCI · CDA · Pueblo FD</div>
+        <ul class="divide-y divide-black/5">
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-blue-600 text-white text-[11px] font-semibold grid place-items-center">TB</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Taylor Boggio</div><div class="text-[11.5px] text-ink-500">FA Designer · JCI</div></div><span class="chip blue dot">Guest</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-blue-600 text-white text-[11px] font-semibold grid place-items-center">JS</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Justin Schawe</div><div class="text-[11.5px] text-ink-500">PM · JCI</div></div><span class="chip blue dot">Guest</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-pe-green text-white text-[11px] font-semibold grid place-items-center">MH</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Michelle Hines</div><div class="text-[11.5px] text-ink-500">Ops Mgr · CO Dept. of Ag</div></div><span class="chip green dot">Owner</span></li>
+          <li class="flex items-center gap-3 py-2.5"><div class="w-9 h-9 rounded-full bg-amber-500 text-white text-[11px] font-semibold grid place-items-center">PH</div><div class="flex-1"><div class="text-[13.5px] font-semibold text-ink-900">Paul Haley</div><div class="text-[11.5px] text-ink-500">AHJ · Pueblo Fire Dept.</div></div><span class="chip amber dot">AHJ</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  </main>
+
+</div>
+</div>
+
+<!-- ============================================================
+     JS: routing + interactions
+============================================================ -->
+<script>
+  const screens = document.querySelectorAll('[data-screen]');
+  const sidebar = document.getElementById('sidebar');
+  const crumb   = document.getElementById('project-breadcrumb');
+
+  function show(name) {
+    screens.forEach(s => s.classList.toggle('active', s.dataset.screen === name));
+    // sidebar only inside a project
+    const isProject = ['home','files','schedule','submittals','chat','updates','directory'].includes(name);
+    sidebar.classList.toggle('hidden', !isProject);
+    crumb.classList.toggle('hidden', !isProject);
+    crumb.classList.toggle('flex',   isProject);
+    // sidebar active state
+    document.querySelectorAll('[data-nav]').forEach(el => {
+      el.classList.toggle('active', el.dataset.nav === name);
+    });
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }
+
+  function route() {
+    const h = window.location.hash || '#/projects';
+    if (h === '#/projects' || h === '') return show('projects');
+    const m = h.match(/^#\/project\/\d+\/(\w+)/);
+    if (m) return show(m[1]);
+    show('projects');
+  }
+  window.addEventListener('hashchange', route);
+  route();
+
+  // Submittals/RFIs tabs
+  document.querySelectorAll('#sr-tabs button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#sr-tabs button').forEach(b => {
+        b.classList.remove('bg-white','text-ink-900','shadow-rim','font-semibold');
+        b.classList.add('text-ink-500','font-medium');
+      });
+      btn.classList.add('bg-white','text-ink-900','shadow-rim','font-semibold');
+      btn.classList.remove('text-ink-500','font-medium');
+      const pane = btn.dataset.tab;
+      document.querySelectorAll('[data-tab-pane]').forEach(t => {
+        t.classList.toggle('hidden', t.dataset.tabPane !== pane);
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
