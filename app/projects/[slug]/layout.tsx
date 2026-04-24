@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { AppHeader } from "@/components/pe/app-header";
-import { ProjectHeader } from "@/components/pe/project-header";
 import { ProjectNav } from "@/components/pe/project-nav";
 import { getProject } from "@/lib/queries";
 import { getCurrentUser, initialsFor } from "@/lib/auth/user";
@@ -33,7 +32,6 @@ export default async function ProjectLayout({
         userEmail={userEmail}
         isSuperadmin={me.isSuperadmin}
       />
-      <ProjectHeader project={project} />
       <ProjectNav slug={slug} />
       {children}
     </>

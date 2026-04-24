@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PageShell } from '@/components/pe/page-shell';
+import { PageKicker } from '@/components/pe/page-kicker';
 import { EmptyState } from '@/components/pe/empty-state';
 import { FileUploadButton } from '@/components/pe/file-upload-button';
 import { getProject, getFiles, getFolders } from '@/lib/queries';
@@ -72,6 +73,10 @@ export default async function FilesPage({
 
   return (
     <PageShell>
+      <div className="mb-6">
+        <PageKicker>{project.title}</PageKicker>
+        <h1 className="mt-1 text-3xl font-bold text-pe-body">Files</h1>
+      </div>
       <div className="grid gap-6 lg:grid-cols-[220px_1fr_380px]">
         {/* Left: Folder Tree */}
         <div className="flex flex-col gap-4">

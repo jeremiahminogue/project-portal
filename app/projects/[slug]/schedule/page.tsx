@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { PageShell } from '@/components/pe/page-shell';
+import { PageKicker } from '@/components/pe/page-kicker';
 import { getProject, getSchedule } from '@/lib/queries';
 import { Copy } from 'lucide-react';
 
@@ -75,7 +76,10 @@ export default async function SchedulePage({
         <div className="flex flex-col gap-4">
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-pe-body">Master Schedule</h1>
+              <PageKicker>{project.title}</PageKicker>
+              <h1 className="mt-1 text-2xl font-bold text-pe-body">
+                Master Schedule
+              </h1>
               <p className="text-sm text-muted-foreground">
                 6-month window · drag to pan (coming soon)
               </p>

@@ -496,3 +496,47 @@ First deploy of the detail page threw an Application Error (digest `1864739709`)
 **Fix (shipped in `lib/queries/admin.ts`):** fetch the three sources in parallel (members, profiles, auth users) and stitch them client-side with `Map`s keyed by `user_id` / `id`. Same pattern as `listAllUsers()`. Scale is tens of users, so this is cheap.
 
 **Rule for future queries:** when you want to join a `project_members`-like row against `profiles`, don't reach for `.select("…, profiles(…)")`. Fetch both tables separately and stitch. Reserve `!inner` for selects that traverse a direct FK, e.g. `project_members.project_id → projects.id` (used in `getUserDetail`).
+
+---
+
+## 2026-04-23 — Project home page rebuild (mockup parity) + getUpdates fix
+
+Jeremiah reported the project page was still throwing an error and wasn't matching `project-portal-mockup.html`. Two issues; both fixed this session.
+
+### 1) getUpdates PostgREST embed error (the actual runtime error)
+
+Same class of bug as the 2026-04-22 evening `project_members ↔ profiles` fix. `lib/queries/updates.ts` used `profiles:author_id(...)` to embed the author's profile, but `updates.author_id` FKs to `auth.users(id)` — **not** `profiles(id)`. PostgREST couldn't resolve the embed and returned an error, which surfaced as an Application Error on `/projects/[slug]`.
+
+**Fix:** stitch pattern. Fetch `updates` and `profiles` separately, join in memory via a `Map<authorId, profile>`. `lib/queries/updates.ts` is now aligned with `lib/queries/admin.ts`.
+
+**Known soft-edge:** the default `profiles` RLS only lets a user read their own row, so non-superadmin viewers may see posts without an author name. Not blocking; the UI tolerates missing authors. A follow-up migration could relax `profiles` SELECT so project members can read each other's `full_name` / `email` for display. Keep it scoped (select-only, columns-only) — don't open the whole profile.
+
+**Rule:** whenever a table has `author_id`/`user_id` pointing to `auth.users(id)` and you want display fields from `profiles`, use the stitch pattern. Do not try to embed via PostgREST.
+
+### 2) Project home page rebuild
+
+The page now matches `project-portal-mockup.html`. Changes:
+
+- **`app/projects/[slug]/layout.tsx`** — removed the shared `<ProjectHeader>`. Sub-pages own their own headers; the home page owns the rich hero. Layout now renders `AppHeader` + `ProjectNav` only.
+- **`app/projects/[slug]/page.tsx`** — full rewrite. Glass hero card with gradient blobs (top-right green, bottom-left blue), status + number chips, title, address w/ map-pin, owner row, right-aligned big `%` complete, gradient progress bar, 4-phase label strip (Pre-Con / Design / Construction / Closed, active phase inked darker). Below the hero: 3-col grid with Next Milestone (1/3) + 3-week Look-Ahead list (2/3). Below that: 3-col grid with 2×3 quick-nav tiles (1/3) + Recent Activity feed (2/3). Activity feed builds a deterministic gradient avatar per author name (`hashIndex` over the 6-color palette).
+- **`components/pe/page-kicker.tsx`** (new) — small uppercase project-name label used above sub-page H1s so you still know which project you're in without the shared hero. Added to submittals, updates, directory, schedule, and files sub-pages. Chat sub-page intentionally skipped (full-bleed sidebar layout owns its own header).
+- **`tailwind.config.ts`** — added `ink-{100,300,500,700,900}`, `canvas`, `pe-green-dk`, `pe-green-tn`, and `shadow-{soft,pop,rim}` tokens from the mockup.
+- **`app/globals.css`** — swapped the plain `bg-background` body for the mockup's warm ambient gradient (green top-left, blue top-right, neutral canvas base). Tightened `.glass`, added `.glass-strong` and `.glass-soft`, added `.card-flat` for the white-card treatment used in the grids.
+
+### QC
+
+- `npx tsc --noEmit` in `/tmp/pp-qc/` → **exit 0**.
+- `npx next build` in `/tmp/pp-qc/` (after installing `@next/swc-linux-x64-gnu@14.2.33` as `--no-save`) → **✓ Compiled successfully**, 12/12 static pages generated, no warnings. Route table confirms `/projects/[slug]` and every sub-route build.
+
+### What the next agent should verify
+
+1. Pull on Windows, `npm run build` there (Vercel build uses the Linux SWC binary — that one's fine too).
+2. Sign in at the live URL and load `/projects/1646`. Should render the new hero + grids, no application error.
+3. Confirm the 3-week look-ahead card populates. If the seeded `schedule_activities` don't include rows in the 21-day window from 2026-04-21, the card shows "No activities scheduled in the next 3 weeks" — that's a data issue, not a bug.
+4. Confirm sub-pages (Files / Schedule / Submittals / Updates / Directory) show the new `PageKicker` with the project name above their H1s.
+
+### Optional follow-ups surfaced but not taken
+
+- Relax `profiles` SELECT so project members can display each other's names (see §1 soft-edge above).
+- Add RFI count badge to the quick-nav tiles. Currently uses `project.openSubmittals` / `project.openRfis` but those are placeholder `0`s for live data until the aggregate queries land.
+- Update the Chat sub-page's `h-[calc(100vh-180px)]` to account for the removed `<ProjectHeader>` (previously ~180px of chrome, now closer to 108px). Low-priority, chat still scrolls fine.

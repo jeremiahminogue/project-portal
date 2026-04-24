@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/pe/page-shell";
+import { PageKicker } from "@/components/pe/page-kicker";
 import { Heart, MessageCircle, Share2, Plus } from "lucide-react";
 import { getProject, getUpdates } from "@/lib/queries";
 
@@ -53,7 +54,8 @@ export default async function UpdatesPage({
       <div className="mb-8">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-bold text-pe-body">Updates</h1>
+            <PageKicker>{project.title}</PageKicker>
+            <h1 className="mt-1 text-3xl font-bold text-pe-body">Updates</h1>
             <p className="mt-1 text-sm text-muted-foreground">
               PM-authored posts · safety, weekly, OAC recaps
             </p>

@@ -4,6 +4,7 @@ import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { PageShell } from "@/components/pe/page-shell";
+import { PageKicker } from "@/components/pe/page-kicker";
 import { StatusChip } from "@/components/pe/status-chip";
 import { getProject, getSubmittals, getRfis } from "@/lib/queries";
 
@@ -72,7 +73,10 @@ export default async function SubmittalsPage({
       <div className="mb-8">
         <div className="flex items-start justify-between gap-6">
           <div>
-            <h1 className="text-3xl font-bold text-pe-body">Submittals & RFIs</h1>
+            <PageKicker>{project.title}</PageKicker>
+            <h1 className="mt-1 text-3xl font-bold text-pe-body">
+              Submittals & RFIs
+            </h1>
             <p className="mt-1 text-sm text-muted-foreground">
               {submittals.length} submittals · {rfis.length} RFIs
             </p>

@@ -20,12 +20,22 @@ const config: Config = {
         // PE brand tokens (sourced from skills/oac-agenda/generate_agenda.py)
         "pe-green": "#1DAF3F",
         "pe-green-dark": "#18923A",
+        "pe-green-dk": "#169234",
+        "pe-green-tn": "#E8F7EC",
         "pe-gray": "#A8A9AD",
         "pe-charcoal": "#3C3C3C",
         "pe-black": "#1A1A1A",
         "pe-body": "#2D2D2D",
         "pe-sub": "#6B6B6B",
         "pe-light": "#999999",
+        canvas: "#F6F6F8",
+        ink: {
+          900: "#1A1A1A",
+          700: "#2D2D2D",
+          500: "#6B6B6B",
+          300: "#999999",
+          100: "#E5E5E7",
+        },
         // semantic
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -74,6 +84,11 @@ const config: Config = {
       },
       backdropBlur: {
         xs: "2px",
+      },
+      boxShadow: {
+        soft: "0 1px 2px rgba(0,0,0,0.04), 0 12px 32px -12px rgba(0,0,0,0.08)",
+        pop: "0 1px 2px rgba(0,0,0,0.04), 0 32px 64px -24px rgba(0,0,0,0.14)",
+        rim: "inset 0 0 0 1px rgba(255,255,255,0.7), 0 1px 2px rgba(0,0,0,0.04)",
       },
       keyframes: {
         "accordion-down": {
