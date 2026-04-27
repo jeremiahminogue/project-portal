@@ -10,7 +10,7 @@ import type {
   StatusChip,
   Submittal,
   Update
-} from '../../../data/types';
+} from './mock-data/types';
 import {
   chatSubjects as mockChatSubjects,
   directory as mockDirectory,
@@ -21,7 +21,7 @@ import {
   scheduleActivities as mockSchedule,
   submittals as mockSubmittals,
   updates as mockUpdates
-} from '../../../data';
+} from './mock-data';
 import { bytesToSize, relativeTime } from '$lib/utils';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
 import { createAdminClient } from './supabase-admin';
