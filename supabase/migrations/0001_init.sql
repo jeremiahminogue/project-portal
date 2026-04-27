@@ -133,7 +133,7 @@ create policy "Users can view projects they are members of"
     )
   );
 
--- Files: nested folder tree, stored in R2 via storage_key
+-- Files: nested folder tree, stored in Tigris via storage_key
 create table if not exists files (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references projects(id) on delete cascade,

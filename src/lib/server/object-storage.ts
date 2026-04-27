@@ -1,0 +1,206 @@
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+  type _Object
+} from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { env as privateEnv } from '$env/dynamic/private';
+
+export type ObjectStorageConfig = {
+  endpoint: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucket: string;
+  region: string;
+  forcePathStyle: boolean;
+};
+
+function env(...names: string[]) {
+  for (const name of names) {
+    const value = privateEnv[name] ?? process.env[name];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function boolEnv(name: string, fallback: boolean) {
+  const value = privateEnv[name] ?? process.env[name];
+  if (!value) return fallback;
+  return !['0', 'false', 'no'].includes(value.toLowerCase());
+}
+
+export function getObjectStorageConfig(): ObjectStorageConfig {
+  const endpoint = env(
+    'TIGRIS_ENDPOINT',
+    'TIGRIS_ENDPOINT_URL',
+    'TIGRIS_STORAGE_ENDPOINT',
+    'AWS_ENDPOINT_URL_S3',
+    'STORAGE_ENDPOINT',
+    'S3_ENDPOINT'
+  );
+  const accessKeyId = env(
+    'TIGRIS_ACCESS_KEY_ID',
+    'TIGRIS_STORAGE_ACCESS_KEY_ID',
+    'AWS_ACCESS_KEY_ID',
+    'STORAGE_ACCESS_KEY_ID',
+    'S3_ACCESS_KEY_ID'
+  );
+  const secretAccessKey = env(
+    'TIGRIS_SECRET_ACCESS_KEY',
+    'TIGRIS_STORAGE_SECRET_ACCESS_KEY',
+    'AWS_SECRET_ACCESS_KEY',
+    'STORAGE_SECRET_ACCESS_KEY',
+    'S3_SECRET_ACCESS_KEY'
+  );
+  const bucket =
+    env('TIGRIS_BUCKET', 'TIGRIS_BUCKET_NAME', 'BUCKET_NAME', 'STORAGE_BUCKET', 'S3_BUCKET') ??
+    'project-portal-files';
+
+  if (!endpoint || !accessKeyId || !secretAccessKey) {
+    throw new Error('Object storage is not configured. Set Tigris, STORAGE_*, S3_*, or AWS_* env vars.');
+  }
+
+  const directTigris = endpoint.includes('t3.storage.dev') || endpoint.includes('storage.tigris.dev');
+
+  return {
+    endpoint,
+    accessKeyId,
+    secretAccessKey,
+    bucket,
+    region: env('TIGRIS_REGION', 'AWS_REGION', 'STORAGE_REGION', 'S3_REGION') ?? 'auto',
+    forcePathStyle: boolEnv('STORAGE_FORCE_PATH_STYLE', !directTigris)
+  };
+}
+
+export function hasObjectStorageConfig() {
+  try {
+    getObjectStorageConfig();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getObjectStorageClient(config = getObjectStorageConfig()) {
+  return new S3Client({
+    region: config.region,
+    endpoint: config.endpoint,
+    credentials: {
+      accessKeyId: config.accessKeyId,
+      secretAccessKey: config.secretAccessKey
+    },
+    forcePathStyle: config.forcePathStyle
+  });
+}
+
+export async function createPresignedUploadUrl(key: string, contentType: string, expiresInSeconds = 600) {
+  const config = getObjectStorageConfig();
+  const client = getObjectStorageClient(config);
+  const command = new PutObjectCommand({
+    Bucket: config.bucket,
+    Key: key,
+    ContentType: contentType
+  });
+
+  return {
+    url: await getSignedUrl(client, command, { expiresIn: expiresInSeconds }),
+    key,
+    bucket: config.bucket
+  };
+}
+
+export async function putObject(key: string, body: Uint8Array, contentType: string) {
+  const config = getObjectStorageConfig();
+  const client = getObjectStorageClient(config);
+  return client.send(
+    new PutObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      ContentLength: body.byteLength
+    })
+  );
+}
+
+export async function getObject(key: string, range?: string) {
+  const config = getObjectStorageConfig();
+  const client = getObjectStorageClient(config);
+  return client.send(
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: key,
+      Range: range
+    })
+  );
+}
+
+export async function deleteObject(key: string) {
+  const config = getObjectStorageConfig();
+  const client = getObjectStorageClient(config);
+  return client.send(
+    new DeleteObjectCommand({
+      Bucket: config.bucket,
+      Key: key
+    })
+  );
+}
+
+export async function listProjectObjects(projectSlug: string) {
+  const config = getObjectStorageConfig();
+  const client = getObjectStorageClient(config);
+  const prefix = `projects/${projectSlug}/`;
+  const objects: _Object[] = [];
+  let ContinuationToken: string | undefined;
+
+  do {
+    const page = await client.send(
+      new ListObjectsV2Command({
+        Bucket: config.bucket,
+        Prefix: prefix,
+        ContinuationToken
+      })
+    );
+    objects.push(...(page.Contents ?? []).filter((object) => object.Key && object.Size !== 0));
+    ContinuationToken = page.NextContinuationToken;
+  } while (ContinuationToken);
+
+  return objects;
+}
+
+export function buildStorageKey(projectSlug: string, filename: string) {
+  const safe = filename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 200);
+  const today = new Date().toISOString().slice(0, 10);
+  const rand = crypto.randomUUID().slice(0, 8);
+  return `projects/${projectSlug}/${today}/${rand}-${safe}`;
+}
+
+export function encodeStorageId(key: string) {
+  return `storage:${Buffer.from(key, 'utf8').toString('base64url')}`;
+}
+
+export function decodeStorageId(id: string) {
+  if (!id.startsWith('storage:')) return null;
+  return Buffer.from(id.slice('storage:'.length), 'base64url').toString('utf8');
+}
+
+export function responseBody(body: unknown): BodyInit {
+  if (!body) return new Blob([]);
+  if (body instanceof Blob || body instanceof ReadableStream || body instanceof ArrayBuffer) return body;
+  if (body instanceof Uint8Array) {
+    return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer;
+  }
+  if (typeof body === 'string') return body;
+  const candidate = body as { transformToWebStream?: () => ReadableStream };
+  if (typeof candidate.transformToWebStream === 'function') return candidate.transformToWebStream();
+  return body as BodyInit;
+}
+
+export function contentDisposition(filename: string, disposition: 'inline' | 'attachment') {
+  const fallback = filename.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  const encoded = encodeURIComponent(filename);
+  return `${disposition}; filename="${fallback}"; filename*=UTF-8''${encoded}`;
+}

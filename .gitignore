@@ -1,10 +1,12 @@
 # deps
 node_modules
+.tools/
 .pnp
 .pnp.js
 
-# next
+# build artifacts
 .next/
+.svelte-kit/
 out/
 build
 dist

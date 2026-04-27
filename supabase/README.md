@@ -43,7 +43,7 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 - `profiles` — extends auth.users with full_name, role, company, title
 - `projects` — one per PE undertaking (slug, name, customer, phase, percent_complete, etc.)
 - `project_members` — enforces per-project access control (role: admin/member/guest/readonly)
-- `files` — folder tree + metadata, storage_key points to R2 object
+- `files` — folder tree + metadata, storage_key points to a Tigris object
 - `schedule_activities` — MS Project import: phase, dates, owner, status
 - `submittals` — classic routing workflow (Submitted → In Review → Approved / R&R / Rejected)
 - `submittal_routing_steps` — handoff chain with reviewer sign-offs
@@ -95,20 +95,22 @@ const channel = supabase
 
 ---
 
-## File Storage (R2, External)
+## File Storage (Tigris, External)
 
 Files are **not** stored in Supabase. The `files` table is metadata only.
 
 ### Setup (one-time):
 
-1. Create a Cloudflare account and provision an R2 bucket: `project-portal-files`
-2. Generate API tokens (R2 API) with read/write scope
+1. Create or use the existing Tigris bucket/container: `project-portal-files`
+2. Generate S3-compatible access keys with read/write scope
 3. Store in your `.env.local`:
 
 ```
-NEXT_PUBLIC_R2_ACCOUNT_ID=<your-account-id>
-R2_ACCESS_KEY_ID=<your-access-key>
-R2_SECRET_ACCESS_KEY=<your-secret>
+TIGRIS_ENDPOINT=https://t3.storage.dev
+TIGRIS_ACCESS_KEY_ID=<your-access-key>
+TIGRIS_SECRET_ACCESS_KEY=<your-secret>
+TIGRIS_BUCKET=project-portal-files
+TIGRIS_REGION=auto
 ```
 
 ### Upload Flow:
@@ -119,12 +121,13 @@ In your Next.js API route (e.g., `/api/files/upload`):
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const s3 = new S3Client({
-  region: 'auto',
+  region: process.env.TIGRIS_REGION ?? 'auto',
   credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.TIGRIS_ACCESS_KEY_ID,
+    secretAccessKey: process.env.TIGRIS_SECRET_ACCESS_KEY,
   },
-  endpoint: `https://${process.env.NEXT_PUBLIC_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+  endpoint: process.env.TIGRIS_ENDPOINT,
+  forcePathStyle: true,
 });
 
 const command = new PutObjectCommand({
@@ -140,7 +143,7 @@ Then insert a row in `files` with `storage_key = '${projectId}/${fileId}'`.
 
 ### Download Flow:
 
-Construct a signed or public URL. For private buckets, use R2 signed URLs (AWS SDK) or route through a Next.js API endpoint that checks RLS first, then streams from R2.
+The app routes downloads through `/api/files/[id]/download`, checks metadata access when Supabase is configured, and streams the object from Tigris so PDF previews stay same-origin.
 
 ---
 

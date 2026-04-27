@@ -2,43 +2,45 @@
   "name": "project-portal",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "type-check": "tsc --noEmit"
+    "prepare-vite": "node ./scripts/patch-vite-realpath.mjs",
+    "styles": "tailwindcss -i ./src/tailwind.css -o ./src/tailwind.generated.css",
+    "dev": "node ./scripts/patch-vite-realpath.mjs && tailwindcss -i ./src/tailwind.css -o ./src/tailwind.generated.css && vite --host 0.0.0.0 --configLoader native",
+    "build": "node ./scripts/patch-vite-realpath.mjs && tailwindcss -i ./src/tailwind.css -o ./src/tailwind.generated.css && vite build --configLoader native",
+    "preview": "vite preview --host 0.0.0.0 --configLoader native",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "type-check": "svelte-kit sync && tsc --noEmit"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1033.0",
-    "@aws-sdk/s3-request-presigner": "^3.1033.0",
-    "@radix-ui/react-avatar": "^1.1.0",
-    "@radix-ui/react-dialog": "^1.1.1",
-    "@radix-ui/react-dropdown-menu": "^2.1.1",
-    "@radix-ui/react-scroll-area": "^1.1.0",
-    "@radix-ui/react-separator": "^1.1.0",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-tabs": "^1.1.0",
-    "@supabase/ssr": "^0.5.1",
-    "@supabase/supabase-js": "^2.45.0",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "lucide-react": "^0.441.0",
-    "next": "^14.2.35",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.5.2",
-    "tailwindcss-animate": "^1.0.7"
+    "@aws-sdk/client-s3": "3.1038.0",
+    "@aws-sdk/s3-request-presigner": "3.1038.0",
+    "@embedpdf/snippet": "2.14.1",
+    "@lucide/svelte": "1.11.0",
+    "@napi-rs/canvas": "0.1.100",
+    "@supabase/ssr": "0.10.2",
+    "@supabase/supabase-js": "2.105.0",
+    "pdfjs-dist": "5.7.284",
+    "tesseract.js": "7.0.0",
+    "zod": "4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^20.16.5",
-    "@types/react": "^18.3.8",
-    "@types/react-dom": "^18.3.0",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "^14.2.35",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.12",
-    "typescript": "^5.6.2"
+    "@sveltejs/adapter-node": "5.5.4",
+    "@sveltejs/adapter-vercel": "6.3.3",
+    "@sveltejs/kit": "2.58.0",
+    "@sveltejs/vite-plugin-svelte": "7.0.0",
+    "@tailwindcss/cli": "4.2.4",
+    "@types/node": "25.6.0",
+    "supabase": "2.95.5",
+    "svelte": "5.55.5",
+    "svelte-check": "4.4.6",
+    "tailwindcss": "4.2.4",
+    "typescript": "6.0.3",
+    "vite": "8.0.10"
+  },
+  "overrides": {
+    "@sveltejs/kit": {
+      "cookie": "0.7.2"
+    }
   }
 }
