@@ -1,13 +1,10 @@
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-  type _Object
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { env as privateEnv } from '$env/dynamic/private';
+
+type StorageObject = {
+  Key?: string;
+  Size?: number;
+  LastModified?: Date;
+};
 
 export type ObjectStorageConfig = {
   endpoint: string;
@@ -84,7 +81,12 @@ export function hasObjectStorageConfig() {
   }
 }
 
-export function getObjectStorageClient(config = getObjectStorageConfig()) {
+async function getS3Sdk() {
+  return import('@aws-sdk/client-s3');
+}
+
+export async function getObjectStorageClient(config = getObjectStorageConfig()) {
+  const { S3Client } = await getS3Sdk();
   return new S3Client({
     region: config.region,
     endpoint: config.endpoint,
@@ -98,7 +100,11 @@ export function getObjectStorageClient(config = getObjectStorageConfig()) {
 
 export async function createPresignedUploadUrl(key: string, contentType: string, expiresInSeconds = 600) {
   const config = getObjectStorageConfig();
-  const client = getObjectStorageClient(config);
+  const [{ PutObjectCommand }, { getSignedUrl }, client] = await Promise.all([
+    getS3Sdk(),
+    import('@aws-sdk/s3-request-presigner'),
+    getObjectStorageClient(config)
+  ]);
   const command = new PutObjectCommand({
     Bucket: config.bucket,
     Key: key,
@@ -114,7 +120,7 @@ export async function createPresignedUploadUrl(key: string, contentType: string,
 
 export async function putObject(key: string, body: Uint8Array, contentType: string) {
   const config = getObjectStorageConfig();
-  const client = getObjectStorageClient(config);
+  const [{ PutObjectCommand }, client] = await Promise.all([getS3Sdk(), getObjectStorageClient(config)]);
   return client.send(
     new PutObjectCommand({
       Bucket: config.bucket,
@@ -128,7 +134,7 @@ export async function putObject(key: string, body: Uint8Array, contentType: stri
 
 export async function getObject(key: string, range?: string) {
   const config = getObjectStorageConfig();
-  const client = getObjectStorageClient(config);
+  const [{ GetObjectCommand }, client] = await Promise.all([getS3Sdk(), getObjectStorageClient(config)]);
   return client.send(
     new GetObjectCommand({
       Bucket: config.bucket,
@@ -140,7 +146,7 @@ export async function getObject(key: string, range?: string) {
 
 export async function deleteObject(key: string) {
   const config = getObjectStorageConfig();
-  const client = getObjectStorageClient(config);
+  const [{ DeleteObjectCommand }, client] = await Promise.all([getS3Sdk(), getObjectStorageClient(config)]);
   return client.send(
     new DeleteObjectCommand({
       Bucket: config.bucket,
@@ -151,9 +157,9 @@ export async function deleteObject(key: string) {
 
 export async function listProjectObjects(projectSlug: string) {
   const config = getObjectStorageConfig();
-  const client = getObjectStorageClient(config);
+  const [{ ListObjectsV2Command }, client] = await Promise.all([getS3Sdk(), getObjectStorageClient(config)]);
   const prefix = `projects/${projectSlug}/`;
-  const objects: _Object[] = [];
+  const objects: StorageObject[] = [];
   let ContinuationToken: string | undefined;
 
   do {
