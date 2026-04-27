@@ -8,7 +8,7 @@ Pueblo Electric's SvelteKit/Svelte 5 project portal for owner/client access to p
 - Vite 8
 - Tailwind CSS 4
 - Supabase Auth/Postgres/RLS
-- Tigris S3-compatible object storage for uploads/downloads
+- Tigris or Cloudflare R2 S3-compatible object storage for uploads/downloads
 - Same-origin browser PDF preview
 - Resend email API via direct HTTPS calls
 - Vercel adapter in Vercel, Node adapter for local Windows builds
@@ -47,17 +47,22 @@ Existing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` env vars a
 - `TIGRIS_SECRET_ACCESS_KEY`
 - `TIGRIS_BUCKET`
 - `TIGRIS_REGION`
+- `R2_ENDPOINT`
+- `R2_ACCESS_KEY_ID`
+- `R2_SECRET_ACCESS_KEY`
+- `R2_BUCKET`
+- `R2_REGION`
 - `RESEND_API_KEY`
 - `RESEND_FROM`
 
-With no Supabase env vars, pages fall back to typed mock data from `data/`.
+With no Supabase env vars, pages fall back to typed mock data from `src/lib/server/mock-data/`.
 
 ## App Surface
 
 - `/login` password sign-in/sign-up with Supabase SSR cookies
 - `/` project dashboard
 - `/projects/[slug]` project overview
-- `/projects/[slug]/files` searchable files, direct Tigris upload, streamed download, PDF preview
+- `/projects/[slug]/files` searchable files, direct S3-compatible upload, streamed download, PDF preview
 - `/projects/[slug]/submittals` submittal and RFI creation, assignment, status, decision/answer tracking
 - `/projects/[slug]/schedule`
 - `/projects/[slug]/updates` update publishing with optional team email

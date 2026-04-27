@@ -34,6 +34,8 @@ export function getObjectStorageConfig(): ObjectStorageConfig {
     'TIGRIS_ENDPOINT',
     'TIGRIS_ENDPOINT_URL',
     'TIGRIS_STORAGE_ENDPOINT',
+    'R2_ENDPOINT',
+    'CLOUDFLARE_R2_ENDPOINT',
     'AWS_ENDPOINT_URL_S3',
     'STORAGE_ENDPOINT',
     'S3_ENDPOINT'
@@ -41,6 +43,8 @@ export function getObjectStorageConfig(): ObjectStorageConfig {
   const accessKeyId = env(
     'TIGRIS_ACCESS_KEY_ID',
     'TIGRIS_STORAGE_ACCESS_KEY_ID',
+    'R2_ACCESS_KEY_ID',
+    'CLOUDFLARE_R2_ACCESS_KEY_ID',
     'AWS_ACCESS_KEY_ID',
     'STORAGE_ACCESS_KEY_ID',
     'S3_ACCESS_KEY_ID'
@@ -48,16 +52,26 @@ export function getObjectStorageConfig(): ObjectStorageConfig {
   const secretAccessKey = env(
     'TIGRIS_SECRET_ACCESS_KEY',
     'TIGRIS_STORAGE_SECRET_ACCESS_KEY',
+    'R2_SECRET_ACCESS_KEY',
+    'CLOUDFLARE_R2_SECRET_ACCESS_KEY',
     'AWS_SECRET_ACCESS_KEY',
     'STORAGE_SECRET_ACCESS_KEY',
     'S3_SECRET_ACCESS_KEY'
   );
   const bucket =
-    env('TIGRIS_BUCKET', 'TIGRIS_BUCKET_NAME', 'BUCKET_NAME', 'STORAGE_BUCKET', 'S3_BUCKET') ??
+    env(
+      'TIGRIS_BUCKET',
+      'TIGRIS_BUCKET_NAME',
+      'R2_BUCKET',
+      'CLOUDFLARE_R2_BUCKET',
+      'BUCKET_NAME',
+      'STORAGE_BUCKET',
+      'S3_BUCKET'
+    ) ??
     'project-portal-files';
 
   if (!endpoint || !accessKeyId || !secretAccessKey) {
-    throw new Error('Object storage is not configured. Set Tigris, STORAGE_*, S3_*, or AWS_* env vars.');
+    throw new Error('Object storage is not configured. Set Tigris, R2, STORAGE_*, S3_*, or AWS_* env vars.');
   }
 
   const directTigris = endpoint.includes('t3.storage.dev') || endpoint.includes('storage.tigris.dev');
@@ -67,7 +81,7 @@ export function getObjectStorageConfig(): ObjectStorageConfig {
     accessKeyId,
     secretAccessKey,
     bucket,
-    region: env('TIGRIS_REGION', 'AWS_REGION', 'STORAGE_REGION', 'S3_REGION') ?? 'auto',
+    region: env('TIGRIS_REGION', 'R2_REGION', 'CLOUDFLARE_R2_REGION', 'AWS_REGION', 'STORAGE_REGION', 'S3_REGION') ?? 'auto',
     forcePathStyle: boolEnv('STORAGE_FORCE_PATH_STYLE', !directTigris)
   };
 }
