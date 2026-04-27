@@ -1,7 +1,7 @@
 import { createAdminClient } from './supabase-admin';
 import {
   LOCAL_SUPERADMIN_EMAIL,
-  LOCAL_SUPERADMIN_PASSWORD,
+  getLocalSuperadminPassword,
   isLocalSuperadminCredentials
 } from './local-auth';
 
@@ -21,7 +21,11 @@ export function isConfiguredSuperadmin(email: string, password: string) {
 export async function ensureConfiguredSuperadmin() {
   const admin = createAdminClient();
   const email = LOCAL_SUPERADMIN_EMAIL;
-  const password = LOCAL_SUPERADMIN_PASSWORD;
+  const password = getLocalSuperadminPassword();
+
+  if (!password) {
+    throw new Error('Set PORTAL_LOCAL_SUPERADMIN_PASSWORD before provisioning the Pueblo Electric superadmin.');
+  }
 
   const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (users.error) throw new Error(users.error.message);

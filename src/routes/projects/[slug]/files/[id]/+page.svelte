@@ -5,16 +5,8 @@
     ChevronRight,
     Download,
     FileText,
-    Hand,
-    Maximize2,
-    Menu,
-    MessageSquare,
-    MousePointer2,
     PanelLeft,
-    Search,
-    X,
-    ZoomIn,
-    ZoomOut
+    X
   } from '@lucide/svelte';
   import EmbedPdfViewer from '$lib/components/EmbedPdfViewer.svelte';
 
@@ -55,6 +47,9 @@
       <a class:disabled={activePage <= 1} class="nav-icon" href={viewerPageHref(previousPage)} aria-label="Previous sheet">
         <ChevronLeft size={18} />
       </a>
+      <button class:active={showSheets} class="nav-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index">
+        <PanelLeft size={18} />
+      </button>
       <div class="sheet-pill">
         <strong>{sheetLabel}</strong>
         <span>{activePage} of {sheetCount}</span>
@@ -76,44 +71,6 @@
     </div>
   </header>
 
-  <div class="viewer-toolrow">
-    <button class="tool-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index">
-      <Menu size={18} />
-    </button>
-    <span class="tool-divider"></span>
-    <button class="tool-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Sheet index">
-      <PanelLeft size={18} />
-    </button>
-    <span class="tool-divider"></span>
-    <button class="tool-icon ghosted" type="button" aria-label="Zoom out">
-      <ZoomOut size={17} />
-    </button>
-    <span class="zoom-chip">Fit</span>
-    <button class="tool-icon ghosted" type="button" aria-label="Zoom in">
-      <ZoomIn size={17} />
-    </button>
-    <span class="tool-divider"></span>
-    <button class="tool-icon active" type="button" aria-label="Pan">
-      <Hand size={17} />
-    </button>
-    <button class="tool-icon" type="button" aria-label="Select">
-      <MousePointer2 size={17} />
-    </button>
-    <nav class="viewer-tabs" aria-label="Drawing viewer tools">
-      <span class="active">View</span>
-      <span>Markup</span>
-      <span>Shapes</span>
-      <span>Insert</span>
-    </nav>
-    <div class="viewer-search">
-      <Search size={18} />
-      <MessageSquare size={18} />
-      <a class="tool-icon" href={data.downloadSrc} target="_blank" rel="noreferrer" aria-label="Open in browser">
-        <Maximize2 size={17} />
-      </a>
-    </div>
-  </div>
-
   <div class:with-sheets={showSheets} class="viewer-body">
     {#if data.file.pages?.length && showSheets}
       <aside class="sheet-index" aria-label="Sheet index">
@@ -130,9 +87,6 @@
       </aside>
     {/if}
     <div class="viewer-frame">
-      <div class="viewer-file-title">
-        <strong>{title}</strong>
-      </div>
       {#key `${data.downloadSrc}:${activePage}`}
         <EmbedPdfViewer src={data.downloadSrc} title={title} page={activePage} />
       {/key}
@@ -143,14 +97,15 @@
 <style>
   .viewer-page {
     display: grid;
-    grid-template-rows: auto auto minmax(0, 1fr);
-    min-height: calc(100dvh - 4.4rem);
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 100dvh;
+    overflow: hidden;
     background: #eef0ef;
   }
 
   .viewer-topbar {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
     gap: 1rem;
     background: #111312;
@@ -166,7 +121,6 @@
   }
 
   .viewer-right {
-    grid-column: 3;
     justify-self: end;
     color: #d7dad7;
     font-size: 0.78rem;
@@ -174,8 +128,7 @@
   }
 
   .nav-icon,
-  .top-icon,
-  .tool-icon {
+  .top-icon {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -193,6 +146,7 @@
   }
 
   .nav-icon:hover,
+  .nav-icon.active,
   .top-icon:hover,
   .exit-link:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -240,89 +194,12 @@
     font-weight: 900;
   }
 
-  .viewer-toolrow {
-    display: flex;
-    align-items: center;
-    min-height: 3rem;
-    gap: 0.35rem;
-    border-bottom: 1px solid #d7dbd8;
-    background: #fff;
-    color: #121712;
-    padding: 0.4rem 0.75rem;
-  }
-
-  .tool-icon {
-    width: 2.15rem;
-    height: 2.15rem;
-    border: 1px solid transparent;
-    border-radius: 0.35rem;
-  }
-
-  .tool-icon:hover,
-  .tool-icon.active {
-    border-color: #ff6a2a;
-    color: #f15a24;
-    background: #fff8f4;
-  }
-
-  .tool-icon.ghosted {
-    color: #3f4540;
-  }
-
-  .tool-divider {
-    width: 1px;
-    height: 1.8rem;
-    margin-inline: 0.25rem;
-    background: #dde1de;
-  }
-
-  .zoom-chip {
-    min-width: 4.2rem;
-    border-radius: 0.3rem;
-    background: #f5f6f4;
-    padding: 0.46rem 0.65rem;
-    color: #242824;
-    font-size: 0.8rem;
-    font-weight: 850;
-    text-align: center;
-  }
-
-  .viewer-tabs {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: clamp(0.8rem, 2vw, 2.2rem);
-    min-width: 0;
-    flex: 1 1 auto;
-    color: #202420;
-    font-size: 0.82rem;
-    font-weight: 800;
-  }
-
-  .viewer-tabs span {
-    display: inline-flex;
-    align-items: center;
-    min-height: 2.15rem;
-    border-bottom: 2px solid transparent;
-  }
-
-  .viewer-tabs .active {
-    color: #f15a24;
-    border-color: #f15a24;
-  }
-
-  .viewer-search {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.75rem;
-    margin-left: auto;
-    color: #111712;
-  }
-
   .viewer-body {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
+    height: 100%;
     min-height: 0;
+    overflow: hidden;
   }
 
   .viewer-body.with-sheets {
@@ -393,52 +270,12 @@
     position: relative;
     min-width: 0;
     min-height: 0;
-    overflow: hidden;
+    height: 100%;
+    overflow: auto;
     background: #dfe2e1;
   }
 
-  .viewer-file-title {
-    position: absolute;
-    left: 1rem;
-    top: 0.8rem;
-    z-index: 2;
-    max-width: min(42rem, calc(100% - 2rem));
-    overflow: hidden;
-    border: 1px solid rgba(25, 27, 25, 0.08);
-    border-radius: 0.35rem;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 0.42rem 0.62rem;
-    color: #181c18;
-    font-size: 0.78rem;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    box-shadow: 0 14px 35px -30px rgba(0, 0, 0, 0.6);
-  }
-
   @media (max-width: 900px) {
-    .viewer-page {
-      min-height: calc(100dvh - 4rem);
-    }
-
-    .viewer-topbar {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .viewer-right {
-      grid-column: auto;
-      justify-self: stretch;
-      justify-content: space-between;
-    }
-
-    .viewer-toolrow {
-      overflow-x: auto;
-    }
-
-    .viewer-tabs {
-      min-width: 18rem;
-      justify-content: flex-start;
-    }
-
     .viewer-body,
     .viewer-body.with-sheets {
       grid-template-columns: 1fr;

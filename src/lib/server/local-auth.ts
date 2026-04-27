@@ -6,10 +6,15 @@ const LOCAL_SESSION_COOKIE = 'pe_portal_session';
 const LOCAL_SESSION_MAX_AGE = 60 * 60 * 12;
 export const LOCAL_SUPERADMIN_ID = 'local-superadmin-jeremiah';
 export const LOCAL_SUPERADMIN_EMAIL = 'jeremiah@puebloelectrics.com';
-export const LOCAL_SUPERADMIN_PASSWORD = '<redacted-local-password>';
+
+export function getLocalSuperadminPassword() {
+  return serverEnv('PORTAL_LOCAL_SUPERADMIN_PASSWORD') ?? null;
+}
 
 function secret() {
-  return serverEnv('PORTAL_LOCAL_AUTH_SECRET', 'SUPABASE_SERVICE_ROLE_KEY') ?? LOCAL_SUPERADMIN_PASSWORD;
+  const value = serverEnv('PORTAL_LOCAL_AUTH_SECRET', 'SUPABASE_SERVICE_ROLE_KEY');
+  if (!value) throw new Error('Set PORTAL_LOCAL_AUTH_SECRET for local fallback admin sessions.');
+  return value;
 }
 
 function sign(payload: string) {
@@ -48,9 +53,12 @@ function localSuperadmin() {
 }
 
 export function isLocalSuperadminCredentials(email: string, password: string) {
+  const configuredPassword = getLocalSuperadminPassword();
+  if (!configuredPassword) return false;
+
   return (
     sameString(email.toLowerCase(), LOCAL_SUPERADMIN_EMAIL) &&
-    sameString(password, LOCAL_SUPERADMIN_PASSWORD)
+    sameString(password, configuredPassword)
   );
 }
 

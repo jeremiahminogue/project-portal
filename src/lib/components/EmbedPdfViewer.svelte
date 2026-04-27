@@ -13,6 +13,7 @@
 
   let target = $state<HTMLDivElement | null>(null);
   let error = $state('');
+  let useNativeFallback = $state(false);
 
   onMount(() => {
     let viewer:
@@ -25,12 +26,26 @@
       | undefined;
     let cancelled = false;
     const cleanup: Array<() => void> = [];
+    const fallbackTimer = window.setTimeout(() => {
+      const hasRenderedPage = Boolean(target?.querySelector('canvas, img, [data-page-index], [data-page-number], [class*="page-layer"], [class*="Page"]'));
+      if (!hasRenderedPage) useNativeFallback = true;
+    }, 6000);
+    cleanup.push(() => window.clearTimeout(fallbackTimer));
 
     function scrollToInitialPage(scroll: unknown, totalPages?: number) {
       const scrollCapability = scroll as { scrollToPage?: (options: { pageNumber: number; behavior?: 'instant' | 'smooth'; alignY?: number }) => void };
-      if (!scrollCapability.scrollToPage) return;
+      if (!scrollCapability.scrollToPage || !totalPages) return;
       const targetPage = Math.min(Math.max(1, page), Math.max(1, totalPages ?? page));
       scrollCapability.scrollToPage({ pageNumber: targetPage, behavior: 'instant', alignY: 0 });
+    }
+
+    function queueInitialScroll(scroll: unknown, totalPages?: number) {
+      if (!totalPages) return;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) scrollToInitialPage(scroll, totalPages);
+        });
+      });
     }
 
     async function mountViewer() {
@@ -76,10 +91,10 @@
         };
 
         const unsubscribe = scrollEvents.onLayoutReady?.((event) => {
-          if (!cancelled) scrollToInitialPage(scroll, event.totalPages);
+          if (!cancelled) queueInitialScroll(scroll, event.totalPages);
         });
         if (unsubscribe) cleanup.push(unsubscribe);
-        scrollToInitialPage(scroll, scrollEvents.getTotalPages?.());
+        queueInitialScroll(scroll, scrollEvents.getTotalPages?.());
       } catch (reason) {
         error = reason instanceof Error ? reason.message : 'Could not load PDF viewer.';
       }
@@ -103,15 +118,45 @@
     <a class="btn btn-primary" href={src} target="_blank" rel="noreferrer">Open PDF</a>
   </div>
 {:else}
-  <div bind:this={target} class="embedpdf-target" aria-label={`PDF viewer for ${title}`}></div>
+  <div class="embedpdf-shell">
+    <div class:native-hidden={useNativeFallback} bind:this={target} class="embedpdf-target" aria-label={`PDF viewer for ${title}`}></div>
+    {#if useNativeFallback}
+      <iframe class="native-pdf-fallback" src={src} title={`PDF viewer for ${title}`}></iframe>
+    {/if}
+  </div>
 {/if}
 
 <style>
+  .embedpdf-shell {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
   .embedpdf-target {
     width: 100%;
     height: 100%;
     min-height: 0;
     background: #2b2d2b;
+  }
+
+  .embedpdf-target.native-hidden {
+    display: none;
+  }
+
+  .native-pdf-fallback {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #eef0ef;
+  }
+
+  @media (max-width: 760px) {
+    .embedpdf-target,
+    .native-pdf-fallback {
+      min-width: 760px;
+    }
   }
 
   .viewer-error {
