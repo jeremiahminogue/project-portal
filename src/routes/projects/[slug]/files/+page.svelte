@@ -16,7 +16,6 @@
   } from '@lucide/svelte';
   import FileUploadButton from '$lib/components/FileUploadButton.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
-  import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate } from '$lib/utils';
 
   let { data } = $props();
@@ -161,14 +160,6 @@
     if (tag) return tag.replace(/^rev(?:ision)?[:\s-]*/i, '').trim() || '0';
     const match = file.name.match(/\b(?:rev(?:ision)?|r)[\s._-]*([A-Z0-9]+)\b/i);
     return match?.[1] ?? '0';
-  }
-
-  function statusFor(file: (typeof data.files)[number]) {
-    if (file.ocrStatus === 'indexed') return 'Indexed';
-    if (file.ocrStatus === 'partial') return 'Partial';
-    if (file.ocrStatus === 'failed') return 'OCR Failed';
-    if (file.ocrStatus === 'pending') return 'Pending';
-    return file.storageKey ? 'Published' : 'Pending';
   }
 
   function fileHasStorage(file: (typeof data.files)[number]) {
@@ -663,10 +654,20 @@
                     />
                   {/if}
                 </td>
-                <td colspan="6">
+                <td class="group-name-cell" colspan="5">
                   {#if renameGroupId === groupRenameKey(group)}
-                    <div class="inline-rename group-rename">
-                      <input class="field min-h-9 py-2 text-sm" bind:value={renameGroupName} aria-label="Folder name" />
+                    <input class="field group-rename-field" bind:value={renameGroupName} aria-label="Folder name" />
+                  {:else}
+                    <div class="group-label">
+                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group.name)}>
+                        {group.name} ({group.count})
+                      </button>
+                    </div>
+                  {/if}
+                </td>
+                <td class="group-action-cell">
+                  <div class="row-actions group-actions">
+                    {#if renameGroupId === groupRenameKey(group)}
                       <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save folder name">
                         <Check size={15} />
                       </button>
@@ -683,12 +684,7 @@
                       >
                         <X size={15} />
                       </button>
-                    </div>
-                  {:else}
-                    <div class="group-label">
-                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group.name)}>
-                        {group.name} ({group.count})
-                      </button>
+                    {:else}
                       {#if canModifyFiles && groupCanRename(group)}
                         <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} folder`}>
                           <Pencil size={12} />
@@ -701,8 +697,8 @@
                           <span>OCR</span>
                         </button>
                       {/if}
-                    </div>
-                  {/if}
+                    {/if}
+                  </div>
                 </td>
               </tr>
 
@@ -749,7 +745,6 @@
                           </td>
                           <td>
                             <div class="row-actions">
-                              <StatusPill label="Indexed" />
                               {#if renamePageId === pageRow.id}
                                 <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
                                   <Check size={15} />
@@ -802,7 +797,6 @@
                         <td><span class="set-link">{file.path}</span></td>
                         <td>
                           <div class="row-actions">
-                            <StatusPill label={statusFor(file)} />
                             {#if fileHasStorage(file)}
                               <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
                                 <Download size={15} />
@@ -881,7 +875,6 @@
                       <td><span class="set-link">{file.path}</span></td>
                       <td>
                         <div class="row-actions">
-                          <StatusPill label={statusFor(file)} />
                           {#if fileHasStorage(file)}
                             <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
                               <Download size={15} />
@@ -1043,11 +1036,25 @@
     min-width: 0;
   }
 
+  .group-name-cell {
+    min-width: 0;
+  }
+
   .group-name-button {
     min-width: 0;
     padding: 0;
     font-weight: 850;
     text-align: left;
+  }
+
+  .group-action-cell {
+    overflow: visible !important;
+    white-space: nowrap;
+  }
+
+  .group-actions {
+    justify-content: flex-start;
+    flex-wrap: nowrap;
   }
 
   .group-edit-button {
@@ -1069,8 +1076,15 @@
     opacity: 0.55;
   }
 
-  .group-rename {
+  .group-rename-field {
     max-width: 24rem;
+    min-height: 1.95rem;
+    border-color: #ff6a2a;
+    border-radius: 0.3rem;
+    padding: 0.34rem 0.48rem;
+    font-size: 0.78rem;
+    font-weight: 850;
+    box-shadow: 0 0 0 2px rgba(255, 106, 42, 0.08);
   }
 
   .collapsed-row td {
@@ -1147,14 +1161,6 @@
   .muted-link {
     color: #647064;
     text-decoration: none;
-  }
-
-  .inline-rename {
-    display: grid;
-    grid-template-columns: minmax(12rem, 1fr) auto auto;
-    align-items: center;
-    gap: 0.35rem;
-    max-width: 34rem;
   }
 
   .page-row td {
