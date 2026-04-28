@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { buildStorageKey, encodeStorageId, putObject } from '$lib/server/object-storage';
+import { buildStorageKey, encodeStorageId, putObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
@@ -81,18 +81,27 @@ export const POST: RequestHandler = async (event) => {
 
   const contentType = contentTypeFor(rawFile.name, rawFile.type);
   const storageKey = buildStorageKey(projectSlug, rawFile.name);
+  const bytes = new Uint8Array(await rawFile.arrayBuffer());
 
   if (!event.locals.supabase) {
-    const bytes = new Uint8Array(await rawFile.arrayBuffer());
-    await putObject(storageKey, bytes, contentType);
+    try {
+      await putObject(storageKey, bytes, contentType);
+    } catch (error) {
+      console.error('[files] direct upload failed:', error);
+      return json({ error: storageErrorMessage(error, 'upload this file') }, { status: storageErrorStatus(error) });
+    }
     return json({ id: encodeStorageId(storageKey), name: rawFile.name, storageKey }, { status: 201 });
   }
 
   const access = await requireProjectAccess(event, projectSlug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
-  const bytes = new Uint8Array(await rawFile.arrayBuffer());
-  await putObject(storageKey, bytes, contentType);
+  try {
+    await putObject(storageKey, bytes, contentType);
+  } catch (error) {
+    console.error('[files] direct upload failed:', error);
+    return json({ error: storageErrorMessage(error, 'upload this file') }, { status: storageErrorStatus(error) });
+  }
   const ocr = await analyzeDrawingUploadSafely(bytes, rawFile.name, contentType, folderName);
   const analysis = ocr.analysis;
 

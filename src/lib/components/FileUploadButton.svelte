@@ -11,20 +11,59 @@
   let uploading = $state(false);
   let message = $state('');
 
+  function contentTypeFor(file: File) {
+    if (file.type) return file.type;
+    if (/\.pdf$/i.test(file.name)) return 'application/pdf';
+    return 'application/octet-stream';
+  }
+
+  async function readJson(response: Response) {
+    return await response.json().catch(() => ({}));
+  }
+
   async function uploadOne(file: File) {
-    const form = new FormData();
-    form.set('projectSlug', projectSlug);
-    form.set('folderName', folderName);
-    form.set('file', file);
-
-    const response = await fetch('/api/files/upload', {
-        method: 'POST',
-        body: form
+    const contentType = contentTypeFor(file);
+    const uploadUrlResponse = await fetch('/api/files/upload-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectSlug,
+        filename: file.name,
+        sizeBytes: file.size,
+        contentType
+      })
     });
+    const uploadUrl = await readJson(uploadUrlResponse);
+    if (!uploadUrlResponse.ok || typeof uploadUrl.url !== 'string' || typeof uploadUrl.key !== 'string') {
+      throw new Error(uploadUrl.error ?? 'Could not prepare upload.');
+    }
 
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(result.error ?? 'Upload failed.');
-    return result.ocrDeferred ? `${file.name} uploaded. OCR is pending.` : `${file.name} uploaded.`;
+    const storageResponse = await fetch(uploadUrl.url, {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+      body: file
+    });
+    if (!storageResponse.ok) {
+      const details = await storageResponse.text().catch(() => '');
+      throw new Error(details || `Storage upload failed with status ${storageResponse.status}.`);
+    }
+
+    const registerResponse = await fetch('/api/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectSlug,
+        key: uploadUrl.key,
+        name: file.name,
+        sizeBytes: file.size,
+        mimeType: contentType,
+        folderName,
+        tags: []
+      })
+    });
+    const result = await readJson(registerResponse);
+    if (!registerResponse.ok) throw new Error(result.error ?? 'Upload saved to storage, but portal registration failed.');
+    return `${file.name} uploaded.`;
   }
 
   async function upload(files: File[]) {

@@ -48,8 +48,26 @@
       });
     }
 
+    async function pdfReadinessError(response: Response) {
+      const body = await response.clone().json().catch(() => null);
+      if (body && typeof body.error === 'string') return body.error;
+      const text = await response.text().catch(() => '');
+      return text || `PDF request failed with status ${response.status}.`;
+    }
+
+    async function assertPdfReadable() {
+      const response = await fetch(src, {
+        credentials: 'same-origin',
+        headers: {
+          Range: 'bytes=0-0'
+        }
+      });
+      if (!response.ok) throw new Error(await pdfReadinessError(response));
+    }
+
     async function mountViewer() {
       try {
+        await assertPdfReadable();
         const { default: EmbedPDF, ZoomMode } = await import('@embedpdf/snippet');
         if (cancelled || !target) return;
 

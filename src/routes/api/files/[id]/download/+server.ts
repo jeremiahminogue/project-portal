@@ -1,5 +1,12 @@
 import { json } from '@sveltejs/kit';
-import { contentDisposition, decodeStorageId, getObject, responseBody } from '$lib/server/object-storage';
+import {
+  contentDisposition,
+  decodeStorageId,
+  getObject,
+  responseBody,
+  storageErrorMessage,
+  storageErrorStatus
+} from '$lib/server/object-storage';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { createAdminClient } from '$lib/server/supabase-admin';
 import type { RequestHandler } from './$types';
@@ -53,7 +60,13 @@ export const GET: RequestHandler = async (event) => {
       if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
     }
 
-    const object = await getObject(storageKey, range);
+    let object: Awaited<ReturnType<typeof getObject>>;
+    try {
+      object = await getObject(storageKey, range);
+    } catch (error) {
+      console.error('[files] storage download failed:', error);
+      return json({ error: storageErrorMessage(error, 'read this file') }, { status: storageErrorStatus(error) });
+    }
     const filename = storageKey.split('/').pop() || 'project-file';
     return new Response(responseBody(object.Body), {
       status: range && object.ContentRange ? 206 : 200,
@@ -97,7 +110,13 @@ export const GET: RequestHandler = async (event) => {
   const access = await requireProjectAccess(event, project.slug);
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
-  const object = await getObject(file.storage_key, range);
+  let object: Awaited<ReturnType<typeof getObject>>;
+  try {
+    object = await getObject(file.storage_key, range);
+  } catch (error) {
+    console.error('[files] storage download failed:', error);
+    return json({ error: storageErrorMessage(error, 'read this file') }, { status: storageErrorStatus(error) });
+  }
   return new Response(responseBody(object.Body), {
     status: range && object.ContentRange ? 206 : 200,
     headers: headersFor({

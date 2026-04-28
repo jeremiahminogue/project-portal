@@ -169,6 +169,36 @@ export async function deleteObject(key: string) {
   );
 }
 
+function errorStatus(error: unknown) {
+  const metadata = (error as { $metadata?: { httpStatusCode?: number } } | null)?.$metadata;
+  return metadata?.httpStatusCode;
+}
+
+export function isObjectNotFoundError(error: unknown) {
+  const status = errorStatus(error);
+  const name = (error as { name?: string; Code?: string; code?: string } | null)?.name;
+  const code =
+    (error as { Code?: string; code?: string } | null)?.Code ??
+    (error as { Code?: string; code?: string } | null)?.code ??
+    name;
+  return status === 404 || code === 'NoSuchKey' || code === 'NotFound' || code === 'NotFoundException';
+}
+
+export function storageErrorStatus(error: unknown) {
+  if (isObjectNotFoundError(error)) return 404;
+  const status = errorStatus(error);
+  if (status === 401 || status === 403) return 502;
+  if (status && status >= 400 && status < 500) return 400;
+  return 502;
+}
+
+export function storageErrorMessage(error: unknown, action: string) {
+  if (isObjectNotFoundError(error)) return `Storage object was not found while trying to ${action}.`;
+  const raw = error instanceof Error ? error.message : '';
+  if (raw) return `Object storage could not ${action}: ${raw}`;
+  return `Object storage could not ${action}.`;
+}
+
 export async function listProjectObjects(projectSlug: string) {
   const config = getObjectStorageConfig();
   const [{ ListObjectsV2Command }, client] = await Promise.all([getS3Sdk(), getObjectStorageClient(config)]);

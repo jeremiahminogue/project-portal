@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { clearLocalAdminSession } from '$lib/server/local-auth';
-import { isConfiguredSuperadmin, setConfiguredSuperadminSession } from '$lib/server/superadmin';
+import { clearLocalAdminSession, setLocalAdminSession } from '$lib/server/local-auth';
+import { isConfiguredSuperadmin } from '$lib/server/superadmin';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url }) => {
@@ -25,7 +25,7 @@ export const actions: Actions = {
     if (!email || !password) return fail(400, { error: 'Email and password are required.', email });
 
     if (isConfiguredSuperadmin(email, password)) {
-      setConfiguredSuperadminSession(event);
+      setLocalAdminSession(event);
       throw redirect(303, safeNext(next));
     }
 

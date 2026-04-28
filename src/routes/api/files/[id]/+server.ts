@@ -1,5 +1,11 @@
 import { json } from '@sveltejs/kit';
-import { decodeStorageId, deleteObject } from '$lib/server/object-storage';
+import {
+  decodeStorageId,
+  deleteObject,
+  isObjectNotFoundError,
+  storageErrorMessage,
+  storageErrorStatus
+} from '$lib/server/object-storage';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { createAdminClient } from '$lib/server/supabase-admin';
 import type { RequestEvent } from './$types';
@@ -103,7 +109,14 @@ export const DELETE: RequestHandler = async (event) => {
       return json({ error: 'Only project admins can delete files.' }, { status: 403 });
     }
 
-    await deleteObject(storageKey);
+    try {
+      await deleteObject(storageKey);
+    } catch (error) {
+      if (!isObjectNotFoundError(error)) {
+        console.error('[files] storage-only delete failed:', error);
+        return json({ error: storageErrorMessage(error, 'delete this file') }, { status: storageErrorStatus(error) });
+      }
+    }
     return json({ ok: true });
   }
 
@@ -130,12 +143,24 @@ export const DELETE: RequestHandler = async (event) => {
     }
   }
 
-  if (loaded.file.storage_key) await deleteObject(loaded.file.storage_key);
-
   const client = databaseClient(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
   const { error } = await client.from('files').delete().eq('id', loaded.file.id);
   if (error) return json({ error: error.message }, { status: 500 });
+
+  if (loaded.file.storage_key) {
+    try {
+      await deleteObject(loaded.file.storage_key);
+    } catch (error) {
+      if (!isObjectNotFoundError(error)) {
+        console.error('[files] storage cleanup after database delete failed:', error);
+        return json({
+          ok: true,
+          warning: 'File was removed from the portal, but object storage cleanup failed.'
+        });
+      }
+    }
+  }
 
   return json({ ok: true });
 };

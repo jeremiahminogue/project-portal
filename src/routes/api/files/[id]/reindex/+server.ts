@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getObject } from '$lib/server/object-storage';
+import { getObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { createAdminClient } from '$lib/server/supabase-admin';
@@ -68,7 +68,14 @@ export const POST: RequestHandler = async (event) => {
 
   await client.from('files').update({ ocr_status: 'pending' }).eq('id', file.id);
 
-  const object = await getObject(file.storage_key);
+  let object: Awaited<ReturnType<typeof getObject>>;
+  try {
+    object = await getObject(file.storage_key);
+  } catch (error) {
+    console.error('[files] storage reindex read failed:', error);
+    await client.from('files').update({ ocr_status: 'failed' }).eq('id', file.id);
+    return json({ error: storageErrorMessage(error, 'read this file for OCR') }, { status: storageErrorStatus(error) });
+  }
   const bytes = await bodyToBytes(object.Body);
   const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentTypeFor(file.name, file.mime_type));
   const analysis = ocr.analysis;

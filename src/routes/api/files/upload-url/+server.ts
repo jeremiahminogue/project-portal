@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { buildStorageKey, createPresignedUploadUrl } from '$lib/server/object-storage';
+import { buildStorageKey, createPresignedUploadUrl, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
@@ -38,5 +38,10 @@ export const POST: RequestHandler = async (event) => {
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
   const key = buildStorageKey(projectSlug, filename);
-  return json(await createPresignedUploadUrl(key, contentType));
+  try {
+    return json(await createPresignedUploadUrl(key, contentType));
+  } catch (error) {
+    console.error('[files] presigned upload failed:', error);
+    return json({ error: storageErrorMessage(error, 'prepare the upload') }, { status: storageErrorStatus(error) });
+  }
 };
