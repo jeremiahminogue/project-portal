@@ -1,6 +1,11 @@
 import { error } from '@sveltejs/kit';
 import { contentDisposition, decodeStorageId } from '$lib/server/object-storage';
-import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import {
+  databaseClientForProjectAccess,
+  isProjectAccessError,
+  projectRoleCapabilities,
+  requireProjectAccess
+} from '$lib/server/project-access';
 import type { PageServerLoad } from './$types';
 
 function filenameFromStorageKey(key: string) {
@@ -19,6 +24,11 @@ function contentTypeFromName(name: string) {
 export const load: PageServerLoad = async (event) => {
   const access = await requireProjectAccess(event, event.params.slug);
   if (isProjectAccessError(access)) throw error(access.status, access.message);
+  const fileAccess = {
+    role: access.role,
+    canModify: projectRoleCapabilities[access.role].canEditFiles,
+    canDownload: projectRoleCapabilities[access.role].canDownloadFiles
+  };
 
   const storageKey = decodeStorageId(event.params.id);
   const downloadSrc = `/api/files/${encodeURIComponent(event.params.id)}/download?inline=1`;
@@ -40,6 +50,8 @@ export const load: PageServerLoad = async (event) => {
       downloadSrc,
       downloadUrl,
       backUrl,
+      markupsUrl: '',
+      fileAccess,
       contentDisposition: contentDisposition(name, 'inline')
     };
   }
@@ -87,6 +99,8 @@ export const load: PageServerLoad = async (event) => {
     downloadSrc,
     downloadUrl,
     backUrl,
+    markupsUrl: `/api/files/${encodeURIComponent(file.id)}/markups`,
+    fileAccess,
     contentDisposition: contentDisposition(file.name, 'inline')
   };
 };

@@ -231,19 +231,48 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(filesPage, /fileHasStorage\(file\) && fileIsPdf\(file\)/);
   assert.match(viewer, /const isPdf/);
   assert.match(viewer, /const viewerSrc/);
+  assert.match(viewer, /const viewerSrc = \$derived\(data\.downloadSrc\)/);
   assert.match(viewer, /page=\$\{pageNumber\}/);
+  assert.match(viewer, /markupsUrl=\{data\.markupsUrl\}/);
+  assert.match(viewer, /editable=\{Boolean\(data\.fileAccess\?\.canModify\)\}/);
+  assert.match(viewer, /originalDownloadUrl=\{data\.downloadUrl\}/);
   assert.match(viewer, /{:else if isImage}/);
   assert.match(viewer, /Preview is not available for this file type/);
   assert.match(viewerServer, /contentTypeFromName/);
+  assert.match(viewerServer, /projectRoleCapabilities/);
+  assert.match(viewerServer, /markupsUrl: `\/api\/files\/\$\{encodeURIComponent\(file\.id\)\}\/markups`/);
   assert.match(downloadRoute, /function pageRequest/);
   assert.match(downloadRoute, /async function singlePagePdf/);
   assert.match(downloadRoute, /PDFDocument\.load/);
   assert.match(deletePagesRoute, /deleteObject/);
   assert.match(deletePagesRoute, /deletedFiles/);
+  assert.doesNotMatch(viewer, /pdfPageSrc/);
   assert.doesNotMatch(embedViewer, /fallbackTimer/);
   assert.doesNotMatch(embedViewer, /native-pdf-fallback/);
   assert.doesNotMatch(embedViewer, /disabledCategories: \['annotation'/);
   assert.match(embedViewer, /enforceDocumentPermissions: false/);
+});
+
+test('PDF viewer supports saved markup layers and marked-up exports', () => {
+  const embedViewer = file('src/lib/components/EmbedPdfViewer.svelte');
+  const markupsRoute = file('src/routes/api/files/[id]/markups/+server.ts');
+  const migration = file('supabase/migrations/0009_file_markups.sql');
+  assert.match(embedViewer, /importAnnotations/);
+  assert.match(embedViewer, /exportAnnotations/);
+  assert.match(embedViewer, /saveAsCopy/);
+  assert.match(embedViewer, /Save markups/);
+  assert.match(embedViewer, /With markups/);
+  assert.match(embedViewer, /encodeMarkupValue/);
+  assert.match(embedViewer, /decodeMarkupValue/);
+  assert.match(markupsRoute, /requireProjectAccess\(event, loaded\.projectSlug/);
+  assert.match(markupsRoute, /action: 'save PDF markups'/);
+  assert.match(markupsRoute, /MAX_MARKUP_JSON_BYTES/);
+  assert.match(markupsRoute, /\.from\('file_markups'\)/);
+  assert.match(markupsRoute, /upsert/);
+  assert.match(migration, /create table if not exists file_markups/);
+  assert.match(migration, /annotations_json jsonb not null default '\[\]'::jsonb/);
+  assert.match(migration, /references files\(id\) on delete cascade/);
+  assert.match(migration, /Project members can update file markups/);
 });
 
 test('updates can attach project files and files include a documents view', () => {

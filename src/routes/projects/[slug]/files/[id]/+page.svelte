@@ -5,6 +5,7 @@
     ChevronRight,
     Download,
     FileText,
+    Pencil,
     PanelLeft,
     X
   } from '@lucide/svelte';
@@ -12,8 +13,9 @@
 
   let { data } = $props();
   let showSheets = $state(false);
-  const sheetCount = $derived(data.file.pages?.length || data.file.pageCount || 1);
-  const activePage = $derived(clampPage(Number($appPage.url.searchParams.get('page') ?? '1')));
+  const hasSheetIndex = $derived(Boolean(data.file.pages?.length));
+  const sheetCount = $derived(data.file.pages?.length || 1);
+  const activePage = $derived(hasSheetIndex ? clampPage(Number($appPage.url.searchParams.get('page') ?? '1')) : 1);
   const activeSheet = $derived(data.file.pages?.find((sheet) => sheet.pageNumber === activePage) ?? null);
   const title = $derived(
     activeSheet
@@ -27,7 +29,7 @@
   const nextPage = $derived(Math.min(sheetCount, activePage + 1));
   const isPdf = $derived(/pdf/i.test(data.file.mimeType ?? '') || /\.pdf$/i.test(data.file.name));
   const isImage = $derived((data.file.mimeType ?? '').startsWith('image/'));
-  const viewerSrc = $derived(isPdf ? pdfPageSrc(data.downloadSrc, activePage) : data.downloadSrc);
+  const viewerSrc = $derived(data.downloadSrc);
 
   function clampPage(value: number) {
     if (!Number.isFinite(value)) return 1;
@@ -38,37 +40,42 @@
     const params = pageNumber > 1 ? `?page=${pageNumber}` : '';
     return `${data.backUrl}/${encodeURIComponent(data.file.id)}${params}`;
   }
-
-  function pdfPageSrc(src: string, pageNumber: number) {
-    return `${src}${src.includes('?') ? '&' : '?'}page=${pageNumber}`;
-  }
 </script>
 
 <svelte:head>
-  <title>{title} | Drawing Viewer</title>
+  <title>{title} | PDF Viewer</title>
 </svelte:head>
 
 <section class="viewer-page">
   <header class="viewer-topbar">
     <div class="viewer-left">
-      <a class:disabled={activePage <= 1} class="nav-icon" href={viewerPageHref(previousPage)} aria-label="Previous sheet">
-        <ChevronLeft size={18} />
-      </a>
-      <button class:active={showSheets} class="nav-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index">
-        <PanelLeft size={18} />
-      </button>
-      <div class="sheet-pill">
-        <strong>{sheetLabel}</strong>
-        <span>{activePage} of {sheetCount}</span>
-      </div>
-      <span class="revision-pill">{data.file.revision ? `Rev ${data.file.revision}` : 'Current'}</span>
-      <a class:disabled={activePage >= sheetCount} class="nav-icon" href={viewerPageHref(nextPage)} aria-label="Next sheet">
-        <ChevronRight size={18} />
-      </a>
+      {#if hasSheetIndex}
+        <a class:disabled={activePage <= 1} class="nav-icon" href={viewerPageHref(previousPage)} aria-label="Previous sheet">
+          <ChevronLeft size={18} />
+        </a>
+        <button class:active={showSheets} class="nav-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index">
+          <PanelLeft size={18} />
+        </button>
+        <div class="sheet-pill">
+          <strong>{sheetLabel}</strong>
+          <span>{activePage} of {sheetCount}</span>
+        </div>
+        <span class="revision-pill">{data.file.revision ? `Rev ${data.file.revision}` : 'Current'}</span>
+        <a class:disabled={activePage >= sheetCount} class="nav-icon" href={viewerPageHref(nextPage)} aria-label="Next sheet">
+          <ChevronRight size={18} />
+        </a>
+      {:else}
+        <div class="sheet-pill document-pill">
+          <FileText size={15} />
+          <strong>{data.file.name}</strong>
+        </div>
+      {/if}
     </div>
     <div class="viewer-right">
-      <span>Read-only</span>
-      <a class="top-icon" href={data.downloadUrl} aria-label="Download drawing">
+      {#if data.fileAccess?.canModify}
+        <span class="markup-status"><Pencil size={14} /> Markup enabled</span>
+      {/if}
+      <a class="top-icon" href={data.downloadUrl} aria-label="Download original PDF" title="Download original">
         <Download size={16} />
       </a>
       <a class="exit-link" href={data.backUrl}>
@@ -78,8 +85,8 @@
     </div>
   </header>
 
-  <div class:with-sheets={showSheets} class="viewer-body">
-    {#if data.file.pages?.length && showSheets}
+  <div class:with-sheets={showSheets && hasSheetIndex} class="viewer-body">
+    {#if hasSheetIndex && showSheets}
       <aside class="sheet-index" aria-label="Sheet index">
         <div class="sheet-index-title">Sheets</div>
         {#each data.file.pages as page}
@@ -96,7 +103,14 @@
     <div class="viewer-frame">
       {#if isPdf}
         {#key viewerSrc}
-          <EmbedPdfViewer src={viewerSrc} title={title} page={1} />
+          <EmbedPdfViewer
+            src={viewerSrc}
+            title={title}
+            page={activePage}
+            markupsUrl={data.markupsUrl}
+            editable={Boolean(data.fileAccess?.canModify)}
+            originalDownloadUrl={data.downloadUrl}
+          />
         {/key}
       {:else if isImage}
         <div class="image-preview">
@@ -192,9 +206,26 @@
     background: #222422;
   }
 
+  .document-pill {
+    max-width: min(44rem, 62vw);
+  }
+
+  .document-pill strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .sheet-pill span {
     color: #aeb4ae;
     font-weight: 800;
+  }
+
+  .markup-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #bfe7c7;
   }
 
   .revision-pill {
