@@ -617,6 +617,7 @@
                       {#if documentTool === 'drawings' && canModifyFiles && group.folderId}
                         <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} group`}>
                           <Pencil size={14} />
+                          <span>Edit</span>
                         </button>
                       {/if}
                     </div>
@@ -944,10 +945,20 @@
 
   .group-edit-button {
     justify-content: center;
-    width: 1.45rem;
-    height: 1.45rem;
-    border-radius: 0.2rem;
-    color: #59615a;
+    gap: 0.3rem;
+    min-height: 1.65rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.28rem;
+    background: rgba(255, 255, 255, 0.72);
+    padding: 0.2rem 0.48rem;
+    color: #3f4640;
+    font-size: 0.72rem;
+    font-weight: 900;
+  }
+
+  .group-edit-button:disabled {
+    cursor: wait;
+    opacity: 0.55;
   }
 
   .group-rename {

@@ -646,9 +646,6 @@
   .max-w-48 {
     max-width: calc(var(--spacing) * 48);
   }
-  .max-w-64 {
-    max-width: calc(var(--spacing) * 64);
-  }
   .max-w-\[380px\] {
     max-width: 380px;
   }
@@ -721,9 +718,6 @@
   }
   .items-start {
     align-items: flex-start;
-  }
-  .items-stretch {
-    align-items: stretch;
   }
   .justify-between {
     justify-content: space-between;

@@ -29,7 +29,9 @@
   const nextPage = $derived(Math.min(sheetCount, activePage + 1));
   const isPdf = $derived(/pdf/i.test(data.file.mimeType ?? '') || /\.pdf$/i.test(data.file.name));
   const isImage = $derived((data.file.mimeType ?? '').startsWith('image/'));
-  const viewerSrc = $derived(data.downloadSrc);
+  const viewerSrc = $derived(isPdf && hasSheetIndex ? withQueryParam(data.downloadSrc, 'page', String(activePage)) : data.downloadSrc);
+  const activeDownloadUrl = $derived(hasSheetIndex ? withQueryParam(data.downloadUrl, 'page', String(activePage)) : data.downloadUrl);
+  const activeMarkupsUrl = $derived(hasSheetIndex && data.markupsUrl ? withQueryParam(data.markupsUrl, 'page', String(activePage)) : data.markupsUrl);
 
   function clampPage(value: number) {
     if (!Number.isFinite(value)) return 1;
@@ -39,6 +41,11 @@
   function viewerPageHref(pageNumber: number) {
     const params = pageNumber > 1 ? `?page=${pageNumber}` : '';
     return `${data.backUrl}/${encodeURIComponent(data.file.id)}${params}`;
+  }
+
+  function withQueryParam(src: string, key: string, value: string) {
+    const separator = src.includes('?') ? '&' : '?';
+    return `${src}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
   }
 </script>
 
@@ -75,7 +82,7 @@
       {#if data.fileAccess?.canModify}
         <span class="markup-status"><Pencil size={14} /> Markup enabled</span>
       {/if}
-      <a class="top-icon" href={data.downloadUrl} aria-label="Download original PDF" title="Download original">
+      <a class="top-icon" href={activeDownloadUrl} aria-label="Download original PDF" title="Download original">
         <Download size={16} />
       </a>
       <a class="exit-link" href={data.backUrl}>
@@ -107,9 +114,9 @@
             src={viewerSrc}
             title={title}
             page={activePage}
-            markupsUrl={data.markupsUrl}
+            markupsUrl={activeMarkupsUrl}
             editable={Boolean(data.fileAccess?.canModify)}
-            originalDownloadUrl={data.downloadUrl}
+            originalDownloadUrl={activeDownloadUrl}
           />
         {/key}
       {:else if isImage}

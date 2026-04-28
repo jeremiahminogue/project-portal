@@ -14,6 +14,13 @@ type LoadedFile =
   | { ok: true; file: { id: string; project_id: string; name: string }; projectSlug: string }
   | { ok: false; response: Response };
 
+function markupPageNumber(event: RequestEvent) {
+  const rawPage = event.url.searchParams.get('page');
+  if (!rawPage) return 0;
+  const page = Number(rawPage);
+  return Number.isInteger(page) && page > 0 ? page : -1;
+}
+
 async function loadFile(event: RequestEvent): Promise<LoadedFile> {
   const client = await databaseClientForCurrentUser(event);
   if (!client) return { ok: false, response: json({ error: 'Supabase is not configured yet.' }, { status: 400 }) };
@@ -43,6 +50,8 @@ async function loadFile(event: RequestEvent): Promise<LoadedFile> {
 export const GET: RequestHandler = async (event) => {
   const loaded = await loadFile(event);
   if (!loaded.ok) return loaded.response;
+  const pageNumber = markupPageNumber(event);
+  if (pageNumber < 0) return json({ error: 'Use a valid markup page number.' }, { status: 400 });
 
   const access = await requireProjectAccess(event, loaded.projectSlug);
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
@@ -54,6 +63,7 @@ export const GET: RequestHandler = async (event) => {
     .from('file_markups')
     .select('annotations_json, updated_at')
     .eq('file_id', loaded.file.id)
+    .eq('page_number', pageNumber)
     .maybeSingle();
 
   if (error) return json({ error: error.message }, { status: 500 });
@@ -66,6 +76,8 @@ export const GET: RequestHandler = async (event) => {
 export const PUT: RequestHandler = async (event) => {
   const loaded = await loadFile(event);
   if (!loaded.ok) return loaded.response;
+  const pageNumber = markupPageNumber(event);
+  if (pageNumber < 0) return json({ error: 'Use a valid markup page number.' }, { status: 400 });
 
   const access = await requireProjectAccess(event, loaded.projectSlug, {
     writable: true,
@@ -97,10 +109,11 @@ export const PUT: RequestHandler = async (event) => {
       {
         file_id: loaded.file.id,
         project_id: loaded.file.project_id,
+        page_number: pageNumber,
         annotations_json: body.annotations,
         updated_by: access.user.id
       },
-      { onConflict: 'file_id' }
+      { onConflict: 'file_id,page_number' }
     )
     .select('updated_at')
     .single();

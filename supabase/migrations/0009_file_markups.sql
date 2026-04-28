@@ -5,12 +5,25 @@ create table if not exists file_markups (
   id uuid primary key default gen_random_uuid(),
   file_id uuid not null references files(id) on delete cascade,
   project_id uuid not null references projects(id) on delete cascade,
+  page_number integer not null default 0,
   annotations_json jsonb not null default '[]'::jsonb,
   updated_by uuid references auth.users(id) on delete set null,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now(),
-  unique(file_id)
+  unique(file_id, page_number)
 );
+
+alter table file_markups add column if not exists page_number integer not null default 0;
+alter table file_markups drop constraint if exists file_markups_file_id_key;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'file_markups_file_id_page_number_key'
+  ) then
+    alter table file_markups add constraint file_markups_file_id_page_number_key unique(file_id, page_number);
+  end if;
+end $$;
 
 drop trigger if exists file_markups_updated_at on file_markups;
 create trigger file_markups_updated_at before update on file_markups
