@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { deleteObject, encodeStorageId, headObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { registerUploadedFile } from '$lib/server/file-ingest';
+import { normalizeDocumentKind } from '$lib/server/drawing-ocr';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { isProjectStorageKey, verifyUploadSession } from '$lib/server/upload-session';
 import type { RequestHandler } from './$types';
@@ -11,7 +12,8 @@ export const POST: RequestHandler = async (event) => {
   const { request, locals } = event;
   const body = await request.json().catch(() => null);
 
-  const { projectSlug, key, name, sizeBytes, mimeType, folderName, tags, uploadToken } = body ?? {};
+  const { projectSlug, key, name, sizeBytes, mimeType, folderName, documentKind, tags, uploadToken } = body ?? {};
+  const requestedDocumentKind = normalizeDocumentKind(documentKind) ?? 'file';
   if (
     typeof projectSlug !== 'string' ||
     typeof key !== 'string' ||
@@ -48,6 +50,7 @@ export const POST: RequestHandler = async (event) => {
     session.name !== name ||
     session.sizeBytes !== sizeBytes ||
     session.mimeType !== mimeType ||
+    session.documentKind !== requestedDocumentKind ||
     session.userId !== access.user.id
   ) {
     return json({ error: 'Upload metadata does not match the issued upload authorization.' }, { status: 400 });
@@ -75,6 +78,7 @@ export const POST: RequestHandler = async (event) => {
       sizeBytes,
       mimeType,
       folderName: typeof folderName === 'string' ? folderName : '',
+      documentKind: requestedDocumentKind,
       tags
     });
     return json(result, { status: result.ocrDeferred ? 202 : 201 });

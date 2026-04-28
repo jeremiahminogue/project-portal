@@ -8,7 +8,8 @@
     fullWidth = false,
     folderEditable = false,
     folderLabel = 'Folder',
-    folderPlaceholder = 'Folder name'
+    folderPlaceholder = 'Folder name',
+    documentKind = 'file'
   }: {
     projectSlug: string;
     folderName?: string;
@@ -16,6 +17,7 @@
     folderEditable?: boolean;
     folderLabel?: string;
     folderPlaceholder?: string;
+    documentKind?: 'drawing' | 'specification' | 'file';
   } = $props();
   let input: HTMLInputElement;
   let selectedFolderName = $state('');
@@ -58,6 +60,7 @@
     const form = new FormData();
     form.set('projectSlug', projectSlug);
     form.set('folderName', selectedFolderName.trim());
+    form.set('documentKind', documentKind);
     form.set('file', file, file.name);
 
     const response = await fetch('/api/files/upload', {
@@ -77,7 +80,8 @@
         projectSlug,
         filename: file.name,
         sizeBytes: file.size,
-        contentType
+        contentType,
+        documentKind
       })
     });
     const uploadUrl = await readJson(uploadUrlResponse);
@@ -110,6 +114,7 @@
         sizeBytes: file.size,
         mimeType: contentType,
         folderName: selectedFolderName.trim(),
+        documentKind,
         tags: [],
         uploadToken: uploadUrl.uploadToken
       })

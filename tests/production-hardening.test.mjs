@@ -156,6 +156,34 @@ test('PDF page indexing does not collapse when OCR fails or defers', () => {
   assert.match(reindex, /shouldReplaceDeferredPages/);
 });
 
+test('file uploads carry tool context so specs and documents stay out of drawings', () => {
+  const uploadButton = file('src/lib/components/FileUploadButton.svelte');
+  const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
+  const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
+  const registerRoute = file('src/routes/api/files/+server.ts');
+  const uploadRoute = file('src/routes/api/files/upload/+server.ts');
+  const uploadSession = file('src/lib/server/upload-session.ts');
+  const ingest = file('src/lib/server/file-ingest.ts');
+  const drawingOcr = file('src/lib/server/drawing-ocr.ts');
+  const reindex = file('src/routes/api/files/[id]/reindex/+server.ts');
+
+  assert.match(uploadButton, /documentKind = 'file'/);
+  assert.match(uploadButton, /form\.set\('documentKind', documentKind\)/);
+  assert.match(filesPage, /const uploadDocumentKind/);
+  assert.match(filesPage, /documentKind=\{uploadDocumentKind\}/);
+  assert.match(filesPage, /const defaultUploadFolder/);
+  assert.match(uploadUrlRoute, /normalizeDocumentKind/);
+  assert.match(registerRoute, /session\.documentKind/);
+  assert.match(uploadRoute, /formString\(form, 'documentKind'\)/);
+  assert.match(uploadSession, /documentKind: DocumentKind/);
+  assert.match(ingest, /pendingAnalysis\.documentKind === 'drawing'/);
+  assert.match(ingest, /analysis\.documentKind === 'drawing' \? analysis\.pages : \[\]/);
+  assert.match(drawingOcr, /documentKind !== 'drawing'/);
+  assert.match(drawingOcr, /rfi\|rfis/);
+  assert.match(reindex, /document_kind/);
+  assert.match(reindex, /classifyDocument/);
+});
+
 test('production hardening migration adds review RLS and audit log', () => {
   const migration = file('supabase/migrations/0006_production_hardening.sql');
   assert.match(migration, /can_project_write/);

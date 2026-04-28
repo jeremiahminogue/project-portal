@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import { buildStorageKey, createPresignedUploadUrl, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { issueUploadSession } from '$lib/server/upload-session';
+import { normalizeDocumentKind } from '$lib/server/drawing-ocr';
 import type { RequestHandler } from './$types';
 
 const MAX_BYTES = 100 * 1024 * 1024;
@@ -32,6 +33,7 @@ export const POST: RequestHandler = async (event) => {
   }
   if (sizeBytes > MAX_BYTES) return json({ error: 'File is too large.' }, { status: 413 });
   const contentType = contentTypeFor(filename, typeof body?.contentType === 'string' ? body.contentType : undefined);
+  const documentKind = normalizeDocumentKind(body?.documentKind) ?? 'file';
 
   if (!locals.supabase) {
     const key = buildStorageKey(projectSlug, filename);
@@ -52,6 +54,7 @@ export const POST: RequestHandler = async (event) => {
         name: filename,
         sizeBytes,
         mimeType: contentType,
+        documentKind,
         userId: access.user.id
       })
     });

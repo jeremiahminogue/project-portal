@@ -1,5 +1,5 @@
 import type { RequestEvent } from '@sveltejs/kit';
-import { basicDrawingAnalysis } from './drawing-ocr';
+import { basicDrawingAnalysis, normalizeDocumentKind, type DocumentKind } from './drawing-ocr';
 import { analyzeDrawingUploadSafely, shouldAnalyzeInline, shouldIndexPdfPages } from './ocr-processing';
 import { getObject, responseBody } from './object-storage';
 import { databaseClientForProjectAccess, type ProjectAccess } from './project-access';
@@ -12,6 +12,7 @@ type RegisterUploadedFileInput = {
   sizeBytes: number;
   mimeType: string;
   folderName?: string;
+  documentKind?: DocumentKind | string | null;
   tags?: unknown;
   bytes?: Uint8Array;
 };
@@ -107,20 +108,24 @@ export async function registerUploadedFile({
   sizeBytes,
   mimeType,
   folderName = '',
+  documentKind,
   tags = [],
   bytes
 }: RegisterUploadedFileInput) {
   const client = databaseClientForProjectAccess(event, access);
   if (!client) throw new Error('Supabase is not configured yet.');
 
-  const shouldLoadForIndexing = shouldAnalyzeInline(sizeBytes) || shouldIndexPdfPages(sizeBytes, name, mimeType);
+  const documentKindOverride = normalizeDocumentKind(documentKind);
+  const pendingAnalysis = basicDrawingAnalysis(name, mimeType, folderName, 'pending', documentKindOverride);
+  const shouldLoadForIndexing =
+    pendingAnalysis.documentKind === 'drawing' && (shouldAnalyzeInline(sizeBytes) || shouldIndexPdfPages(sizeBytes, name, mimeType, pendingAnalysis.documentKind));
   const analysisBytes = bytes ?? (shouldLoadForIndexing ? await objectBytes(storageKey) : undefined);
   const ocr = analysisBytes
-    ? await analyzeDrawingUploadSafely(analysisBytes, name, mimeType, folderName)
+    ? await analyzeDrawingUploadSafely(analysisBytes, name, mimeType, folderName, documentKindOverride)
     : {
-        analysis: basicDrawingAnalysis(name, mimeType, folderName, 'pending'),
-        completed: false,
-        reason: 'deferred_size' as const
+        analysis: pendingAnalysis,
+        completed: pendingAnalysis.documentKind !== 'drawing',
+        reason: pendingAnalysis.documentKind === 'drawing' ? ('deferred_size' as const) : undefined
       };
   const analysis = ocr.analysis;
   const parentFolderId = await folderIdFor(access.project.id, folderName, access.user.id, client);
@@ -161,12 +166,15 @@ export async function registerUploadedFile({
   const data = fileWrite.data;
 
   let warning: string | undefined;
-  if (analysis.pages.length > 0) {
-    const pageError = await replaceDrawingPages(client, access.project.id, data.id, analysis.pages);
-    if (pageError) {
+  const pageError = await replaceDrawingPages(client, access.project.id, data.id, analysis.documentKind === 'drawing' ? analysis.pages : []);
+  if (pageError) {
+    if (analysis.documentKind === 'drawing') {
       console.error('[files] drawing page insert failed after upload:', pageError);
       warning = 'File uploaded, but drawing page indexing needs to be re-run.';
       await client.from('files').update({ ocr_status: 'partial' }).eq('id', data.id);
+    } else {
+      console.error('[files] drawing page cleanup failed after upload:', pageError);
+      warning = 'File uploaded, but old drawing page rows need cleanup.';
     }
   }
 

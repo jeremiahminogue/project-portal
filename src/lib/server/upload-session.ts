@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import type { DocumentKind } from './drawing-ocr';
 import { isProductionRuntime, serverEnv } from './env';
 
 const UPLOAD_SESSION_TTL_MS = 15 * 60 * 1000;
@@ -10,6 +11,7 @@ export type UploadSession = {
   name: string;
   sizeBytes: number;
   mimeType: string;
+  documentKind: DocumentKind;
   userId: string;
   expiresAt: number;
 };
@@ -41,6 +43,7 @@ function isUploadSession(value: unknown): value is UploadSession {
     typeof candidate.name === 'string' &&
     typeof candidate.sizeBytes === 'number' &&
     typeof candidate.mimeType === 'string' &&
+    (candidate.documentKind === 'drawing' || candidate.documentKind === 'specification' || candidate.documentKind === 'file') &&
     typeof candidate.userId === 'string' &&
     typeof candidate.expiresAt === 'number'
   );

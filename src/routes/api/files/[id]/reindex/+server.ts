@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
-import type { DrawingPageAnalysis } from '$lib/server/drawing-ocr';
+import { classifyDocument, normalizeDocumentKind, type DrawingPageAnalysis } from '$lib/server/drawing-ocr';
 import {
   databaseClientForCurrentUser,
   databaseClientForProjectAccess,
@@ -73,7 +73,7 @@ export const POST: RequestHandler = async (event) => {
 
   const { data: file, error: fileError } = await client
     .from('files')
-    .select('id, project_id, name, storage_key, mime_type, page_count')
+    .select('id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count')
     .eq('id', event.params.id)
     .eq('is_folder', false)
     .maybeSingle();
@@ -95,6 +95,18 @@ export const POST: RequestHandler = async (event) => {
   client = databaseClientForProjectAccess(event, access);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
+  let folderName = '';
+  if (file.parent_folder_id) {
+    const { data: folder, error: folderError } = await client
+      .from('files')
+      .select('name')
+      .eq('id', file.parent_folder_id)
+      .eq('is_folder', true)
+      .maybeSingle();
+    if (folderError) return json({ error: folderError.message }, { status: 500 });
+    folderName = folder?.name ?? '';
+  }
+
   await client.from('files').update({ ocr_status: 'pending' }).eq('id', file.id);
 
   let object: Awaited<ReturnType<typeof getObject>>;
@@ -106,11 +118,15 @@ export const POST: RequestHandler = async (event) => {
     return json({ error: storageErrorMessage(error, 'read this file for OCR') }, { status: storageErrorStatus(error) });
   }
   const bytes = await bodyToBytes(object.Body);
-  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentTypeFor(file.name, file.mime_type));
+  const contentType = contentTypeFor(file.name, file.mime_type);
+  const storedDocumentKind = normalizeDocumentKind(file.document_kind);
+  const contextualDocumentKind = classifyDocument(file.name, contentType, folderName);
+  const documentKind = storedDocumentKind === 'drawing' && contextualDocumentKind !== 'drawing' ? contextualDocumentKind : storedDocumentKind;
+  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind);
   const analysis = ocr.analysis;
 
   if (!ocr.completed) {
-    const shouldReplaceDeferredPages = (file.page_count ?? 1) <= 1 && analysis.pages.length > 1;
+    const shouldReplaceDeferredPages = analysis.documentKind === 'drawing' && (file.page_count ?? 1) <= 1 && analysis.pages.length > 1;
     const { error: statusError } = await client
       .from('files')
       .update({
@@ -149,7 +165,7 @@ export const POST: RequestHandler = async (event) => {
 
   if (updateError) return json({ error: updateError.message }, { status: 500 });
 
-  const pageError = await replaceDrawingPages(client, file.project_id, file.id, analysis.pages);
+  const pageError = await replaceDrawingPages(client, file.project_id, file.id, analysis.documentKind === 'drawing' ? analysis.pages : []);
   if (pageError) return json({ error: pageError }, { status: 500 });
 
   return json({

@@ -84,3 +84,27 @@ test('drawing OCR prefers title block metadata over sheet index entries', async 
     ]
   );
 });
+
+test('explicit spec and document uploads are not split into drawing pages', async () => {
+  const { analyzeDrawingUpload, classifyDocument } = await loadDrawingOcrModule();
+  const bytes = await drawingPdf([
+    ['C-1.0', 'OVERALL SITE PLAN'],
+    ['C-1.1', 'OVERALL UTILITY PLAN']
+  ]);
+
+  const spec = await analyzeDrawingUpload(bytes, 'Project Manual.pdf', 'application/pdf', 'Specifications', 'specification');
+  assert.equal(spec.documentKind, 'specification');
+  assert.equal(spec.pageCount, 1);
+  assert.equal(spec.ocrStatus, 'skipped');
+  assert.deepEqual(spec.pages, []);
+
+  const document = await analyzeDrawingUpload(bytes, 'RFI-001 Response.pdf', 'application/pdf', 'RFIs', 'file');
+  assert.equal(document.documentKind, 'file');
+  assert.equal(document.pageCount, 1);
+  assert.equal(document.ocrStatus, 'skipped');
+  assert.deepEqual(document.pages, []);
+
+  assert.equal(classifyDocument('Project Manual.pdf', 'application/pdf', 'Specifications'), 'specification');
+  assert.equal(classifyDocument('RFI-001 Response.pdf', 'application/pdf', 'RFIs'), 'file');
+  assert.equal(classifyDocument('Inspection Report.pdf', 'application/pdf', 'Documents'), 'file');
+});

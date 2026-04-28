@@ -3,6 +3,7 @@ import {
   basicDrawingAnalysis,
   basicDrawingAnalysisFromBytes,
   isPdfDocument,
+  type DocumentKind,
   type DrawingAnalysis
 } from './drawing-ocr';
 import { serverEnv } from './env';
@@ -32,22 +33,23 @@ export function shouldAnalyzeInline(sizeBytes: number) {
   return sizeBytes <= INLINE_MAX_BYTES;
 }
 
-export function shouldIndexPdfPages(sizeBytes: number, filename: string, contentType: string) {
-  return isPdfDocument(filename, contentType) && sizeBytes <= PDF_PAGE_INDEX_MAX_BYTES;
+export function shouldIndexPdfPages(sizeBytes: number, filename: string, contentType: string, documentKind: DocumentKind = 'drawing') {
+  return documentKind === 'drawing' && isPdfDocument(filename, contentType) && sizeBytes <= PDF_PAGE_INDEX_MAX_BYTES;
 }
 
 export async function analyzeDrawingUploadSafely(
   bytes: Uint8Array,
   filename: string,
   contentType: string,
-  folderName = ''
+  folderName = '',
+  documentKindOverride: DocumentKind | null = null
 ): Promise<OcrOutcome> {
-  const pending = basicDrawingAnalysis(filename, contentType, folderName, 'pending');
+  const pending = basicDrawingAnalysis(filename, contentType, folderName, 'pending', documentKindOverride);
   if (pending.ocrStatus === 'skipped') return { analysis: pending, completed: true };
 
   if (!shouldAnalyzeInline(bytes.byteLength)) {
     return {
-      analysis: await basicDrawingAnalysisFromBytes(bytes, filename, contentType, folderName, 'pending'),
+      analysis: await basicDrawingAnalysisFromBytes(bytes, filename, contentType, folderName, 'pending', documentKindOverride),
       completed: false,
       reason: 'deferred_size'
     };
@@ -55,7 +57,7 @@ export async function analyzeDrawingUploadSafely(
 
   try {
     const analysis = await Promise.race([
-      analyzeDrawingUpload(bytes, filename, contentType, folderName),
+      analyzeDrawingUpload(bytes, filename, contentType, folderName, documentKindOverride),
       timeout(OCR_TIMEOUT_MS)
     ]);
     return { analysis, completed: true };
@@ -66,7 +68,8 @@ export async function analyzeDrawingUploadSafely(
       filename,
       contentType,
       folderName,
-      timedOut ? 'pending' : 'failed'
+      timedOut ? 'pending' : 'failed',
+      documentKindOverride
     );
     return {
       analysis,

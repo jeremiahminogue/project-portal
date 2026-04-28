@@ -20,6 +20,10 @@ export type DrawingAnalysis = {
   pages: DrawingPageAnalysis[];
 };
 
+export function normalizeDocumentKind(value: unknown): DocumentKind | null {
+  return value === 'drawing' || value === 'specification' || value === 'file' ? value : null;
+}
+
 const MAX_PAGE_TEXT = 8000;
 const MAX_FILE_TEXT = 16000;
 const DISCIPLINE_PREFIXES = new Set([
@@ -135,7 +139,7 @@ function analysisFromPages(
     sheetNumber: firstPage?.sheetNumber ?? fallback.sheetNumber,
     sheetTitle: firstPage?.sheetTitle ?? fallback.sheetTitle,
     revision: firstPage?.revision ?? fallback.revision,
-    ocrStatus: documentKind === 'file' ? 'skipped' : status,
+    ocrStatus: documentKind === 'drawing' ? status : 'skipped',
     ocrText: pages.map((page) => page.text).join('\n\n').slice(0, MAX_FILE_TEXT),
     pages
   };
@@ -354,7 +358,15 @@ async function ocrPdfPage(page: any) {
 
 export function classifyDocument(filename: string, contentType: string, folderName: string): DocumentKind {
   const haystack = `${filename} ${contentType} ${folderName}`.toLowerCase();
-  if (haystack.includes('spec')) return 'specification';
+  const folder = folderName.toLowerCase();
+  if (/\bspec(?:s|ification|ifications)?\b/.test(haystack) || haystack.includes('project manual') || /\bdivision\s+\d{1,2}\b/.test(haystack)) {
+    return 'specification';
+  }
+  if (
+    /\b(rfi|rfis|submittals?|documents?|contracts?|meeting notes?|schedules?|safety|photos?|pictures?|purchase orders?|close[-\s]?out|o&m)\b/.test(folder)
+  ) {
+    return 'file';
+  }
   if (haystack.includes('drawing') || haystack.includes('sheet') || haystack.includes('plan')) return 'drawing';
   if (contentType === 'application/pdf' || contentType.startsWith('image/')) return 'drawing';
   return 'file';
@@ -364,9 +376,10 @@ export function basicDrawingAnalysis(
   filename: string,
   contentType: string,
   folderName = '',
-  status: DrawingAnalysis['ocrStatus'] = 'pending'
+  status: DrawingAnalysis['ocrStatus'] = 'pending',
+  documentKindOverride: DocumentKind | null = null
 ): DrawingAnalysis {
-  const documentKind = classifyDocument(filename, contentType, folderName);
+  const documentKind = documentKindOverride ?? classifyDocument(filename, contentType, folderName);
   const fallback = parseSheetName(filename);
   return {
     documentKind,
@@ -374,7 +387,7 @@ export function basicDrawingAnalysis(
     sheetNumber: fallback.sheetNumber,
     sheetTitle: fallback.sheetTitle,
     revision: fallback.revision,
-    ocrStatus: documentKind === 'file' ? 'skipped' : status,
+    ocrStatus: documentKind === 'drawing' ? status : 'skipped',
     ocrText: '',
     pages: []
   };
@@ -391,10 +404,11 @@ export async function basicDrawingAnalysisFromBytes(
   filename: string,
   contentType: string,
   folderName = '',
-  status: DrawingAnalysis['ocrStatus'] = 'pending'
+  status: DrawingAnalysis['ocrStatus'] = 'pending',
+  documentKindOverride: DocumentKind | null = null
 ): Promise<DrawingAnalysis> {
-  const basic = basicDrawingAnalysis(filename, contentType, folderName, status);
-  if (basic.documentKind === 'file' || !isPdfDocument(filename, contentType)) return basic;
+  const basic = basicDrawingAnalysis(filename, contentType, folderName, status, documentKindOverride);
+  if (basic.documentKind !== 'drawing' || !isPdfDocument(filename, contentType)) return basic;
 
   try {
     const pages = await extractPdfPageSkeleton(bytes, filename);
@@ -493,14 +507,20 @@ async function extractImagePage(bytes: Uint8Array, filename: string): Promise<Dr
   };
 }
 
-export async function analyzeDrawingUpload(bytes: Uint8Array, filename: string, contentType: string, folderName = ''): Promise<DrawingAnalysis> {
-  const documentKind = classifyDocument(filename, contentType, folderName);
+export async function analyzeDrawingUpload(
+  bytes: Uint8Array,
+  filename: string,
+  contentType: string,
+  folderName = '',
+  documentKindOverride: DocumentKind | null = null
+): Promise<DrawingAnalysis> {
+  const documentKind = documentKindOverride ?? classifyDocument(filename, contentType, folderName);
   const fallback = parseSheetName(filename);
   const isPdf = isPdfDocument(filename, contentType);
   const isImage = contentType.startsWith('image/');
 
-  if (documentKind !== 'drawing' && documentKind !== 'specification') {
-    return basicDrawingAnalysis(filename, contentType, folderName, 'skipped');
+  if (documentKind !== 'drawing') {
+    return basicDrawingAnalysis(filename, contentType, folderName, 'skipped', documentKind);
   }
 
   try {

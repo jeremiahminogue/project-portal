@@ -56,7 +56,9 @@
   const canUploadFiles = $derived(Boolean(data.fileAccess?.canUpload));
   const canDeleteFiles = $derived(Boolean(data.fileAccess?.canDelete));
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
-  const uploadFolder = $derived(activeFolder === 'All files' ? (documentTool === 'documents' ? 'Documents' : '') : activeFolder);
+  const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
+  const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
+  const uploadFolder = $derived(activeFolder === 'All files' ? defaultUploadFolder : activeFolder);
 
   const toolFiles = $derived(
     data.files.filter((file) =>
@@ -94,10 +96,13 @@
   );
 
   function isSpecification(file: (typeof data.files)[number]) {
-    if (file.documentKind === 'specification') return true;
-    if (file.documentKind === 'drawing') return false;
     const haystack = `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase();
-    return haystack.includes('spec') || haystack.includes('specification') || haystack.includes('division ');
+    if (file.documentKind === 'specification') return true;
+    if (/\bspec(?:s|ification|ifications)?\b/.test(haystack) || haystack.includes('project manual') || /\bdivision\s+\d{1,2}\b/.test(haystack)) {
+      return true;
+    }
+    if (file.documentKind === 'drawing') return false;
+    return false;
   }
 
   function folderName(file: (typeof data.files)[number]) {
@@ -475,6 +480,7 @@
         <FileUploadButton
           projectSlug={data.project.id}
           folderName={uploadFolder}
+          documentKind={uploadDocumentKind}
           folderEditable={documentTool === 'drawings'}
           folderLabel="Drawing group"
           folderPlaceholder="General, Civil, Electrical..."

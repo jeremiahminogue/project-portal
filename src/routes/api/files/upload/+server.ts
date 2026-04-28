@@ -43,6 +43,7 @@ export const POST: RequestHandler = async (event) => {
   const form = await event.request.formData();
   const projectSlug = formString(form, 'projectSlug');
   const folderName = formString(form, 'folderName');
+  const documentKind = formString(form, 'documentKind');
   const rawFile = form.get('file');
 
   if (!projectSlug || !isUploadedFile(rawFile)) {
@@ -82,6 +83,7 @@ export const POST: RequestHandler = async (event) => {
       sizeBytes: rawFile.size,
       mimeType: contentType,
       folderName,
+      documentKind,
       bytes
     });
     return json(result, { status: result.ocrDeferred ? 202 : 201 });
