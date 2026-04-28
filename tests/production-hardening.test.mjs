@@ -219,3 +219,22 @@ test('updates can attach project files and files include a documents view', () =
   assert.match(filesPage, /tool'\) === 'documents'/);
   assert.match(nav, /label: 'Documents'/);
 });
+
+test('project overview supports progress tracking and photo uploads', () => {
+  const projectServer = file('src/routes/projects/[slug]/+page.server.ts');
+  const projectUi = file('src/routes/projects/[slug]/+page.svelte');
+  const access = file('src/lib/server/project-access.ts');
+  const uploadButton = file('src/lib/components/FileUploadButton.svelte');
+  const migration = file('supabase/migrations/0009_project_progress_updates.sql');
+  assert.match(projectServer, /updateProgress/);
+  assert.match(projectServer, /percent_complete: percent/);
+  assert.match(projectServer, /next_milestone_date: nextMilestoneDate/);
+  assert.match(projectUi, /Project progress/);
+  assert.match(projectUi, /Progress photos/);
+  assert.match(projectUi, /buttonLabel="Upload photos"/);
+  assert.match(uploadButton, /accept\?: string/);
+  assert.match(uploadButton, /\{accept\}/);
+  assert.match(access, /canEditProjectProgress/);
+  assert.match(migration, /Project members can update project progress/);
+  assert.match(migration, /public\.can_project_write\(id, auth\.uid\(\)\)/);
+});

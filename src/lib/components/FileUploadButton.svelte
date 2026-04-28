@@ -8,7 +8,9 @@
     fullWidth = false,
     folderEditable = false,
     folderLabel = 'Folder',
-    folderPlaceholder = 'Folder name'
+    folderPlaceholder = 'Folder name',
+    accept = '',
+    buttonLabel = 'Upload files'
   }: {
     projectSlug: string;
     folderName?: string;
@@ -16,6 +18,8 @@
     folderEditable?: boolean;
     folderLabel?: string;
     folderPlaceholder?: string;
+    accept?: string;
+    buttonLabel?: string;
   } = $props();
   let input: HTMLInputElement;
   let selectedFolderName = $state('');
@@ -162,7 +166,7 @@
 </script>
 
 <div class={`flex flex-col gap-1 ${fullWidth ? 'items-stretch' : 'items-end'}`}>
-  <input bind:this={input} class="sr-only" type="file" multiple onchange={onChange} />
+  <input bind:this={input} class="sr-only" type="file" {accept} multiple onchange={onChange} />
   {#if folderEditable}
     <label class={`upload-group-field ${fullWidth ? 'w-full' : ''}`}>
       <span>{folderLabel}</span>
@@ -171,7 +175,7 @@
   {/if}
   <button class={`btn btn-primary ${fullWidth ? 'w-full' : ''}`} type="button" disabled={uploading} onclick={() => input?.click()}>
     <UploadCloud size={16} />
-    {uploading ? 'Uploading...' : 'Upload files'}
+    {uploading ? 'Uploading...' : buttonLabel}
   </button>
   {#if message}
     <p class={`max-w-64 text-xs font-semibold text-pe-sub ${fullWidth ? 'text-left' : 'text-right'}`}>{message}</p>
