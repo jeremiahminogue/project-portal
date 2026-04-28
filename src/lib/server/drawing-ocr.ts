@@ -50,11 +50,13 @@ function cleanText(value: string) {
 
 function normalizeSheetNumber(value: string | null) {
   if (!value) return null;
-  const compact = value.replace(/\s+/g, '').replaceAll('_', '-').toUpperCase();
+  const raw = value.trim();
+  const compact = raw.replace(/\s+/g, '').replaceAll('_', '-').toUpperCase();
   const match = compact.match(/^([A-Z]{1,3})[-.]?([0-9OILSZ]+)(?:[-.]?([0-9OILSZ]+))?([A-Z]?)$/);
   if (!match) return compact;
   const [, prefix, primaryRaw, secondaryRaw, suffix] = match;
   if (!DISCIPLINE_PREFIXES.has(prefix)) return null;
+  const sourceSeparator = raw.match(/^[A-Z]{1,3}([-_\s.]?)[0-9OILSZ]/i)?.[1] ?? '';
   const fixDigits = (part: string) =>
     part
       .replaceAll('O', '0')
@@ -64,7 +66,7 @@ function normalizeSheetNumber(value: string | null) {
       .replaceAll('Z', '2');
   const primary = fixDigits(primaryRaw);
   const secondary = secondaryRaw ? fixDigits(secondaryRaw) : '';
-  const separator = prefix.length > 1 || primary.length > 2 ? '-' : '';
+  const separator = /[-_]/.test(sourceSeparator) || prefix.length > 1 || primary.length > 2 ? '-' : '';
   return `${prefix}${separator}${primary}${secondary ? `.${secondary}` : ''}${suffix}`;
 }
 
@@ -79,17 +81,18 @@ function usableTitleLine(line: string) {
 
 function stripSheetNumber(line: string, sheetNumber: string | null) {
   if (!sheetNumber) return cleanText(line);
-  return cleanText(line.replace(new RegExp(`\\b${sheetNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i'), '').replace(/[-:|]+/g, ' '));
+  return cleanText(line.replace(sheetNumberSearchPattern(sheetNumber), '').replace(/[-:|]+/g, ' '));
 }
 
 export function parseSheetName(value: string) {
-  const withoutExt = value.replace(/\.[^.]+$/, '').replaceAll('_', ' ');
+  const withoutExt = value.replace(/\.[^.]+$/, '');
+  const displayName = withoutExt.replaceAll('_', ' ');
   const sheetNumber = normalizeSheetNumber(withoutExt.match(SHEET_NUMBER_PATTERN)?.[0] ?? null);
-  const sheetTitle = stripSheetNumber(withoutExt, sheetNumber);
+  const sheetTitle = stripSheetNumber(displayName, sheetNumber);
   return {
     sheetNumber,
     sheetTitle: usableTitleLine(sheetTitle) ? sheetTitle : null,
-    revision: extractRevision([withoutExt])
+    revision: extractRevision([displayName])
   };
 }
 
@@ -155,44 +158,58 @@ function candidateSheetNumbers(line: string) {
   return candidates;
 }
 
-function scoreSheetCandidate(line: string, sheetNumber: string, lineIndex: number, totalLines: number) {
+function sheetNumberSearchPattern(sheetNumber: string) {
+  const flexible = sheetNumber
+    .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\\-/g, '[-\\s_.]?')
+    .replace(/\\\./g, '[.\\s_-]?');
+  return new RegExp(`\\b${flexible}\\b`, 'i');
+}
+
+function scoreSheetCandidate(line: string, sheetNumber: string, lineIndex: number, totalLines: number, lines: string[] = []) {
   let score = 0;
   const compactLine = cleanText(line).toLowerCase();
+  const nearbyPreviousLines = lines.slice(Math.max(0, lineIndex - 8), lineIndex + 1).join(' ').toLowerCase();
   const prefix = sheetNumber.match(/^[A-Z]+/)?.[0] ?? '';
   if (sheetNumber.includes('-') || sheetNumber.includes('.')) score += 6;
   if (prefix.length > 1) score += 4;
   if (/\b(sheet|drawing)\s*(no\.?|number|#)\b/i.test(line)) score += 8;
-  if (new RegExp(`\\b${sheetNumber.replace('-', '[-\\s_.]?')}\\b`, 'i').test(line)) score += 3;
+  if (sheetNumberSearchPattern(sheetNumber).test(line)) score += 3;
   if (lineIndex > totalLines * 0.55) score += 2;
   if (compactLine.includes('sheet list') || compactLine.includes('sheet index')) score -= 4;
+  if (nearbyPreviousLines.includes('sheet list') || nearbyPreviousLines.includes('sheet index')) score -= 8;
   if (/\bsheet\s+\d+\b/i.test(line) && /^T\d+$/i.test(sheetNumber)) score -= 10;
   if (/^(REV|R|NO|N|SHT)/i.test(sheetNumber)) score -= 12;
   return score;
 }
 
-function extractSheetNumber(lines: string[]) {
+function bestSheetNumberCandidate(lines: string[]) {
   const labelIndex = lines.findIndex((line) => /\b(sheet|drawing)\s*(no\.?|number|#)\b/i.test(line));
   if (labelIndex >= 0) {
     const labelled = lines.slice(labelIndex, labelIndex + 5);
     const labelledCandidates = labelled.flatMap((line, index) =>
       candidateSheetNumbers(line).map((sheetNumber) => ({
         sheetNumber,
-        score: scoreSheetCandidate(line, sheetNumber, labelIndex + index, lines.length) + 10
+        score: scoreSheetCandidate(line, sheetNumber, labelIndex + index, lines.length, lines) + 10
       }))
     );
     labelledCandidates.sort((a, b) => b.score - a.score);
-    if (labelledCandidates[0]?.sheetNumber) return labelledCandidates[0].sheetNumber;
+    if (labelledCandidates[0]?.sheetNumber) return labelledCandidates[0];
   }
 
   const candidates = lines.flatMap((line, index) =>
     candidateSheetNumbers(line).map((sheetNumber) => ({
       sheetNumber,
-      score: scoreSheetCandidate(line, sheetNumber, index, lines.length)
+      score: scoreSheetCandidate(line, sheetNumber, index, lines.length, lines)
     }))
   );
 
   candidates.sort((a, b) => b.score - a.score);
-  return candidates[0]?.sheetNumber ?? null;
+  return candidates[0] ?? null;
+}
+
+function extractSheetNumber(lines: string[]) {
+  return bestSheetNumberCandidate(lines)?.sheetNumber ?? null;
 }
 
 function lineMentionsSheetNumber(line: string, sheetNumber: string) {
@@ -319,12 +336,17 @@ async function ocrPdfPage(page: any) {
     const canvas = canvasKit.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const canvasContext = canvas.getContext('2d');
     await page.render({ canvasContext, viewport }).promise;
-    const cropTexts = await Promise.all([
+    const titleBlockTexts = await Promise.all([
       recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.68, 0, canvas.width * 0.32, canvas.height)),
-      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.54, canvas.height * 0.68, canvas.width * 0.46, canvas.height * 0.32)),
-      recognizeImage(new Uint8Array(canvas.toBuffer('image/png')))
+      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.54, canvas.height * 0.68, canvas.width * 0.46, canvas.height * 0.32))
     ]);
-    return cropTexts.join('\n').slice(0, MAX_PAGE_TEXT);
+    const titleBlockText = titleBlockTexts.join('\n').slice(0, MAX_PAGE_TEXT);
+    const titleBlockLines = linesFromText(titleBlockText);
+    const sheetNumber = extractSheetNumber(titleBlockLines);
+    if (sheetNumber && extractSheetTitle(titleBlockLines, sheetNumber)) return titleBlockText;
+
+    const fullPageText = await recognizeImage(new Uint8Array(canvas.toBuffer('image/png')));
+    return [titleBlockText, fullPageText].filter(Boolean).join('\n').slice(0, MAX_PAGE_TEXT);
   } catch {
     return '';
   }
@@ -398,27 +420,42 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
       const titleBlockLines = positionedLines(textContent, page, 'titleBlock');
-      let text = textContent.items
+      const positionedFullPageLines = positionedLines(textContent, page, 'all');
+      const rawText = textContent.items
         .map((item: unknown) => {
           const candidate = item as { str?: string };
           return candidate.str ?? '';
         })
         .join('\n')
         .slice(0, MAX_PAGE_TEXT);
-      let lines = linesFromText(text);
+      let lines = positionedFullPageLines.length ? positionedFullPageLines : linesFromText(rawText);
+      let text = lines.length ? lines.join('\n').slice(0, MAX_PAGE_TEXT) : rawText;
       const filenameFallback = pageNumber === 1 ? parseSheetName(filename) : { sheetNumber: null, sheetTitle: null, revision: null };
-      let sheetNumber = extractSheetNumber(titleBlockLines) ?? extractSheetNumber(lines) ?? filenameFallback.sheetNumber;
+      const titleBlockSheetCandidate = bestSheetNumberCandidate(titleBlockLines);
+      const fullPageSheetCandidate = bestSheetNumberCandidate(lines);
+      let sheetNumber = titleBlockSheetCandidate?.sheetNumber ?? fullPageSheetCandidate?.sheetNumber ?? filenameFallback.sheetNumber;
+      let sheetNumberScore = titleBlockSheetCandidate?.score ?? fullPageSheetCandidate?.score ?? 0;
+      let sheetNumberFromTitleBlock = Boolean(titleBlockSheetCandidate);
       let sheetTitle = extractSheetTitle(titleBlockLines, sheetNumber) ?? extractSheetTitle(lines, sheetNumber) ?? filenameFallback.sheetTitle;
       let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
 
       if (needsOcr(text, lines, sheetNumber, sheetTitle) || !sheetNumber) {
         const ocrText = await ocrPdfPage(page);
         if (ocrText) {
-          text = ocrText;
-          lines = linesFromText(text);
-          sheetNumber = extractSheetNumber(lines) ?? sheetNumber;
-          sheetTitle = extractSheetTitle(lines, sheetNumber) ?? sheetTitle;
-          revision = extractRevision(lines) ?? revision;
+          const ocrLines = linesFromText(ocrText);
+          const ocrSheetCandidate = bestSheetNumberCandidate(ocrLines);
+          if (
+            ocrSheetCandidate?.sheetNumber &&
+            (!sheetNumber || (!sheetNumberFromTitleBlock && ocrSheetCandidate.score > sheetNumberScore + 4))
+          ) {
+            sheetNumber = ocrSheetCandidate.sheetNumber;
+            sheetNumberScore = ocrSheetCandidate.score;
+            sheetNumberFromTitleBlock = false;
+          }
+          sheetTitle = extractSheetTitle(ocrLines, sheetNumber) ?? sheetTitle;
+          revision = extractRevision(ocrLines) ?? revision;
+          text = [text, ocrText].filter(Boolean).join('\n\n').slice(0, MAX_PAGE_TEXT);
+          lines = [...lines, ...ocrLines].slice(0, 180);
         }
       }
 
