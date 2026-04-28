@@ -29,15 +29,25 @@
   let notice = $state('');
   let selectedPageIds = $state<string[]>([]);
 
-  const documentTool = $derived($page.url.searchParams.get('tool') === 'specifications' ? 'specifications' : 'drawings');
-  const toolTitle = $derived(documentTool === 'specifications' ? 'Specifications' : 'Drawings');
+  const documentTool = $derived(
+    $page.url.searchParams.get('tool') === 'specifications'
+      ? 'specifications'
+      : $page.url.searchParams.get('tool') === 'documents'
+        ? 'documents'
+        : 'drawings'
+  );
+  const toolTitle = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : 'Drawings');
   const canModifyFiles = $derived(Boolean(data.fileAccess?.canModify));
   const canUploadFiles = $derived(Boolean(data.fileAccess?.canUpload));
   const canDeleteFiles = $derived(Boolean(data.fileAccess?.canDelete));
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
-  const uploadFolder = $derived(activeFolder === 'All files' ? '' : activeFolder);
+  const uploadFolder = $derived(activeFolder === 'All files' ? (documentTool === 'documents' ? 'Documents' : '') : activeFolder);
 
-  const toolFiles = $derived(data.files.filter((file) => (documentTool === 'specifications' ? isSpecification(file) : !isSpecification(file))));
+  const toolFiles = $derived(
+    data.files.filter((file) =>
+      documentTool === 'specifications' ? isSpecification(file) : documentTool === 'documents' ? isGeneralDocument(file) : isDrawing(file)
+    )
+  );
   const filteredFiles = $derived(
     toolFiles.filter((file) => {
       const folderOk = activeFolder === 'All files' || file.path.startsWith(`${activeFolder}/`);
@@ -72,6 +82,37 @@
 
   function folderName(file: (typeof data.files)[number]) {
     return file.path.includes('/') ? file.path.split('/')[0] : 'General';
+  }
+
+  function isGeneralDocument(file: (typeof data.files)[number]) {
+    if (isSpecification(file)) return false;
+    const folder = folderName(file).toLowerCase();
+    if (
+      [
+        'documents',
+        'general documents',
+        'meeting notes',
+        'contract',
+        'change order',
+        'close out documents',
+        'estimate info',
+        'notice to proceed',
+        "o&m's",
+        'pictures',
+        'purchase orders',
+        'rfi',
+        'safety',
+        'schedules',
+        'submittals'
+      ].includes(folder)
+    ) {
+      return true;
+    }
+    return file.documentKind === 'file' || file.type !== 'pdf';
+  }
+
+  function isDrawing(file: (typeof data.files)[number]) {
+    return !isSpecification(file) && !isGeneralDocument(file);
   }
 
   function documentNumber(file: (typeof data.files)[number]) {
@@ -335,6 +376,8 @@
       <p>
         {documentTool === 'specifications'
           ? 'Keep project specifications separate from drawing revisions and file uploads.'
+          : documentTool === 'documents'
+            ? 'Store general project documents, meeting notes, contracts, schedules, photos, and shared references.'
           : 'View current drawings, revision status, published sets, and project downloads.'}
       </p>
     </div>
@@ -410,11 +453,11 @@
                   />
                 {/if}
               </th>
-              <th>{documentTool === 'specifications' ? 'Section' : 'Number'}</th>
-              <th>{documentTool === 'specifications' ? 'Specification Title' : 'Drawing Title'}</th>
-              <th>Revision</th>
-              <th>{documentTool === 'specifications' ? 'Uploaded' : 'Drawing Date'}</th>
-              <th>{documentTool === 'specifications' ? 'Folder' : 'Set'}</th>
+              <th>{documentTool === 'specifications' ? 'Section' : documentTool === 'documents' ? 'File' : 'Number'}</th>
+              <th>{documentTool === 'specifications' ? 'Specification Title' : documentTool === 'documents' ? 'Document' : 'Drawing Title'}</th>
+              <th>{documentTool === 'documents' ? 'Type' : 'Revision'}</th>
+              <th>{documentTool === 'drawings' ? 'Drawing Date' : 'Uploaded'}</th>
+              <th>{documentTool === 'drawings' ? 'Set' : 'Folder'}</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -463,7 +506,7 @@
                       </span>
                     {/if}
                   </td>
-                  <td>{revisionFor(file)}</td>
+                  <td>{documentTool === 'documents' ? file.type.toUpperCase() : revisionFor(file)}</td>
                   <td>{formatDate(file.updatedAt)}</td>
                   <td><span class="set-link">{file.path}</span></td>
                   <td>

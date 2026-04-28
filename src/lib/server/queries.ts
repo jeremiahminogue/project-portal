@@ -67,8 +67,34 @@ export type PortalSubmittal = Submittal & {
 export type PortalRfi = RFI & {
   id?: string;
   title?: string;
+  suggestedSolution?: string | null;
+  reference?: string | null;
   answer?: string | null;
 };
+
+type UpdateAttachment = NonNullable<Update['attachments']>[number];
+
+function normalizeUpdateAttachments(value: unknown): UpdateAttachment[] {
+  const candidate = Array.isArray(value)
+    ? value
+    : Array.isArray((value as { attachments?: unknown[] } | null)?.attachments)
+      ? (value as { attachments: unknown[] }).attachments
+      : [];
+
+  return candidate
+    .map((item): UpdateAttachment | null => {
+      const attachment = item as Partial<UpdateAttachment> | null;
+      if (!attachment?.name) return null;
+      return {
+        name: String(attachment.name),
+        size: typeof attachment.size === 'string' ? attachment.size : '',
+        type: typeof attachment.type === 'string' ? attachment.type : 'file',
+        ...(typeof attachment.id === 'string' ? { id: attachment.id } : {}),
+        ...(typeof attachment.path === 'string' ? { path: attachment.path } : {})
+      };
+    })
+    .filter((item): item is UpdateAttachment => Boolean(item));
+}
 
 const phaseToStatus: Record<string, Project['status']> = {
   pre_con: 'Pre-Con',
@@ -282,7 +308,7 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
 
   const { data, error } = await client
     .from('rfis')
-    .select('id, number, title, question, opened_date, due_date, assigned_to, assigned_org, status, answer')
+    .select('id, number, title, question, suggested_solution, reference, opened_date, due_date, assigned_to, assigned_org, status, answer')
     .eq('project_id', projectId)
     .order('opened_date', { ascending: false });
 
@@ -297,6 +323,8 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
       number: row.number,
       title: row.title,
       question: row.question ?? '',
+      suggestedSolution: row.suggested_solution ?? '',
+      reference: row.reference ?? '',
       openedDate: row.opened_date ?? '',
       dueDate: row.due_date ?? '',
       assignedTo: profileDisplayName(assigned),
@@ -499,7 +527,7 @@ export async function getUpdates(event: EventLike, slug: string): Promise<Update
 
   const { data, error } = await client
     .from('updates')
-    .select('id, kind, title, body, created_at, author_id')
+    .select('id, kind, title, body, attachments_json, created_at, author_id')
     .eq('project_id', projectId)
     .order('created_at', { ascending: false });
 
@@ -519,7 +547,8 @@ export async function getUpdates(event: EventLike, slug: string): Promise<Update
       postedDate: posted.toISOString(),
       postedTime: relativeTime(row.created_at),
       likes: 0,
-      commentCount: 0
+      commentCount: 0,
+      attachments: normalizeUpdateAttachments(row.attachments_json)
     };
   });
 }

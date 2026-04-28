@@ -61,7 +61,7 @@
     <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/files`}>
       <FolderOpen class="text-pe-green" size={24} />
       <div class="mt-4 text-3xl font-black text-pe-body">{data.files.length}</div>
-      <div class="text-sm font-bold text-pe-sub">Drawings & specs</div>
+      <div class="text-sm font-bold text-pe-sub">Drawings, specs & docs</div>
     </a>
     <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/directory`}>
       <Users class="text-pe-green" size={24} />

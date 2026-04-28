@@ -16,6 +16,15 @@ export const load: PageServerLoad = async (event) => {
   return { project, rfis, directory };
 };
 
+async function nextRfiNumber(client: NonNullable<App.Locals['supabase']>, projectId: string) {
+  const { count, error } = await client
+    .from('rfis')
+    .select('id', { count: 'exact', head: true })
+    .eq('project_id', projectId);
+  if (error) throw new Error(error.message);
+  return `RFI-${String((count ?? 0) + 1).padStart(3, '0')}`;
+}
+
 export const actions: Actions = {
   createRfi: async (event) => {
     const client = event.locals.supabase;
@@ -28,14 +37,23 @@ export const actions: Actions = {
     });
     if (isProjectAccessError(access)) return actionError(access.message, access.status);
 
-    const number = formString(form, 'number');
-    const title = formString(form, 'title') || number;
+    let number = formString(form, 'number');
+    const title = formString(form, 'subject') || formString(form, 'title') || number;
     const question = formString(form, 'question');
+    const suggestedSolution = formOptional(form, 'suggestedSolution');
+    const reference = formOptional(form, 'reference');
     const dueDate = formOptional(form, 'dueDate');
     const assignedTo = formOptional(form, 'assignedTo');
     const assignedOrg = formOptional(form, 'assignedOrg');
 
-    if (!number || !question) return fail(400, { error: 'Number and question are required.' });
+    if (!title || !question) return fail(400, { error: 'Subject and question are required.' });
+    if (!number) {
+      try {
+        number = await nextRfiNumber(client, access.project.id);
+      } catch (error) {
+        return fail(400, { error: error instanceof Error ? error.message : 'Could not create the next RFI number.' });
+      }
+    }
     if (assignedTo) {
       const { data: assignee, error: assigneeError } = await client
         .from('project_members')
@@ -52,6 +70,8 @@ export const actions: Actions = {
       number,
       title,
       question,
+      suggested_solution: suggestedSolution,
+      reference,
       opened_date: new Date().toISOString().slice(0, 10),
       due_date: dueDate,
       assigned_to: assignedTo,

@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { getObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
+import type { DrawingPageAnalysis } from '$lib/server/drawing-ocr';
 import {
   databaseClientForCurrentUser,
   databaseClientForProjectAccess,
@@ -40,13 +41,39 @@ function contentTypeFor(filename: string, contentType?: string | null) {
   return /\.pdf$/i.test(filename) ? 'application/pdf' : 'application/octet-stream';
 }
 
+async function replaceDrawingPages(
+  client: NonNullable<App.Locals['supabase']>,
+  projectId: string,
+  fileId: string,
+  pages: DrawingPageAnalysis[]
+) {
+  const { error: deleteError } = await client.from('drawing_pages').delete().eq('file_id', fileId);
+  if (deleteError) return deleteError.message;
+
+  if (pages.length === 0) return null;
+
+  const { error: insertError } = await client.from('drawing_pages').insert(
+    pages.map((page) => ({
+      project_id: projectId,
+      file_id: fileId,
+      page_number: page.pageNumber,
+      name: page.name,
+      sheet_number: page.sheetNumber,
+      sheet_title: page.sheetTitle,
+      revision: page.revision,
+      ocr_text: page.text
+    }))
+  );
+  return insertError?.message ?? null;
+}
+
 export const POST: RequestHandler = async (event) => {
   let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
   const { data: file, error: fileError } = await client
     .from('files')
-    .select('id, project_id, name, storage_key, mime_type')
+    .select('id, project_id, name, storage_key, mime_type, page_count')
     .eq('id', event.params.id)
     .eq('is_folder', false)
     .maybeSingle();
@@ -83,14 +110,24 @@ export const POST: RequestHandler = async (event) => {
   const analysis = ocr.analysis;
 
   if (!ocr.completed) {
+    const shouldReplaceDeferredPages = (file.page_count ?? 1) <= 1 && analysis.pages.length > 1;
     const { error: statusError } = await client
       .from('files')
-      .update({ ocr_status: analysis.ocrStatus })
+      .update({
+        ocr_status: analysis.ocrStatus,
+        ...(shouldReplaceDeferredPages ? { page_count: analysis.pageCount } : {})
+      })
       .eq('id', file.id);
     if (statusError) return json({ error: statusError.message }, { status: 500 });
 
+    if (shouldReplaceDeferredPages) {
+      const pageError = await replaceDrawingPages(client, file.project_id, file.id, analysis.pages);
+      if (pageError) return json({ error: pageError }, { status: 500 });
+    }
+
     return json({
       ok: true,
+      pageCount: shouldReplaceDeferredPages ? analysis.pageCount : file.page_count,
       ocrStatus: analysis.ocrStatus,
       ocrDeferred: true,
       ocrReason: ocr.reason
@@ -112,24 +149,8 @@ export const POST: RequestHandler = async (event) => {
 
   if (updateError) return json({ error: updateError.message }, { status: 500 });
 
-  const { error: deleteError } = await client.from('drawing_pages').delete().eq('file_id', file.id);
-  if (deleteError) return json({ error: deleteError.message }, { status: 500 });
-
-  if (analysis.pages.length > 0) {
-    const { error: insertError } = await client.from('drawing_pages').insert(
-      analysis.pages.map((page) => ({
-        project_id: file.project_id,
-        file_id: file.id,
-        page_number: page.pageNumber,
-        name: page.name,
-        sheet_number: page.sheetNumber,
-        sheet_title: page.sheetTitle,
-        revision: page.revision,
-        ocr_text: page.text
-      }))
-    );
-    if (insertError) return json({ error: insertError.message }, { status: 500 });
-  }
+  const pageError = await replaceDrawingPages(client, file.project_id, file.id, analysis.pages);
+  if (pageError) return json({ error: pageError }, { status: 500 });
 
   return json({
     ok: true,

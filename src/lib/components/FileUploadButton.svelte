@@ -10,6 +10,7 @@
   let input: HTMLInputElement;
   let uploading = $state(false);
   let message = $state('');
+  const portalFallbackLimitBytes = 4 * 1024 * 1024;
 
   class UploadError extends Error {
     stage: 'prepare' | 'network' | 'storage' | 'register' | 'server';
@@ -104,7 +105,13 @@
     try {
       return await uploadDirectToStorage(file, contentType);
     } catch (error) {
-      if (!(error instanceof UploadError) || error.stage !== 'network') throw error;
+      if (!(error instanceof UploadError) || (error.stage !== 'network' && error.stage !== 'storage')) throw error;
+      if (file.size > portalFallbackLimitBytes) {
+        throw new UploadError(
+          error.stage,
+          `${error.message} Direct storage uploads must be allowed for files over 4 MB. Check the Tigris bucket CORS settings and try again.`
+        );
+      }
       message = `Direct upload was blocked by the browser; finishing ${file.name} through the portal...`;
       return await uploadThroughPortal(file, contentType);
     }

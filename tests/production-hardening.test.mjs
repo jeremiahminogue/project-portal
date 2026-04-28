@@ -58,6 +58,21 @@ test('RFI and submittal writes are bound to project access and project id', () =
   }
 });
 
+test('RFI form captures construction request fields', () => {
+  const rfiServer = file('src/routes/projects/[slug]/rfis/+page.server.ts');
+  const rfiUi = file('src/routes/projects/[slug]/rfis/+page.svelte');
+  const queries = file('src/lib/server/queries.ts');
+  const migration = file('supabase/migrations/0008_rfi_fields_and_update_attachments.sql');
+  assert.match(rfiServer, /formString\(form, 'subject'\)/);
+  assert.match(rfiServer, /suggested_solution: suggestedSolution/);
+  assert.match(rfiServer, /reference/);
+  assert.match(rfiUi, /name="suggestedSolution"/);
+  assert.match(rfiUi, /Suggested solution/);
+  assert.match(rfiUi, /Reference/);
+  assert.match(queries, /suggested_solution/);
+  assert.match(migration, /add column if not exists suggested_solution text/);
+});
+
 test('admin access email does not include plaintext temporary passwords', () => {
   const users = file('src/routes/admin/users/+page.server.ts');
   const usersUi = file('src/routes/admin/users/+page.svelte');
@@ -79,11 +94,14 @@ test('admin page loads enforce superadmin access directly', () => {
   }
 });
 
-test('OCR reindex preserves existing metadata when work is deferred', () => {
+test('OCR reindex preserves good metadata while allowing page skeleton repair', () => {
   const source = file('src/routes/api/files/[id]/reindex/+server.ts');
   assert.match(source, /if \(!ocr\.completed\)/);
   assert.match(source, /ocrDeferred: true/);
   assert.match(source, /drawing_pages/);
+  assert.match(source, /shouldReplaceDeferredPages/);
+  assert.match(source, /file\.page_count/);
+  assert.match(source, /replaceDrawingPages/);
 });
 
 test('file APIs are Vercel-safe and storage failures are handled', () => {
@@ -122,6 +140,20 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   assert.match(objectStorage, /'content-type': contentType/);
   assert.match(objectStorage, /fetch\(url/);
   assert.doesNotMatch(objectStorage, /@aws-sdk/);
+});
+
+test('PDF page indexing does not collapse when OCR fails or defers', () => {
+  const drawingOcr = file('src/lib/server/drawing-ocr.ts');
+  const ocrProcessing = file('src/lib/server/ocr-processing.ts');
+  const ingest = file('src/lib/server/file-ingest.ts');
+  const reindex = file('src/routes/api/files/[id]/reindex/+server.ts');
+  assert.match(drawingOcr, /extractPdfPageSkeleton/);
+  assert.match(drawingOcr, /PDFDocument\.load/);
+  assert.match(drawingOcr, /analysisFromPages\(documentKind, fallback, pages, 'failed'\)/);
+  assert.match(ocrProcessing, /basicDrawingAnalysisFromBytes/);
+  assert.match(ocrProcessing, /shouldIndexPdfPages/);
+  assert.match(ingest, /shouldLoadForIndexing/);
+  assert.match(reindex, /shouldReplaceDeferredPages/);
 });
 
 test('production hardening migration adds review RLS and audit log', () => {
@@ -170,4 +202,20 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(viewer, /{:else if isImage}/);
   assert.match(viewer, /Preview is not available for this file type/);
   assert.match(viewerServer, /contentTypeFromName/);
+});
+
+test('updates can attach project files and files include a documents view', () => {
+  const updatesServer = file('src/routes/projects/[slug]/updates/+page.server.ts');
+  const updatesUi = file('src/routes/projects/[slug]/updates/+page.svelte');
+  const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
+  const nav = file('src/lib/components/ProjectNav.svelte');
+  const queries = file('src/lib/server/queries.ts');
+  assert.match(updatesServer, /updateAttachmentsFor/);
+  assert.match(updatesServer, /attachments_json: attachments/);
+  assert.match(updatesUi, /name="attachmentIds"/);
+  assert.match(updatesUi, /attachment-chip/);
+  assert.match(queries, /normalizeUpdateAttachments/);
+  assert.match(filesPage, /isGeneralDocument/);
+  assert.match(filesPage, /tool'\) === 'documents'/);
+  assert.match(nav, /label: 'Documents'/);
 });

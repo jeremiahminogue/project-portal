@@ -19,13 +19,19 @@
       href: `/projects/${slug}/files`,
       label: 'Drawings',
       icon: FolderOpen,
-      active: (url: URL) => url.pathname === `/projects/${slug}/files` && url.searchParams.get('tool') !== 'specifications'
+      active: (url: URL) => url.pathname === `/projects/${slug}/files` && !['specifications', 'documents'].includes(url.searchParams.get('tool') ?? '')
     },
     {
       href: `/projects/${slug}/files?tool=specifications`,
       label: 'Specifications',
       icon: FileText,
       active: (url: URL) => url.pathname === `/projects/${slug}/files` && url.searchParams.get('tool') === 'specifications'
+    },
+    {
+      href: `/projects/${slug}/files?tool=documents`,
+      label: 'Documents',
+      icon: FileText,
+      active: (url: URL) => url.pathname === `/projects/${slug}/files` && url.searchParams.get('tool') === 'documents'
     },
     { href: `/projects/${slug}/submittals`, label: 'Submittals', icon: FileText },
     { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare },

@@ -1,6 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { basicDrawingAnalysis } from './drawing-ocr';
-import { analyzeDrawingUploadSafely, shouldAnalyzeInline } from './ocr-processing';
+import { analyzeDrawingUploadSafely, shouldAnalyzeInline, shouldIndexPdfPages } from './ocr-processing';
 import { getObject, responseBody } from './object-storage';
 import { databaseClientForProjectAccess, type ProjectAccess } from './project-access';
 
@@ -65,7 +65,8 @@ export async function registerUploadedFile({
   const client = databaseClientForProjectAccess(event, access);
   if (!client) throw new Error('Supabase is not configured yet.');
 
-  const analysisBytes = bytes ?? (shouldAnalyzeInline(sizeBytes) ? await objectBytes(storageKey) : undefined);
+  const shouldLoadForIndexing = shouldAnalyzeInline(sizeBytes) || shouldIndexPdfPages(sizeBytes, name, mimeType);
+  const analysisBytes = bytes ?? (shouldLoadForIndexing ? await objectBytes(storageKey) : undefined);
   const ocr = analysisBytes
     ? await analyzeDrawingUploadSafely(analysisBytes, name, mimeType, folderName)
     : {

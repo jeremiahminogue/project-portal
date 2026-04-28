@@ -14,7 +14,11 @@
 
   const filteredRfis = $derived(
     data.rfis.filter((item) => {
-      const queryOk = !query || `${item.number} ${item.title ?? ''} ${item.question} ${item.assignedTo} ${item.assignedOrg}`.toLowerCase().includes(query.toLowerCase());
+      const queryOk =
+        !query ||
+        `${item.number} ${item.title ?? ''} ${item.question} ${item.suggestedSolution ?? ''} ${item.reference ?? ''} ${item.assignedTo} ${item.assignedOrg}`
+          .toLowerCase()
+          .includes(query.toLowerCase());
       const viewOk =
         savedView === 'all' ||
         (savedView === 'open' && item.status === 'Open') ||
@@ -70,12 +74,14 @@
 
   {#if showRfiForm}
     <form class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5" method="post" action="?/createRfi" use:enhance>
-      <div><label class="label" for="rfi-number">Number</label><input id="rfi-number" class="field" name="number" placeholder="RFI-001" required /></div>
-      <div><label class="label" for="rfi-title">Title</label><input id="rfi-title" class="field" name="title" placeholder="Clarify fire alarm tie-in" /></div>
+      <div><label class="label" for="rfi-number">Number</label><input id="rfi-number" class="field" name="number" placeholder="Auto" /></div>
+      <div class="md:col-span-2"><label class="label" for="rfi-subject">Subject</label><input id="rfi-subject" class="field" name="subject" placeholder="Clarify fire alarm tie-in" required /></div>
       <div><label class="label" for="rfi-due">Due</label><input id="rfi-due" class="field" name="dueDate" type="date" /></div>
       <div><label class="label" for="rfi-assigned">Assign to</label><select id="rfi-assigned" class="field" name="assignedTo"><option value="">Unassigned</option>{#each data.directory as person}<option value={person.id}>{person.name}</option>{/each}</select></div>
       <div><label class="label" for="rfi-org">Org</label><input id="rfi-org" class="field" name="assignedOrg" placeholder="Designer" /></div>
-      <div class="md:col-span-2 xl:col-span-4"><label class="label" for="rfi-question">Question</label><textarea id="rfi-question" class="field min-h-24" name="question" required></textarea></div>
+      <div class="md:col-span-2 xl:col-span-3"><label class="label" for="rfi-reference">Reference</label><input id="rfi-reference" class="field" name="reference" placeholder="Drawing, spec section, detail, room, or field condition" /></div>
+      <div class="md:col-span-2 xl:col-span-5"><label class="label" for="rfi-question">Question</label><textarea id="rfi-question" class="field min-h-24" name="question" required></textarea></div>
+      <div class="md:col-span-2 xl:col-span-4"><label class="label" for="rfi-solution">Suggested solution</label><textarea id="rfi-solution" class="field min-h-24" name="suggestedSolution"></textarea></div>
       <div class="flex items-end"><button class="btn btn-primary w-full" type="submit"><Check size={16} />Create</button></div>
     </form>
   {/if}
@@ -91,7 +97,24 @@
         <span class="readonly-chip">Ball in court: {selectedRfi.assignedTo || 'Unassigned'}</span>
         <span class="readonly-chip">Due {formatDate(selectedRfi.dueDate)}</span>
       </div>
-      <p class="tracking-question">{selectedRfi.question}</p>
+      <div class="rfi-detail-grid">
+        <div>
+          <span class="eyebrow">Question</span>
+          <p class="tracking-question">{selectedRfi.question}</p>
+        </div>
+        {#if selectedRfi.suggestedSolution}
+          <div>
+            <span class="eyebrow">Suggested Solution</span>
+            <p class="tracking-question">{selectedRfi.suggestedSolution}</p>
+          </div>
+        {/if}
+        {#if selectedRfi.reference}
+          <div>
+            <span class="eyebrow">Reference</span>
+            <p class="tracking-question">{selectedRfi.reference}</p>
+          </div>
+        {/if}
+      </div>
       {#if selectedRfi.id}
         <form class="tracking-form" method="post" action="?/answerRfi" use:enhance>
           <input type="hidden" name="id" value={selectedRfi.id} />
@@ -155,11 +178,7 @@
               <th>Number</th>
               <th>Subject</th>
               <th>Status</th>
-              <th>Responsible Contractor</th>
-              <th>Received From</th>
-              <th>Date Initiated</th>
-              <th>RFI Manager</th>
-              <th>Assignees</th>
+              <th>Reference</th>
               <th>Ball In Court</th>
               <th>Due Date</th>
             </tr>
@@ -171,16 +190,12 @@
                 <td><span class="record-link">{rfi.number}</span></td>
                 <td><span class="subject-link">{rfi.title || rfi.question}</span></td>
                 <td><StatusPill label={rfi.status} /></td>
-                <td>{rfi.assignedOrg || '-'}</td>
-                <td>{rfi.assignedTo || '-'}</td>
-                <td>{formatDate(rfi.openedDate)}</td>
-                <td>Pueblo Electric</td>
-                <td>{rfi.assignedTo || 'Unassigned'}</td>
+                <td>{rfi.reference || '-'}</td>
                 <td>{rfi.assignedTo || 'Unassigned'}</td>
                 <td>{formatDate(rfi.dueDate)}</td>
               </tr>
             {:else}
-              <tr><td colspan="11"><div class="empty-log"><strong>No RFIs match this view.</strong><span>Create an RFI or adjust the filters.</span></div></td></tr>
+              <tr><td colspan="7"><div class="empty-log"><strong>No RFIs match this view.</strong><span>Create an RFI or adjust the filters.</span></div></td></tr>
             {/each}
           </tbody>
         </table>
@@ -195,7 +210,30 @@
   }
 
   .workflow-table {
-    min-width: 1180px;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .workflow-table th:nth-child(1),
+  .workflow-table td:nth-child(1) {
+    width: 4.5rem;
+  }
+
+  .workflow-table th:nth-child(2),
+  .workflow-table td:nth-child(2) {
+    width: 6.5rem;
+  }
+
+  .workflow-table th:nth-child(4),
+  .workflow-table td:nth-child(4) {
+    width: 7.5rem;
+  }
+
+  .workflow-table th:nth-child(6),
+  .workflow-table td:nth-child(6),
+  .workflow-table th:nth-child(7),
+  .workflow-table td:nth-child(7) {
+    width: 8rem;
   }
 
   .subject-link {
@@ -216,9 +254,26 @@
     line-height: 1.5;
   }
 
+  .rfi-detail-grid {
+    display: grid;
+    gap: 0.75rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   @media (max-width: 900px) {
     .workflow-workbench {
       grid-template-columns: 1fr;
+    }
+
+    .rfi-detail-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .workflow-table th:nth-child(4),
+    .workflow-table td:nth-child(4) {
+      display: none;
     }
   }
 </style>

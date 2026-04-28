@@ -93,6 +93,51 @@ export function parseSheetName(value: string) {
   };
 }
 
+export function isPdfDocument(filename: string, contentType: string) {
+  return contentType.split(';')[0]?.trim().toLowerCase() === 'application/pdf' || /\.pdf$/i.test(filename);
+}
+
+type SheetNameFallback = ReturnType<typeof parseSheetName>;
+
+function fallbackPage(pageNumber: number, filename: string, fallback: SheetNameFallback, useFilenameMetadata: boolean): DrawingPageAnalysis {
+  const sheetNumber = useFilenameMetadata ? fallback.sheetNumber : null;
+  const sheetTitle = useFilenameMetadata ? fallback.sheetTitle : null;
+  const revision = useFilenameMetadata ? fallback.revision : null;
+
+  return {
+    pageNumber,
+    name: buildPageName(pageNumber, sheetNumber, sheetTitle, filename),
+    sheetNumber,
+    sheetTitle,
+    revision,
+    text: ''
+  };
+}
+
+function fallbackPages(pageCount: number, filename: string) {
+  const fallback = parseSheetName(filename);
+  return Array.from({ length: Math.max(pageCount, 1) }, (_, index) => fallbackPage(index + 1, filename, fallback, index === 0));
+}
+
+function analysisFromPages(
+  documentKind: DocumentKind,
+  fallback: SheetNameFallback,
+  pages: DrawingPageAnalysis[],
+  status: DrawingAnalysis['ocrStatus']
+): DrawingAnalysis {
+  const firstPage = pages[0];
+  return {
+    documentKind,
+    pageCount: Math.max(pages.length, 1),
+    sheetNumber: firstPage?.sheetNumber ?? fallback.sheetNumber,
+    sheetTitle: firstPage?.sheetTitle ?? fallback.sheetTitle,
+    revision: firstPage?.revision ?? fallback.revision,
+    ocrStatus: documentKind === 'file' ? 'skipped' : status,
+    ocrText: pages.map((page) => page.text).join('\n\n').slice(0, MAX_FILE_TEXT),
+    pages
+  };
+}
+
 function extractRevision(lines: string[]) {
   for (const line of lines) {
     const match = line.match(/\b(?:revision|rev\.?|r)[\s:#-]*([A-Z0-9]{1,4})\b/i);
@@ -313,6 +358,33 @@ export function basicDrawingAnalysis(
   };
 }
 
+export async function extractPdfPageSkeleton(bytes: Uint8Array, filename: string) {
+  const { PDFDocument } = await import('pdf-lib');
+  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+  return fallbackPages(pdf.getPageCount(), filename);
+}
+
+export async function basicDrawingAnalysisFromBytes(
+  bytes: Uint8Array,
+  filename: string,
+  contentType: string,
+  folderName = '',
+  status: DrawingAnalysis['ocrStatus'] = 'pending'
+): Promise<DrawingAnalysis> {
+  const basic = basicDrawingAnalysis(filename, contentType, folderName, status);
+  if (basic.documentKind === 'file' || !isPdfDocument(filename, contentType)) return basic;
+
+  try {
+    const pages = await extractPdfPageSkeleton(bytes, filename);
+    return analysisFromPages(basic.documentKind, parseSheetName(filename), pages, basic.ocrStatus);
+  } catch {
+    return {
+      ...basic,
+      pages: [fallbackPage(1, filename, parseSheetName(filename), true)]
+    };
+  }
+}
+
 async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<DrawingPageAnalysis[]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const loadingTask = pdfjs.getDocument({
@@ -321,45 +393,48 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
   const pdf = await loadingTask.promise;
   const pages: DrawingPageAnalysis[] = [];
 
-  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-    const page = await pdf.getPage(pageNumber);
-    const textContent = await page.getTextContent();
-    const titleBlockLines = positionedLines(textContent, page, 'titleBlock');
-    let text = textContent.items
-      .map((item: unknown) => {
-        const candidate = item as { str?: string };
-        return candidate.str ?? '';
-      })
-      .join('\n')
-      .slice(0, MAX_PAGE_TEXT);
-    let lines = linesFromText(text);
-    const filenameFallback = pageNumber === 1 ? parseSheetName(filename) : { sheetNumber: null, sheetTitle: null, revision: null };
-    let sheetNumber = extractSheetNumber(titleBlockLines) ?? extractSheetNumber(lines) ?? filenameFallback.sheetNumber;
-    let sheetTitle = extractSheetTitle(titleBlockLines, sheetNumber) ?? extractSheetTitle(lines, sheetNumber) ?? filenameFallback.sheetTitle;
-    let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
+  try {
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const titleBlockLines = positionedLines(textContent, page, 'titleBlock');
+      let text = textContent.items
+        .map((item: unknown) => {
+          const candidate = item as { str?: string };
+          return candidate.str ?? '';
+        })
+        .join('\n')
+        .slice(0, MAX_PAGE_TEXT);
+      let lines = linesFromText(text);
+      const filenameFallback = pageNumber === 1 ? parseSheetName(filename) : { sheetNumber: null, sheetTitle: null, revision: null };
+      let sheetNumber = extractSheetNumber(titleBlockLines) ?? extractSheetNumber(lines) ?? filenameFallback.sheetNumber;
+      let sheetTitle = extractSheetTitle(titleBlockLines, sheetNumber) ?? extractSheetTitle(lines, sheetNumber) ?? filenameFallback.sheetTitle;
+      let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
 
-    if (needsOcr(text, lines, sheetNumber, sheetTitle) || !sheetNumber) {
-      const ocrText = await ocrPdfPage(page);
-      if (ocrText) {
-        text = ocrText;
-        lines = linesFromText(text);
-        sheetNumber = extractSheetNumber(lines) ?? sheetNumber;
-        sheetTitle = extractSheetTitle(lines, sheetNumber) ?? sheetTitle;
-        revision = extractRevision(lines) ?? revision;
+      if (needsOcr(text, lines, sheetNumber, sheetTitle) || !sheetNumber) {
+        const ocrText = await ocrPdfPage(page);
+        if (ocrText) {
+          text = ocrText;
+          lines = linesFromText(text);
+          sheetNumber = extractSheetNumber(lines) ?? sheetNumber;
+          sheetTitle = extractSheetTitle(lines, sheetNumber) ?? sheetTitle;
+          revision = extractRevision(lines) ?? revision;
+        }
       }
-    }
 
-    pages.push({
-      pageNumber,
-      name: buildPageName(pageNumber, sheetNumber, sheetTitle, filename),
-      sheetNumber,
-      sheetTitle,
-      revision,
-      text
-    });
+      pages.push({
+        pageNumber,
+        name: buildPageName(pageNumber, sheetNumber, sheetTitle, filename),
+        sheetNumber,
+        sheetTitle,
+        revision,
+        text
+      });
+    }
+  } finally {
+    await pdf.destroy().catch(() => undefined);
   }
 
-  await pdf.destroy();
   return pages;
 }
 
@@ -384,14 +459,14 @@ async function extractImagePage(bytes: Uint8Array, filename: string): Promise<Dr
 export async function analyzeDrawingUpload(bytes: Uint8Array, filename: string, contentType: string, folderName = ''): Promise<DrawingAnalysis> {
   const documentKind = classifyDocument(filename, contentType, folderName);
   const fallback = parseSheetName(filename);
+  const isPdf = isPdfDocument(filename, contentType);
+  const isImage = contentType.startsWith('image/');
 
   if (documentKind !== 'drawing' && documentKind !== 'specification') {
     return basicDrawingAnalysis(filename, contentType, folderName, 'skipped');
   }
 
   try {
-    const isPdf = contentType === 'application/pdf' || /\.pdf$/i.test(filename);
-    const isImage = contentType.startsWith('image/');
     const pages = isPdf ? await extractPdfPages(bytes, filename) : isImage ? [await extractImagePage(bytes, filename)] : [];
     const firstPage = pages[0];
     const ocrText = pages.map((page) => page.text).join('\n\n').slice(0, MAX_FILE_TEXT);
@@ -408,24 +483,9 @@ export async function analyzeDrawingUpload(bytes: Uint8Array, filename: string, 
       pages
     };
   } catch {
-    return {
-      documentKind,
-      pageCount: 1,
-      sheetNumber: fallback.sheetNumber,
-      sheetTitle: fallback.sheetTitle,
-      revision: fallback.revision,
-      ocrStatus: 'failed',
-      ocrText: '',
-      pages: [
-        {
-          pageNumber: 1,
-          name: buildPageName(1, fallback.sheetNumber, fallback.sheetTitle, filename),
-          sheetNumber: fallback.sheetNumber,
-          sheetTitle: fallback.sheetTitle,
-          revision: fallback.revision,
-          text: ''
-        }
-      ]
-    };
+    const pages = isPdf
+      ? await extractPdfPageSkeleton(bytes, filename).catch(() => [fallbackPage(1, filename, fallback, true)])
+      : [fallbackPage(1, filename, fallback, true)];
+    return analysisFromPages(documentKind, fallback, pages, 'failed');
   }
 }

@@ -45,7 +45,10 @@ export interface Submittal {
 
 export interface RFI {
   number: string;
+  title?: string;
   question: string;
+  suggestedSolution?: string;
+  reference?: string;
   openedDate: string;
   dueDate: string;
   assignedTo: string;
@@ -92,7 +95,7 @@ export interface ChatSubject {
 
 export interface Update {
   id: string;
-  type: "OAC Recap" | "Phase Kickoff" | "Safety" | "Weekly";
+  type: "OAC Recap" | "Phase Kickoff" | "Safety" | "Weekly" | "General";
   title: string;
   body: string;
   author: string;
@@ -100,7 +103,7 @@ export interface Update {
   postedTime: string;
   likes: number;
   commentCount: number;
-  attachments?: { name: string; size: string; type: string }[];
+  attachments?: { id?: string; name: string; size: string; type: string; path?: string }[];
 }
 
 export interface DirectoryEntry {

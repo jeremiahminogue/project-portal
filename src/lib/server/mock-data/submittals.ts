@@ -66,7 +66,10 @@ export const submittals: Submittal[] = [
 export const rfis: RFI[] = [
   {
     number: "RFI-001",
+    title: "Existing conduit pathway reuse",
     question: "Confirm existing conduit pathways at Events Ctr — reusable?",
+    suggestedSolution: "Reuse verified pathways where fill capacity allows; provide new conduit where pathways are blocked or exceed code fill.",
+    reference: "Events Center fire alarm drawings",
     openedDate: "2026-04-10",
     dueDate: "2026-04-24",
     assignedTo: "Todd Brand",
@@ -75,7 +78,10 @@ export const rfis: RFI[] = [
   },
   {
     number: "RFI-002",
+    title: "Palace of Ag ceiling scope",
     question: "Palace of Ag — dropped ceiling vs exposed structure scope?",
+    suggestedSolution: "Proceed with exposed-structure device locations unless the design team confirms dropped ceiling areas by room.",
+    reference: "Palace of Ag scope narrative",
     openedDate: "2026-04-11",
     dueDate: "2026-04-25",
     assignedTo: "Madison Hoxsie",
@@ -84,7 +90,10 @@ export const rfis: RFI[] = [
   },
   {
     number: "RFI-003",
+    title: "ERRCS scope boundary",
     question: "ERRCS coverage requirements — buildings scope boundary?",
+    suggestedSolution: "Carry coverage only for buildings listed in the fire alarm scope unless AHJ adds an explicit requirement.",
+    reference: "Pueblo FD ERRCS direction",
     openedDate: "2026-04-17",
     dueDate: "2026-05-01",
     assignedTo: "Paul Haley",
@@ -93,7 +102,10 @@ export const rfis: RFI[] = [
   },
   {
     number: "RFI-004",
+    title: "Yellow card sign-off",
     question: "Yellow card sign-off responsibility & scheduling",
+    suggestedSolution: "Wember to coordinate sign-off window after BCER comments are cleared and before final AHJ inspection.",
+    reference: "Inspection coordination",
     openedDate: "2026-04-18",
     dueDate: "2026-04-25",
     assignedTo: "Nick Palaski",
@@ -102,7 +114,10 @@ export const rfis: RFI[] = [
   },
   {
     number: "RFI-005",
+    title: "Sprinkler tie-in responsibility",
     question: "Sprinkler scope interface — who handles tie-in?",
+    suggestedSolution: "Assign sprinkler tie-in to the sprinkler contractor; Pueblo Electric to coordinate monitoring connections only.",
+    reference: "Scope split / Division 28",
     openedDate: "2026-04-20",
     dueDate: "2026-05-04",
     assignedTo: "Taylor Boggio",

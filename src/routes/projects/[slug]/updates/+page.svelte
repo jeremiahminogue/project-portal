@@ -1,12 +1,13 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Bell, Newspaper, Send } from '@lucide/svelte';
+  import { Bell, Download, Newspaper, Paperclip, Send } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import { relativeTime } from '$lib/utils';
 
   let { data, form } = $props();
   let compose = $state(false);
+  const attachableFiles = $derived(data.files.filter((file) => !file.id.startsWith('storage:')));
 </script>
 
 <svelte:head>
@@ -50,6 +51,16 @@
         <label class="label" for="body">Body</label>
         <textarea id="body" name="body" class="field min-h-36" required></textarea>
       </div>
+      {#if attachableFiles.length}
+        <div>
+          <label class="label" for="attachments">Attach existing files</label>
+          <select id="attachments" name="attachmentIds" class="field min-h-32" multiple>
+            {#each attachableFiles as file}
+              <option value={file.id}>{file.path} ({file.size})</option>
+            {/each}
+          </select>
+        </div>
+      {/if}
       <label class="flex items-center gap-2 text-sm font-bold text-pe-body">
         <input type="checkbox" name="notify" />
         <Bell size={16} />
@@ -71,7 +82,56 @@
         </div>
         <h2 class="text-lg font-black text-pe-body">{update.title}</h2>
         <p class="mt-3 whitespace-pre-line text-sm leading-7 text-pe-sub">{update.body}</p>
+        {#if update.attachments?.length}
+          <div class="mt-4 flex flex-wrap gap-2">
+            {#each update.attachments as attachment}
+              {#if attachment.id}
+                <a class="attachment-chip" href={`/api/files/${encodeURIComponent(attachment.id)}/download?download=1`}>
+                  <Paperclip size={14} />
+                  <span>{attachment.name}</span>
+                  <small>{attachment.size}</small>
+                  <Download size={13} />
+                </a>
+              {:else}
+                <span class="attachment-chip">
+                  <Paperclip size={14} />
+                  <span>{attachment.name}</span>
+                  <small>{attachment.size}</small>
+                </span>
+              {/if}
+            {/each}
+          </div>
+        {/if}
       </article>
     {/each}
   </section>
 </PageShell>
+
+<style>
+  .attachment-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.38rem;
+    max-width: 100%;
+    border: 1px solid rgba(25, 27, 25, 0.12);
+    border-radius: 0.45rem;
+    background: #fff;
+    padding: 0.42rem 0.55rem;
+    color: #222622;
+    font-size: 0.78rem;
+    font-weight: 800;
+  }
+
+  .attachment-chip span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .attachment-chip small {
+    color: #697169;
+    font-size: 0.68rem;
+    font-weight: 800;
+    white-space: nowrap;
+  }
+</style>
