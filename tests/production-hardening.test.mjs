@@ -8,9 +8,12 @@ function file(path) {
 
 test('production auth fails closed and protects file APIs', () => {
   const hooks = file('src/hooks.server.ts');
+  const protectedPathBody = hooks.match(/function isProtectedPath[\s\S]*?\n\}/)?.[0] ?? '';
   assert.match(hooks, /isProductionRuntime\(\)/);
   assert.match(hooks, /Portal authentication is not configured/);
+  assert.match(hooks, /requiresAuthConfig\(pathname\)/);
   assert.match(hooks, /pathname === '\/login'/);
+  assert.doesNotMatch(protectedPathBody, /pathname === '\/login'/);
   assert.match(hooks, /pathname\.startsWith\('\/api\/files'\)/);
 });
 

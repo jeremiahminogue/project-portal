@@ -18,13 +18,15 @@ export function supabaseAnonKey() {
 function isProtectedPath(pathname: string) {
   return (
     pathname === '/' ||
-    pathname === '/login' ||
-    pathname.startsWith('/auth') ||
     pathname.startsWith('/projects') ||
     pathname.startsWith('/admin') ||
     pathname.startsWith('/directory') ||
     pathname.startsWith('/api/files')
   );
+}
+
+function requiresAuthConfig(pathname: string) {
+  return isProtectedPath(pathname) || pathname === '/login' || pathname.startsWith('/auth');
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -34,7 +36,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   const forceLocalMockAuth = isLocalMockAuthForced();
   event.locals.isLocalSuperadmin = false;
 
-  if ((!url || !anonKey) && isProductionRuntime() && isProtectedPath(pathname)) {
+  if ((!url || !anonKey) && isProductionRuntime() && requiresAuthConfig(pathname)) {
     throw error(503, 'Portal authentication is not configured.');
   }
 
