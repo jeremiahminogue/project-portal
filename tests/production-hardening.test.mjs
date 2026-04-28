@@ -196,12 +196,21 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
   const viewer = file('src/routes/projects/[slug]/files/[id]/+page.svelte');
   const viewerServer = file('src/routes/projects/[slug]/files/[id]/+page.server.ts');
+  const downloadRoute = file('src/routes/api/files/[id]/download/+server.ts');
+  const deletePagesRoute = file('src/routes/api/files/pages/delete/+server.ts');
   assert.match(filesPage, /function fileIsPdf/);
   assert.match(filesPage, /fileHasStorage\(file\) && fileIsPdf\(file\)/);
   assert.match(viewer, /const isPdf/);
+  assert.match(viewer, /const viewerSrc/);
+  assert.match(viewer, /page=\$\{pageNumber\}/);
   assert.match(viewer, /{:else if isImage}/);
   assert.match(viewer, /Preview is not available for this file type/);
   assert.match(viewerServer, /contentTypeFromName/);
+  assert.match(downloadRoute, /function pageRequest/);
+  assert.match(downloadRoute, /async function singlePagePdf/);
+  assert.match(downloadRoute, /PDFDocument\.load/);
+  assert.match(deletePagesRoute, /deleteObject/);
+  assert.match(deletePagesRoute, /deletedFiles/);
 });
 
 test('updates can attach project files and files include a documents view', () => {

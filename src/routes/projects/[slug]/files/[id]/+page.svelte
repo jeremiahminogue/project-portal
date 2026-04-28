@@ -27,6 +27,7 @@
   const nextPage = $derived(Math.min(sheetCount, activePage + 1));
   const isPdf = $derived(/pdf/i.test(data.file.mimeType ?? '') || /\.pdf$/i.test(data.file.name));
   const isImage = $derived((data.file.mimeType ?? '').startsWith('image/'));
+  const viewerSrc = $derived(isPdf ? pdfPageSrc(data.downloadSrc, activePage) : data.downloadSrc);
 
   function clampPage(value: number) {
     if (!Number.isFinite(value)) return 1;
@@ -36,6 +37,10 @@
   function viewerPageHref(pageNumber: number) {
     const params = pageNumber > 1 ? `?page=${pageNumber}` : '';
     return `${data.backUrl}/${encodeURIComponent(data.file.id)}${params}`;
+  }
+
+  function pdfPageSrc(src: string, pageNumber: number) {
+    return `${src}${src.includes('?') ? '&' : '?'}page=${pageNumber}`;
   }
 </script>
 
@@ -90,8 +95,8 @@
     {/if}
     <div class="viewer-frame">
       {#if isPdf}
-        {#key `${data.downloadSrc}:${activePage}`}
-          <EmbedPdfViewer src={data.downloadSrc} title={title} page={activePage} />
+        {#key viewerSrc}
+          <EmbedPdfViewer src={viewerSrc} title={title} page={1} />
         {/key}
       {:else if isImage}
         <div class="image-preview">

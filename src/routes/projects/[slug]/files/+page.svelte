@@ -439,7 +439,11 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'Delete failed.');
-      notice = `Deleted ${result.deleted ?? selectedPageIds.length} drawing page${(result.deleted ?? selectedPageIds.length) === 1 ? '' : 's'}.`;
+      notice =
+        result.deletedFiles > 0
+          ? `Deleted ${result.deletedFiles} drawing set${result.deletedFiles === 1 ? '' : 's'} from the log.`
+          : `Deleted ${result.deleted ?? selectedPageIds.length} drawing page${(result.deleted ?? selectedPageIds.length) === 1 ? '' : 's'}.`;
+      if (result.warning) notice = `${notice} ${result.warning}`;
       selectedPageIds = [];
       await invalidateAll();
     } catch (error) {

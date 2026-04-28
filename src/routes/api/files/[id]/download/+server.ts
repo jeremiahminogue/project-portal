@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { PDFDocument } from 'pdf-lib';
 import {
   contentDisposition,
   decodeStorageId,
@@ -35,6 +36,32 @@ function headersFor({
   return headers;
 }
 
+function byteBody(value: Uint8Array): ArrayBuffer {
+  return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength) as ArrayBuffer;
+}
+
+function pageRequest(value: string | null) {
+  if (!value) return null;
+  const page = Number(value);
+  return Number.isInteger(page) && page > 0 ? page : 0;
+}
+
+async function singlePagePdf(key: string, pageNumber: number) {
+  const object = await getObject(key);
+  const response = new Response(responseBody(object.Body));
+  const sourceBytes = new Uint8Array(await response.arrayBuffer());
+  const source = await PDFDocument.load(sourceBytes, { ignoreEncryption: true });
+  const pageIndex = pageNumber - 1;
+  if (pageIndex < 0 || pageIndex >= source.getPageCount()) {
+    throw new Error(`Page ${pageNumber} is not in this PDF.`);
+  }
+
+  const output = await PDFDocument.create();
+  const [page] = await output.copyPages(source, [pageIndex]);
+  output.addPage(page);
+  return new Uint8Array(await output.save());
+}
+
 function projectSlugFromStorageKey(key: string) {
   const match = /^projects\/([^/]+)\//.exec(key);
   return match?.[1] ?? null;
@@ -45,6 +72,8 @@ export const GET: RequestHandler = async (event) => {
   const download = url.searchParams.get('download') === '1';
   const range = request.headers.get('range') ?? undefined;
   const storageKey = decodeStorageId(params.id);
+  const requestedPage = pageRequest(url.searchParams.get('page'));
+  if (requestedPage === 0) return json({ error: 'Use a valid PDF page number.' }, { status: 400 });
 
   if (storageKey) {
     if (locals.supabase) {
@@ -53,6 +82,24 @@ export const GET: RequestHandler = async (event) => {
 
       const access = await requireProjectAccess(event, projectSlug);
       if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+    }
+
+    if (requestedPage && /\.pdf$/i.test(storageKey)) {
+      try {
+        const pageBytes = await singlePagePdf(storageKey, requestedPage);
+        return new Response(byteBody(pageBytes), {
+          headers: headersFor({
+            filename: storageKey.split('/').pop() || 'project-file.pdf',
+            contentType: 'application/pdf',
+            contentLength: pageBytes.byteLength,
+            download
+          })
+        });
+      } catch (error) {
+        const status = error instanceof Error && error.message.includes('not in this PDF') ? 404 : storageErrorStatus(error);
+        const message = error instanceof Error ? error.message : storageErrorMessage(error, 'read this PDF page');
+        return json({ error: message }, { status });
+      }
     }
 
     let object: Awaited<ReturnType<typeof getObject>>;
@@ -104,6 +151,24 @@ export const GET: RequestHandler = async (event) => {
 
   const access = await requireProjectAccess(event, project.slug);
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+
+  if (requestedPage && (/pdf/i.test(file.mime_type ?? '') || /\.pdf$/i.test(file.name))) {
+    try {
+      const pageBytes = await singlePagePdf(file.storage_key, requestedPage);
+      return new Response(byteBody(pageBytes), {
+        headers: headersFor({
+          filename: file.name,
+          contentType: 'application/pdf',
+          contentLength: pageBytes.byteLength,
+          download
+        })
+      });
+    } catch (error) {
+      const status = error instanceof Error && error.message.includes('not in this PDF') ? 404 : storageErrorStatus(error);
+      const message = error instanceof Error ? error.message : storageErrorMessage(error, 'read this PDF page');
+      return json({ error: message }, { status });
+    }
+  }
 
   let object: Awaited<ReturnType<typeof getObject>>;
   try {

@@ -1,4 +1,5 @@
 import { json } from '@sveltejs/kit';
+import { deleteObject, isObjectNotFoundError } from '$lib/server/object-storage';
 import {
   databaseClientForCurrentUser,
   databaseClientForProjectAccess,
@@ -13,6 +14,12 @@ type PageRow = {
   id: string;
   file_id: string;
   project_id: string;
+};
+
+type FileRow = {
+  id: string;
+  name: string;
+  storage_key: string | null;
 };
 
 function stringList(value: unknown) {
@@ -64,13 +71,51 @@ export const POST: RequestHandler = async (event) => {
   const { error: deleteError } = await client.from('drawing_pages').delete().in('id', foundPageIds);
   if (deleteError) return json({ error: deleteError.message }, { status: 500 });
 
+  let deletedFiles = 0;
+  const warnings: string[] = [];
   for (const fileId of fileIds) {
     const { count } = await client
       .from('drawing_pages')
       .select('id', { count: 'exact', head: true })
       .eq('file_id', fileId);
-    await client.from('files').update({ page_count: count ?? 0 }).eq('id', fileId);
+    const remainingPages = count ?? 0;
+
+    if (remainingPages > 0) {
+      await client.from('files').update({ page_count: remainingPages }).eq('id', fileId);
+      continue;
+    }
+
+    const { data: file, error: fileError } = await client
+      .from('files')
+      .select('id, name, storage_key')
+      .eq('id', fileId)
+      .eq('is_folder', false)
+      .maybeSingle();
+
+    if (fileError) return json({ error: fileError.message }, { status: 500 });
+    if (!file) continue;
+
+    const { error: fileDeleteError } = await client.from('files').delete().eq('id', fileId);
+    if (fileDeleteError) return json({ error: fileDeleteError.message }, { status: 500 });
+    deletedFiles += 1;
+
+    const storageKey = (file as FileRow).storage_key;
+    if (storageKey) {
+      try {
+        await deleteObject(storageKey);
+      } catch (error) {
+        if (!isObjectNotFoundError(error)) {
+          console.error('[files] storage cleanup after drawing page delete failed:', error);
+          warnings.push(`${(file as FileRow).name} was removed from the portal, but object storage cleanup failed.`);
+        }
+      }
+    }
   }
 
-  return json({ ok: true, deleted: foundPageIds.length });
+  return json({
+    ok: true,
+    deleted: foundPageIds.length,
+    deletedFiles,
+    warning: warnings[0]
+  });
 };
