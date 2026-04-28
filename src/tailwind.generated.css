@@ -239,6 +239,9 @@
   .invisible {
     visibility: hidden;
   }
+  .visible {
+    visibility: visible;
+  }
   .sr-only {
     position: absolute;
     width: 1px;
@@ -1779,11 +1782,6 @@
   .sm\:min-w-72 {
     @media (width >= 40rem) {
       min-width: calc(var(--spacing) * 72);
-    }
-  }
-  .sm\:grid-cols-\[minmax\(0\,1fr\)_auto\] {
-    @media (width >= 40rem) {
-      grid-template-columns: minmax(0,1fr) auto;
     }
   }
   .sm\:flex-row {

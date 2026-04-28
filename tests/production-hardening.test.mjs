@@ -91,6 +91,7 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   const fileRoute = file('src/routes/api/files/[id]/+server.ts');
   const downloadRoute = file('src/routes/api/files/[id]/download/+server.ts');
   const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
+  const objectStorage = file('src/lib/server/object-storage.ts');
   assert.match(uploadButton, /\/api\/files\/upload-url/);
   assert.match(uploadButton, /method: 'PUT'/);
   assert.match(uploadButton, /\/api\/files'/);
@@ -98,6 +99,9 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   assert.match(fileRoute, /warning: 'File was removed from the portal, but object storage cleanup failed.'/);
   assert.match(downloadRoute, /storageErrorMessage\(error, 'read this file'\)/);
   assert.match(uploadUrlRoute, /storageErrorMessage\(error, 'prepare the upload'\)/);
+  assert.match(objectStorage, /function signature/);
+  assert.match(objectStorage, /fetch\(url/);
+  assert.doesNotMatch(objectStorage, /@aws-sdk/);
 });
 
 test('production hardening migration adds review RLS and audit log', () => {

@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { enhance } from '$app/forms';
   import { invalidateAll } from '$app/navigation';
   import { page } from '$app/stores';
   import {
@@ -7,13 +6,8 @@
     Copy,
     Download,
     FileText,
-    Folder,
-    FolderPlus,
-    Grid2X2,
-    ListFilter,
     Pencil,
     RefreshCw,
-    Rows3,
     Search,
     Trash2,
     X
@@ -23,10 +17,9 @@
   import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate } from '$lib/utils';
 
-  let { data, form } = $props();
+  let { data } = $props();
   let query = $state('');
   let activeFolder = $state('All files');
-  let showFolderForm = $state(false);
   let renameId = $state('');
   let renameName = $state('');
   let renamePageId = $state('');
@@ -34,6 +27,7 @@
   let renamePageSheetTitle = $state('');
   let busy = $state(false);
   let notice = $state('');
+  let selectedPageIds = $state<string[]>([]);
 
   const documentTool = $derived($page.url.searchParams.get('tool') === 'specifications' ? 'specifications' : 'drawings');
   const toolTitle = $derived(documentTool === 'specifications' ? 'Specifications' : 'Drawings');
@@ -49,12 +43,6 @@
       return folderOk && queryOk;
     })
   );
-  const folderViews = $derived(
-    data.folders.map((folder) => ({
-      ...folder,
-      fileCount: toolFiles.filter((file) => file.path.startsWith(`${folder.name}/`)).length
-    }))
-  );
   const groupedFiles = $derived(
     [...new Set(filteredFiles.map((file) => folderName(file)))]
       .sort((a, b) => a.localeCompare(b))
@@ -62,6 +50,15 @@
         name,
         files: filteredFiles.filter((file) => folderName(file) === name)
       }))
+  );
+  const visibleDrawingPages = $derived(
+    documentTool === 'drawings'
+      ? filteredFiles.flatMap((file) => (file.pages ?? []).map((page) => ({ file, page })))
+      : []
+  );
+  const selectedVisiblePageCount = $derived(visibleDrawingPages.filter(({ page }) => selectedPageIds.includes(page.id)).length);
+  const allVisiblePagesSelected = $derived(
+    visibleDrawingPages.length > 0 && visibleDrawingPages.every(({ page }) => selectedPageIds.includes(page.id))
   );
 
   function isSpecification(file: (typeof data.files)[number]) {
@@ -126,6 +123,39 @@
 
   function reindexEndpoint(fileId: string) {
     return `/api/files/${encodeURIComponent(fileId)}/reindex`;
+  }
+
+  function filePageIds(file: (typeof data.files)[number]) {
+    return (file.pages ?? []).map((page) => page.id);
+  }
+
+  function pageSelected(pageId: string) {
+    return selectedPageIds.includes(pageId);
+  }
+
+  function filePagesSelected(file: (typeof data.files)[number]) {
+    const ids = filePageIds(file);
+    return ids.length > 0 && ids.every((id) => selectedPageIds.includes(id));
+  }
+
+  function togglePage(pageId: string, checked: boolean) {
+    selectedPageIds = checked
+      ? [...new Set([...selectedPageIds, pageId])]
+      : selectedPageIds.filter((id) => id !== pageId);
+  }
+
+  function toggleFilePages(file: (typeof data.files)[number], checked: boolean) {
+    const ids = filePageIds(file);
+    selectedPageIds = checked
+      ? [...new Set([...selectedPageIds, ...ids])]
+      : selectedPageIds.filter((id) => !ids.includes(id));
+  }
+
+  function toggleVisiblePages(checked: boolean) {
+    const ids = visibleDrawingPages.map(({ page }) => page.id);
+    selectedPageIds = checked
+      ? [...new Set([...selectedPageIds, ...ids])]
+      : selectedPageIds.filter((id) => !ids.includes(id));
   }
 
   function startRename(file: (typeof data.files)[number]) {
@@ -227,6 +257,65 @@
     await navigator.clipboard?.writeText(location.origin + `/api/files/${encodeURIComponent(file.id)}/download`);
     notice = 'Link copied.';
   }
+
+  async function downloadBlob(response: Response, fallbackName: string) {
+    const blob = await response.blob();
+    const disposition = response.headers.get('content-disposition') ?? '';
+    const filename = decodeURIComponent(disposition.match(/filename\*=UTF-8''([^;]+)/)?.[1] ?? '') || fallbackName;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportSelectedPages(mode: 'combined' | 'separate') {
+    if (!selectedPageIds.length) return;
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch('/api/files/pages/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageIds: selectedPageIds, mode })
+      });
+      if (!response.ok) throw new Error((await response.json()).error ?? 'Export failed.');
+      await downloadBlob(response, mode === 'separate' ? 'drawing-pages.zip' : 'drawing-pages.pdf');
+      notice = `Exported ${selectedPageIds.length} drawing page${selectedPageIds.length === 1 ? '' : 's'}.`;
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Export failed.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function deleteSelectedPages() {
+    if (!selectedPageIds.length) return;
+    const ok = confirm(`Delete ${selectedPageIds.length} selected drawing page${selectedPageIds.length === 1 ? '' : 's'} from the drawing log?`);
+    if (!ok) return;
+
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch('/api/files/pages/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pageIds: selectedPageIds })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Delete failed.');
+      notice = `Deleted ${result.deleted ?? selectedPageIds.length} drawing page${(result.deleted ?? selectedPageIds.length) === 1 ? '' : 's'}.`;
+      selectedPageIds = [];
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Delete failed.';
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -242,105 +331,84 @@
           ? 'Keep project specifications separate from drawing revisions and file uploads.'
           : 'View current drawings, revision status, published sets, and project downloads.'}
       </p>
-      <div class="tool-tabs" aria-label="Document tools">
-        <a class:active={documentTool === 'drawings'} href={`/projects/${data.project.id}/files`}>Drawings</a>
-        <a class:active={documentTool === 'specifications'} href={`/projects/${data.project.id}/files?tool=specifications`}>Specifications</a>
-      </div>
     </div>
     <div class="tool-actions">
       {#if canModifyFiles}
-        <button class="btn btn-secondary" type="button" onclick={() => (showFolderForm = !showFolderForm)}>
-          <FolderPlus size={16} />
-          New folder
-        </button>
-        <div class="upload-action">
-          <FileUploadButton projectSlug={data.project.id} folderName={uploadFolder} />
-          <span>Target: {uploadFolder || 'Root'}</span>
-        </div>
+        <FileUploadButton projectSlug={data.project.id} folderName={uploadFolder} />
       {:else}
         <span class="readonly-chip">Read-only access</span>
       {/if}
     </div>
   </section>
 
-  {#if form?.error}
-    <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{form.error}</div>
-  {/if}
   {#if notice}
     <div class="mb-3 rounded-md border border-black/10 bg-white px-3 py-2 text-sm font-semibold text-pe-sub">{notice}</div>
   {/if}
 
-  {#if showFolderForm && canModifyFiles}
-    <form class="utility-panel mb-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]" method="post" action="?/createFolder" use:enhance>
-      <div>
-        <label class="label" for="folder-name">Folder name</label>
-        <input id="folder-name" class="field" name="name" placeholder="Drawings, Specifications, Closeout..." required />
-      </div>
-      <div class="flex items-end">
-        <button class="btn btn-primary w-full sm:w-auto" type="submit">
-          <FolderPlus size={16} />
-          Create folder
-        </button>
-      </div>
-    </form>
-  {/if}
-
   <section class="workbench documents-workbench">
-    <aside class="saved-views">
-      <div class="views-title">Views</div>
-      <button class={`view-row ${activeFolder === 'All files' ? 'active' : ''}`} type="button" onclick={() => (activeFolder = 'All files')}>
-        <Folder size={15} />
-        <span>All {toolTitle}</span>
-        <strong>{toolFiles.length}</strong>
-      </button>
-      {#each folderViews as folder}
-        <button class={`view-row ${activeFolder === folder.name ? 'active' : ''}`} type="button" onclick={() => (activeFolder = folder.name)}>
-          <Folder size={15} />
-          <span>{folder.name}</span>
-          <strong>{folder.fileCount}</strong>
-        </button>
-      {/each}
-    </aside>
-
     <div class="log-area">
       <div class="log-toolbar">
         <div class="searchbox">
           <Search size={16} />
           <input bind:value={query} placeholder="Search" />
         </div>
-        <button class="filter-button" type="button">
-          <ListFilter size={14} />
-          Filters
-        </button>
         <select class="field compact" aria-label="Folder filter" bind:value={activeFolder}>
           <option>All files</option>
           {#each data.folders as folder}
             <option>{folder.name}</option>
           {/each}
         </select>
-        <select class="field compact" aria-label="Set filter">
-          <option>Current set</option>
-          <option>All sets</option>
-        </select>
         <span class="result-count">{filteredFiles.length} shown</span>
-        <div class="view-toggle" aria-label="View mode">
-          <button class="active" type="button" aria-label="List view"><Rows3 size={16} /></button>
-          <button type="button" aria-label="Grid view"><Grid2X2 size={16} /></button>
-        </div>
+        {#if documentTool === 'drawings' && selectedPageIds.length}
+          <div class="bulk-actions" aria-label="Selected drawing page actions">
+            <span>{selectedPageIds.length} selected</span>
+            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('combined')}>
+              <Download size={14} />
+              Combined PDF
+            </button>
+            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('separate')}>
+              <Download size={14} />
+              Single pages
+            </button>
+            {#if canDeleteFiles}
+              <button class="mini-button danger" type="button" disabled={busy} onclick={deleteSelectedPages}>
+                <Trash2 size={14} />
+                Delete
+              </button>
+            {/if}
+          </div>
+        {/if}
       </div>
 
       <div class="dense-table-shell">
         <table class="dense-table drawings-table">
+          <colgroup>
+            <col class="select-col" />
+            <col class="number-col" />
+            <col class="title-col" />
+            <col class="revision-col" />
+            <col class="date-col" />
+            <col class="location-col" />
+            <col class="actions-col" />
+          </colgroup>
           <thead>
             <tr>
-              <th class="w-10"><input type="checkbox" aria-label={`Select all ${toolTitle}`} /></th>
+              <th class="select-cell">
+                {#if documentTool === 'drawings'}
+                  <input
+                    type="checkbox"
+                    aria-label={`Select all visible ${toolTitle} pages`}
+                    checked={allVisiblePagesSelected}
+                    disabled={!visibleDrawingPages.length}
+                    onchange={(event) => toggleVisiblePages(event.currentTarget.checked)}
+                  />
+                {/if}
+              </th>
               <th>{documentTool === 'specifications' ? 'Section' : 'Number'}</th>
               <th>{documentTool === 'specifications' ? 'Specification Title' : 'Drawing Title'}</th>
               <th>Revision</th>
               <th>{documentTool === 'specifications' ? 'Uploaded' : 'Drawing Date'}</th>
-              <th>Received Date</th>
               <th>{documentTool === 'specifications' ? 'Folder' : 'Set'}</th>
-              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -348,11 +416,20 @@
             {#each groupedFiles as group}
               <tr class="group-row">
                 <td><span class="group-caret">v</span></td>
-                <td colspan="8">{group.name} ({group.files.length})</td>
+                <td colspan="6">{group.name} ({group.files.length})</td>
               </tr>
               {#each group.files as file}
                 <tr>
-                  <td><input type="checkbox" aria-label={`Select ${file.name}`} /></td>
+                  <td class="select-cell">
+                    {#if documentTool === 'drawings' && file.pages?.length}
+                      <input
+                        type="checkbox"
+                        aria-label={`Select all pages in ${file.name}`}
+                        checked={filePagesSelected(file)}
+                        onchange={(event) => toggleFilePages(file, event.currentTarget.checked)}
+                      />
+                    {/if}
+                  </td>
                   <td>
                     {#if fileHasStorage(file)}
                       <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
@@ -380,11 +457,10 @@
                   </td>
                   <td>{revisionFor(file)}</td>
                   <td>{formatDate(file.updatedAt)}</td>
-                  <td>{formatDate(file.updatedAt)}</td>
                   <td><span class="set-link">{file.path}</span></td>
-                  <td><StatusPill label={statusFor(file)} /></td>
                   <td>
                     <div class="row-actions">
+                      <StatusPill label={statusFor(file)} />
                       {#if fileHasStorage(file)}
                         <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
                           <Download size={15} />
@@ -412,7 +488,14 @@
                 {#if documentTool === 'drawings' && file.pages?.length}
                   {#each file.pages as pageRow}
                     <tr class="page-row" class:editing-row={renamePageId === pageRow.id}>
-                      <td></td>
+                      <td class="select-cell">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${pageRow.name}`}
+                          checked={pageSelected(pageRow.id)}
+                          onchange={(event) => togglePage(pageRow.id, event.currentTarget.checked)}
+                        />
+                      </td>
                       <td>
                         {#if renamePageId === pageRow.id}
                           <input class="field sheet-edit-number" bind:value={renamePageSheetNumber} aria-label="Sheet number" />
@@ -434,11 +517,10 @@
                       </td>
                       <td>{pageRow.revision ?? revisionFor(file)}</td>
                       <td>{formatDate(file.updatedAt)}</td>
-                      <td>{formatDate(file.updatedAt)}</td>
                       <td><span class="set-link">{file.name}</span></td>
-                      <td><StatusPill label="Indexed" /></td>
                       <td>
                         <div class="row-actions">
+                          <StatusPill label="Indexed" />
                           {#if renamePageId === pageRow.id}
                             <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
                               <Check size={15} />
@@ -464,10 +546,10 @@
               {/each}
             {:else}
               <tr>
-                <td colspan="9">
+                <td colspan="7">
                   <div class="empty-log">
                     <strong>No {toolTitle.toLowerCase()} match this view.</strong>
-                    <span>Upload into {uploadFolder || 'Root'}, or adjust search and filters.</span>
+                    <span>Upload files to this project, or adjust search and filters.</span>
                   </div>
                 </td>
               </tr>
@@ -481,11 +563,96 @@
 
 <style>
   .documents-workbench {
-    grid-template-columns: 230px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .drawings-table {
-    min-width: 1120px;
+    min-width: 0;
+    table-layout: fixed;
+  }
+
+  .dense-table-shell {
+    overflow: visible;
+  }
+
+  .select-col {
+    width: 2.5rem;
+  }
+
+  .number-col {
+    width: 7.5rem;
+  }
+
+  .title-col {
+    width: auto;
+  }
+
+  .revision-col {
+    width: 5rem;
+  }
+
+  .date-col {
+    width: 8.5rem;
+  }
+
+  .location-col {
+    width: 12rem;
+  }
+
+  .actions-col {
+    width: 15rem;
+  }
+
+  .select-cell {
+    text-align: center;
+  }
+
+  .select-cell input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #191b19;
+  }
+
+  .drawings-table th,
+  .drawings-table td {
+    overflow: hidden;
+  }
+
+  .drawings-table td:last-child {
+    overflow: visible;
+  }
+
+  .bulk-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .bulk-actions span {
+    color: #3f4640;
+    font-size: 0.76rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  .mini-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+  }
+
+  .mini-button.danger {
+    color: #b42318;
+    border-color: rgba(180, 35, 24, 0.28);
+    background: #fff8f7;
+  }
+
+  :global(.row-actions) {
+    flex-wrap: wrap;
+    justify-content: flex-start;
   }
 
   .record-title {
@@ -493,7 +660,7 @@
     align-items: center;
     gap: 0.45rem;
     min-width: 0;
-    max-width: 34rem;
+    max-width: 100%;
     color: #202220;
     font-weight: 750;
     text-align: left;
@@ -508,7 +675,7 @@
 
   .set-link {
     display: block;
-    max-width: 18rem;
+    max-width: 100%;
     color: #1a5fb4;
     text-decoration: underline;
   }
@@ -560,10 +727,6 @@
     font-weight: 850;
   }
 
-  .page-rename {
-    margin-left: 1.15rem;
-  }
-
   .sheet-edit-number,
   .sheet-edit-title {
     min-height: 1.95rem;
@@ -589,6 +752,56 @@
   .icon-row-button.quiet {
     border-color: transparent;
     color: #7b827b;
+  }
+
+  @media (max-width: 1050px) {
+    .location-col,
+    .drawings-table th:nth-child(6),
+    .drawings-table td:nth-child(6) {
+      display: none;
+    }
+
+    .actions-col {
+      width: 13rem;
+    }
+  }
+
+  @media (max-width: 780px) {
+    .date-col,
+    .revision-col,
+    .drawings-table th:nth-child(4),
+    .drawings-table td:nth-child(4),
+    .drawings-table th:nth-child(5),
+    .drawings-table td:nth-child(5) {
+      display: none;
+    }
+
+    .number-col {
+      width: 6rem;
+    }
+
+    .actions-col {
+      width: 11.5rem;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .drawings-table {
+      font-size: 0.72rem;
+    }
+
+    .number-col {
+      width: 5rem;
+    }
+
+    .actions-col {
+      width: 9rem;
+    }
+
+    .icon-row-button {
+      width: 1.65rem;
+      height: 1.65rem;
+    }
   }
 
   @media (max-width: 900px) {

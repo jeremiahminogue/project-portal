@@ -3,7 +3,7 @@ import { env as privateEnv } from '$env/dynamic/private';
 export function serverEnv(...names: string[]) {
   for (const name of names) {
     const value = privateEnv[name] ?? process.env[name];
-    const cleaned = value?.replace(/^\uFEFF/, '').replace(/^\u00ef\u00bb\u00bf/, '');
+    const cleaned = value?.replace(/^\uFEFF/, '').replace(/^\u00ef\u00bb\u00bf/, '').trim();
     if (cleaned) return cleaned;
   }
 

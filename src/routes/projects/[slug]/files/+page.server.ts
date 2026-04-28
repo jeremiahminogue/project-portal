@@ -1,8 +1,7 @@
-import { error, fail } from '@sveltejs/kit';
-import { formString } from '$lib/server/auth';
-import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { error } from '@sveltejs/kit';
+import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { getFiles, getFolders, getProject } from '$lib/server/queries';
-import type { Actions, PageServerLoad } from './$types';
+import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
   const project = await getProject(event, event.params.slug);
@@ -21,38 +20,4 @@ export const load: PageServerLoad = async (event) => {
       canDelete: !event.locals.supabase || role === 'superadmin' || role === 'admin'
     }
   };
-};
-
-export const actions: Actions = {
-  createFolder: async (event) => {
-    const name = formString(await event.request.formData(), 'name');
-    if (!name) return fail(400, { error: 'Folder name is required.' });
-    if (/[\\/]/.test(name)) return fail(400, { error: 'Folder names cannot include slashes.' });
-
-    const access = await requireProjectAccess(event, event.params.slug, { writable: true });
-    if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
-    const client = databaseClientForProjectAccess(event, access);
-    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
-
-    const { data: existing, error: existingError } = await client
-      .from('files')
-      .select('id')
-      .eq('project_id', access.project.id)
-      .eq('is_folder', true)
-      .eq('name', name)
-      .maybeSingle();
-
-    if (existingError) return fail(400, { error: existingError.message });
-    if (existing) return { ok: true };
-
-    const { error: insertError } = await client.from('files').insert({
-      project_id: access.project.id,
-      name,
-      is_folder: true,
-      uploaded_by: access.user.id
-    });
-
-    if (insertError) return fail(400, { error: insertError.message });
-    return { ok: true };
-  }
 };
