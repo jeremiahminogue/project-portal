@@ -26,6 +26,8 @@ test('password reset flow uses callback session before updateUser', () => {
   const callback = file('src/routes/auth/callback/+server.ts');
   assert.match(forgot, /resetPasswordForEmail/);
   assert.match(forgot, /\/auth\/callback\?next=\/reset-password/);
+  assert.match(forgot, /isRateLimitError/);
+  assert.match(forgot, /limited: true/);
   assert.match(reset, /exchangeCodeForSession/);
   assert.match(reset, /searchParams\.get\('error'\)/);
   assert.match(reset, /updateUser\(\{ password \}\)/);
@@ -43,6 +45,26 @@ test('local superadmin fallback is explicitly gated outside production', () => {
   assert.doesNotMatch(env, /serverEnv\('VERCEL_ENV'\)/);
   assert.match(localAuth, /isLocalSuperadminEnabled\(\)/);
   assert.doesNotMatch(superadmin, /auth\.admin\.(createUser|updateUserById)/);
+});
+
+test('Pueblo owner superadmin identity is hard-coded without a hard-coded password', () => {
+  const packageJson = file('package.json');
+  const hooks = file('src/hooks.server.ts');
+  const login = file('src/routes/login/+page.server.ts');
+  const localAuth = file('src/lib/server/local-auth.ts');
+  const queries = file('src/lib/server/queries.ts');
+  const superadmin = file('src/lib/server/superadmin.ts');
+  assert.match(superadmin, /HARDCODED_SUPERADMIN_EMAILS/);
+  assert.match(superadmin, /jeremiah@puebloelectrics\.com/);
+  assert.match(superadmin, /PORTAL_SUPERADMIN_PASSWORD_HASH/);
+  assert.match(superadmin, /verifyPasswordHash/);
+  assert.match(localAuth, /setSignedAdminSession/);
+  assert.match(hooks, /isHardcodedSuperadminEmail\(user\.email\)/);
+  assert.match(login, /setConfiguredSuperadminSession/);
+  assert.match(hooks, /hardcodedSuperadminProfile/);
+  assert.match(queries, /isHardcodedSuperadminEmail\(user\.email\)/);
+  assert.match(packageJson, /superadmin:hash/);
+  assert.doesNotMatch(superadmin, /password\s*[:=]\s*['"]/i);
 });
 
 test('RFI and submittal writes are bound to project access and project id', () => {

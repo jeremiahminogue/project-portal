@@ -84,11 +84,7 @@ export function isLocalSuperadminCredentials(email: string, password: string) {
   );
 }
 
-export function setLocalAdminSession(event: RequestEvent) {
-  if (!isLocalSuperadminEnabled()) {
-    throw new Error('Local superadmin sign-in is disabled.');
-  }
-
+export function setSignedAdminSession(event: RequestEvent) {
   const email = LOCAL_SUPERADMIN_EMAIL;
   const expiresAt = Date.now() + LOCAL_SESSION_MAX_AGE * 1000;
   const payload = `${encodeEmail(email)}.${expiresAt}`;
@@ -103,13 +99,19 @@ export function setLocalAdminSession(event: RequestEvent) {
   });
 }
 
+export function setLocalAdminSession(event: RequestEvent) {
+  if (!isLocalSuperadminEnabled()) {
+    throw new Error('Local superadmin sign-in is disabled.');
+  }
+
+  setSignedAdminSession(event);
+}
+
 export function clearLocalAdminSession(event: RequestEvent) {
   event.cookies.delete(LOCAL_SESSION_COOKIE, { path: '/' });
 }
 
-export function getLocalAdminSession(event: RequestEvent) {
-  if (!isLocalSuperadminEnabled()) return null;
-
+export function getSignedAdminSession(event: RequestEvent) {
   const token = event.cookies.get(LOCAL_SESSION_COOKIE);
   if (!token) return null;
 
@@ -127,4 +129,9 @@ export function getLocalAdminSession(event: RequestEvent) {
 
   const email = decodeEmail(encodedEmail).toLowerCase();
   return email === LOCAL_SUPERADMIN_EMAIL ? localSuperadmin() : null;
+}
+
+export function getLocalAdminSession(event: RequestEvent) {
+  if (!isLocalSuperadminEnabled()) return null;
+  return getSignedAdminSession(event);
 }

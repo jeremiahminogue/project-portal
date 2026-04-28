@@ -5,6 +5,8 @@
   let { data, form } = $props();
   let showPassword = $state(false);
   let showConfirm = $state(false);
+  let submitting = $state(false);
+  const updated = $derived(Boolean(form?.updated));
 </script>
 
 <svelte:head>
@@ -35,11 +37,25 @@
         <ArrowRight size={16} />
       </a>
     {:else if data.ready}
-      <form method="post" action="?/updatePassword" use:enhance class="mt-6 space-y-4">
+      <form
+        method="post"
+        action="?/updatePassword"
+        use:enhance={() => {
+          submitting = true;
+          return async ({ update }) => {
+            try {
+              await update();
+            } finally {
+              submitting = false;
+            }
+          };
+        }}
+        class="mt-6 space-y-4"
+      >
         <div>
           <label class="label" for="password">New password</label>
           <div class="relative">
-            <input class="field pr-11" id="password" name="password" type={showPassword ? 'text' : 'password'} autocomplete="new-password" required minlength="8" placeholder="New password" />
+            <input class="field pr-11" id="password" name="password" type={showPassword ? 'text' : 'password'} autocomplete="new-password" required minlength="8" placeholder="New password" disabled={submitting || updated} />
             <button class="absolute inset-y-0 right-0 grid w-11 place-items-center text-pe-sub hover:text-pe-body" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onclick={() => (showPassword = !showPassword)}>
               {#if showPassword}<EyeOff size={17} />{:else}<Eye size={17} />{/if}
             </button>
@@ -48,14 +64,14 @@
         <div>
           <label class="label" for="confirmPassword">Confirm password</label>
           <div class="relative">
-            <input class="field pr-11" id="confirmPassword" name="confirmPassword" type={showConfirm ? 'text' : 'password'} autocomplete="new-password" required minlength="8" placeholder="Confirm password" />
+            <input class="field pr-11" id="confirmPassword" name="confirmPassword" type={showConfirm ? 'text' : 'password'} autocomplete="new-password" required minlength="8" placeholder="Confirm password" disabled={submitting || updated} />
             <button class="absolute inset-y-0 right-0 grid w-11 place-items-center text-pe-sub hover:text-pe-body" type="button" aria-label={showConfirm ? 'Hide password' : 'Show password'} onclick={() => (showConfirm = !showConfirm)}>
               {#if showConfirm}<EyeOff size={17} />{:else}<Eye size={17} />{/if}
             </button>
           </div>
         </div>
-        <button class="btn btn-primary w-full" type="submit">
-          Update password
+        <button class="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-65" type="submit" disabled={submitting || updated}>
+          {submitting ? 'Updating...' : 'Update password'}
           <ShieldCheck size={16} />
         </button>
       </form>

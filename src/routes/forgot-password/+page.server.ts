@@ -21,13 +21,19 @@ export const actions: Actions = {
       redirectTo: `${url.origin}/auth/callback?next=/reset-password`
     });
 
+    if (error && isRateLimitError(error.message)) {
+      return { sent: true, limited: true, email };
+    }
     if (error) return fail(400, { error: friendlyError(error.message), email });
     return { sent: true, email };
   }
 };
 
-function friendlyError(raw: string) {
+function isRateLimitError(raw: string) {
   const lower = raw.toLowerCase();
-  if (lower.includes('rate limit') || lower.includes('too many')) return 'Too many attempts. Wait a minute and try again.';
+  return lower.includes('rate limit') || lower.includes('too many');
+}
+
+function friendlyError(raw: string) {
   return raw;
 }

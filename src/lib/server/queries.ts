@@ -25,6 +25,7 @@ import {
 import { bytesToSize, relativeTime } from '$lib/utils';
 import { isProductionRuntime } from './env';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
+import { isHardcodedSuperadminEmail } from './superadmin';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
 type EventLike = Pick<RequestEvent, 'locals'>;
@@ -728,13 +729,14 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
     .map((user) => {
       const profile: any = profileById.get(user.id);
       const projects = (projectsByUser.get(user.id) ?? []).sort((a, b) => a.slug.localeCompare(b.slug));
+      const isHardcodedSuperadmin = isHardcodedSuperadminEmail(user.email);
       return {
         id: user.id,
         email: user.email ?? '',
         fullName: profile?.full_name ?? null,
         company: profile?.company ?? null,
         title: profile?.title ?? null,
-        isSuperadmin: Boolean(profile?.is_superadmin),
+        isSuperadmin: isHardcodedSuperadmin || Boolean(profile?.is_superadmin),
         projectCount: projects.length,
         emailConfirmed: Boolean(user.email_confirmed_at),
         projects

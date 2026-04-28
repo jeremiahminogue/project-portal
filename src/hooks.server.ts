@@ -1,7 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
 import { error, redirect, type Handle } from '@sveltejs/kit';
-import { getLocalAdminSession, getLocalMockSession } from '$lib/server/local-auth';
+import { getLocalMockSession, getSignedAdminSession } from '$lib/server/local-auth';
 import { isLocalMockAuthForced, isProductionRuntime, serverEnv } from '$lib/server/env';
+import { hardcodedSuperadminProfile, isHardcodedSuperadminEmail } from '$lib/server/superadmin';
 
 function env(name: string) {
   return serverEnv(name);
@@ -71,10 +72,10 @@ export const handle: Handle = async ({ event, resolve }) => {
       return getLocalMockSession() ?? { user: null, profile: null, isSuperadmin: false };
     }
 
-    const localAdmin = getLocalAdminSession(event);
-    if (localAdmin) {
+    const signedAdmin = getSignedAdminSession(event);
+    if (signedAdmin) {
       event.locals.isLocalSuperadmin = true;
-      return localAdmin;
+      return signedAdmin;
     }
 
     const supabase = event.locals.supabase;
@@ -99,11 +100,23 @@ export const handle: Handle = async ({ event, resolve }) => {
       .eq('id', user.id)
       .maybeSingle();
 
+    const isHardcodedSuperadmin = isHardcodedSuperadminEmail(user.email);
+    const resolvedProfile = profile
+      ? {
+          ...profile,
+          email: profile.email ?? user.email ?? '',
+          role: isHardcodedSuperadmin ? ('admin' as const) : profile.role,
+          is_superadmin: isHardcodedSuperadmin || Boolean(profile.is_superadmin)
+        }
+      : isHardcodedSuperadmin
+        ? hardcodedSuperadminProfile({ id: user.id, email: user.email ?? null })
+        : null;
+
     event.locals.isLocalSuperadmin = false;
     return {
       user: { id: user.id, email: user.email ?? null },
-      profile: profile ?? null,
-      isSuperadmin: Boolean(profile?.is_superadmin)
+      profile: resolvedProfile,
+      isSuperadmin: isHardcodedSuperadmin || Boolean(profile?.is_superadmin)
     };
   };
 

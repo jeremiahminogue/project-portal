@@ -3,6 +3,8 @@
   import { ArrowLeft, Mail } from '@lucide/svelte';
 
   let { form } = $props();
+  let submitting = $state(false);
+  const sent = $derived(Boolean(form?.sent));
 </script>
 
 <svelte:head>
@@ -21,17 +23,31 @@
     {/if}
     {#if form?.sent}
       <div class="mt-5 rounded-lg border border-pe-green/20 bg-pe-green/10 px-3 py-2 text-sm font-semibold text-pe-green-dark">
-        Check your email for the reset link.
+        {form.limited ? 'A reset email was already requested. Use the newest link in your inbox, or try once more in a minute if nothing arrives.' : 'Check your email for the reset link.'}
       </div>
     {/if}
 
-    <form method="post" action="?/requestReset" use:enhance class="mt-6 space-y-4">
+    <form
+      method="post"
+      action="?/requestReset"
+      use:enhance={() => {
+        submitting = true;
+        return async ({ update }) => {
+          try {
+            await update();
+          } finally {
+            submitting = false;
+          }
+        };
+      }}
+      class="mt-6 space-y-4"
+    >
       <div>
         <label class="label" for="email">Email</label>
-        <input class="field" id="email" name="email" type="email" autocomplete="email" value={form?.email ?? ''} required placeholder="you@company.com" />
+        <input class="field" id="email" name="email" type="email" autocomplete="email" value={form?.email ?? ''} required placeholder="you@company.com" disabled={submitting || sent} />
       </div>
-      <button class="btn btn-primary w-full" type="submit">
-        Send reset link
+      <button class="btn btn-primary w-full disabled:cursor-not-allowed disabled:opacity-65" type="submit" disabled={submitting || sent}>
+        {submitting ? 'Sending...' : sent ? 'Email sent' : 'Send reset link'}
         <Mail size={16} />
       </button>
     </form>

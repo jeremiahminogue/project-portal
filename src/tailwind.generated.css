@@ -1736,6 +1736,16 @@
       scale: 0.98;
     }
   }
+  .disabled\:cursor-not-allowed {
+    &:disabled {
+      cursor: not-allowed;
+    }
+  }
+  .disabled\:opacity-65 {
+    &:disabled {
+      opacity: 65%;
+    }
+  }
   .sm\:block {
     @media (width >= 40rem) {
       display: block;
