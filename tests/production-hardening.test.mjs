@@ -196,6 +196,7 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
   const viewer = file('src/routes/projects/[slug]/files/[id]/+page.svelte');
   const viewerServer = file('src/routes/projects/[slug]/files/[id]/+page.server.ts');
+  const embedViewer = file('src/lib/components/EmbedPdfViewer.svelte');
   const downloadRoute = file('src/routes/api/files/[id]/download/+server.ts');
   const deletePagesRoute = file('src/routes/api/files/pages/delete/+server.ts');
   assert.match(filesPage, /function fileIsPdf/);
@@ -211,6 +212,10 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(downloadRoute, /PDFDocument\.load/);
   assert.match(deletePagesRoute, /deleteObject/);
   assert.match(deletePagesRoute, /deletedFiles/);
+  assert.doesNotMatch(embedViewer, /fallbackTimer/);
+  assert.doesNotMatch(embedViewer, /native-pdf-fallback/);
+  assert.doesNotMatch(embedViewer, /disabledCategories: \['annotation'/);
+  assert.match(embedViewer, /enforceDocumentPermissions: false/);
 });
 
 test('updates can attach project files and files include a documents view', () => {

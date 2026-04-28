@@ -13,7 +13,6 @@
 
   let target = $state<HTMLDivElement | null>(null);
   let error = $state('');
-  let useNativeFallback = $state(false);
 
   onMount(() => {
     let viewer:
@@ -26,11 +25,6 @@
       | undefined;
     let cancelled = false;
     const cleanup: Array<() => void> = [];
-    const fallbackTimer = window.setTimeout(() => {
-      const hasRenderedPage = Boolean(target?.querySelector('canvas, img, [data-page-index], [data-page-number], [class*="page-layer"], [class*="Page"]'));
-      if (!hasRenderedPage) useNativeFallback = true;
-    }, 6000);
-    cleanup.push(() => window.clearTimeout(fallbackTimer));
 
     function scrollToInitialPage(scroll: unknown, totalPages?: number) {
       const scrollCapability = scroll as { scrollToPage?: (options: { pageNumber: number; behavior?: 'instant' | 'smooth'; alignY?: number }) => void };
@@ -76,7 +70,9 @@
           target,
           worker: false,
           wasmUrl: '/embedpdf/pdfium.wasm',
-          tabBar: 'never',
+          permissions: {
+            enforceDocumentPermissions: false
+          },
           documentManager: {
             initialDocuments: [
               {
@@ -95,8 +91,7 @@
           },
           theme: {
             preference: 'light'
-          },
-          disabledCategories: ['annotation', 'redaction', 'stamp', 'signature']
+          }
         }) as typeof viewer;
 
         const registry = await viewer?.registry;
@@ -137,10 +132,7 @@
   </div>
 {:else}
   <div class="embedpdf-shell">
-    <div class:native-hidden={useNativeFallback} bind:this={target} class="embedpdf-target" aria-label={`PDF viewer for ${title}`}></div>
-    {#if useNativeFallback}
-      <iframe class="native-pdf-fallback" src={src} title={`PDF viewer for ${title}`}></iframe>
-    {/if}
+    <div bind:this={target} class="embedpdf-target" aria-label={`PDF viewer for ${title}`}></div>
   </div>
 {/if}
 
@@ -159,20 +151,8 @@
     background: #2b2d2b;
   }
 
-  .embedpdf-target.native-hidden {
-    display: none;
-  }
-
-  .native-pdf-fallback {
-    width: 100%;
-    height: 100%;
-    border: 0;
-    background: #eef0ef;
-  }
-
   @media (max-width: 760px) {
-    .embedpdf-target,
-    .native-pdf-fallback {
+    .embedpdf-target {
       min-width: 760px;
     }
   }
