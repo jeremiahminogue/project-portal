@@ -12,10 +12,10 @@
   let message = $state('');
 
   class UploadError extends Error {
-    stage: 'prepare' | 'storage' | 'register' | 'server';
+    stage: 'prepare' | 'network' | 'storage' | 'register' | 'server';
 
     constructor(
-      stage: 'prepare' | 'storage' | 'register' | 'server',
+      stage: 'prepare' | 'network' | 'storage' | 'register' | 'server',
       message: string
     ) {
       super(message);
@@ -73,11 +73,11 @@
         body: file
       });
     } catch (error) {
-      throw new UploadError('storage', error instanceof Error ? error.message : 'Storage upload failed.');
+      throw new UploadError('network', error instanceof Error ? error.message : 'Storage upload failed.');
     }
     if (!storageResponse.ok) {
       const details = await storageResponse.text().catch(() => '');
-      throw new UploadError('storage', details || `Storage upload failed with status ${storageResponse.status}.`);
+      throw new UploadError('storage', `Storage upload failed (${storageResponse.status}): ${details || storageResponse.statusText}`);
     }
 
     const registerResponse = await fetch('/api/files', {
@@ -104,8 +104,8 @@
     try {
       return await uploadDirectToStorage(file, contentType);
     } catch (error) {
-      if (!(error instanceof UploadError) || error.stage !== 'storage') throw error;
-      message = `Storage upload was blocked by the browser; finishing ${file.name} through the portal...`;
+      if (!(error instanceof UploadError) || error.stage !== 'network') throw error;
+      message = `Direct upload was blocked by the browser; finishing ${file.name} through the portal...`;
       return await uploadThroughPortal(file, contentType);
     }
   }
