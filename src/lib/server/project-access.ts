@@ -2,8 +2,105 @@ import type { RequestEvent } from '@sveltejs/kit';
 import { isProductionRuntime } from './env';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
-const writableRoles = new Set(['admin', 'member']);
-const allProjectRoles = new Set(['superadmin', 'admin', 'member', 'guest', 'readonly']);
+export type ProjectRole = 'superadmin' | 'admin' | 'member' | 'guest' | 'readonly';
+
+export const projectRoleLabels: Record<ProjectRole, string> = {
+  superadmin: 'Portal superadmin',
+  admin: 'Project admin',
+  member: 'Project member',
+  guest: 'Guest collaborator',
+  readonly: 'Read-only viewer'
+};
+
+export const projectRoleDescriptions: Record<ProjectRole, string> = {
+  superadmin: 'Pueblo Electric portal owner with access to every project and admin console.',
+  admin: 'Project lead who can upload, edit, delete, manage chat, and manage project users.',
+  member: 'Internal project contributor who can upload files and work RFIs, submittals, chat, and updates.',
+  guest: 'External collaborator who can view drawings and participate in project communication workflows.',
+  readonly: 'Viewer who can read and download project information without changing records.'
+};
+
+export const projectRoleCapabilities: Record<
+  ProjectRole,
+  {
+    canViewProject: boolean;
+    canDownloadFiles: boolean;
+    canUploadFiles: boolean;
+    canEditFiles: boolean;
+    canDeleteFiles: boolean;
+    canReindexFiles: boolean;
+    canCreateCommunication: boolean;
+    canReviewCommunication: boolean;
+    canDeleteChat: boolean;
+    canManageProjectUsers: boolean;
+  }
+> = {
+  superadmin: {
+    canViewProject: true,
+    canDownloadFiles: true,
+    canUploadFiles: true,
+    canEditFiles: true,
+    canDeleteFiles: true,
+    canReindexFiles: true,
+    canCreateCommunication: true,
+    canReviewCommunication: true,
+    canDeleteChat: true,
+    canManageProjectUsers: true
+  },
+  admin: {
+    canViewProject: true,
+    canDownloadFiles: true,
+    canUploadFiles: true,
+    canEditFiles: true,
+    canDeleteFiles: true,
+    canReindexFiles: true,
+    canCreateCommunication: true,
+    canReviewCommunication: true,
+    canDeleteChat: true,
+    canManageProjectUsers: true
+  },
+  member: {
+    canViewProject: true,
+    canDownloadFiles: true,
+    canUploadFiles: true,
+    canEditFiles: true,
+    canDeleteFiles: false,
+    canReindexFiles: true,
+    canCreateCommunication: true,
+    canReviewCommunication: true,
+    canDeleteChat: false,
+    canManageProjectUsers: false
+  },
+  guest: {
+    canViewProject: true,
+    canDownloadFiles: true,
+    canUploadFiles: false,
+    canEditFiles: false,
+    canDeleteFiles: false,
+    canReindexFiles: false,
+    canCreateCommunication: true,
+    canReviewCommunication: true,
+    canDeleteChat: false,
+    canManageProjectUsers: false
+  },
+  readonly: {
+    canViewProject: true,
+    canDownloadFiles: true,
+    canUploadFiles: false,
+    canEditFiles: false,
+    canDeleteFiles: false,
+    canReindexFiles: false,
+    canCreateCommunication: false,
+    canReviewCommunication: false,
+    canDeleteChat: false,
+    canManageProjectUsers: false
+  }
+};
+
+export const allProjectRoles = Object.keys(projectRoleCapabilities) as ProjectRole[];
+
+const allProjectRoleSet = new Set<ProjectRole>(allProjectRoles);
+const writableRoleSet = new Set<ProjectRole>(allProjectRoles.filter((role) => projectRoleCapabilities[role].canUploadFiles));
 
 export type ProjectAccess = {
   project: {
@@ -15,7 +112,7 @@ export type ProjectAccess = {
     id: string;
     email: string | null;
   };
-  role: 'superadmin' | 'admin' | 'member' | 'guest' | 'readonly';
+  role: ProjectRole;
 };
 
 export type ProjectAccessError = {
@@ -37,7 +134,7 @@ export function databaseClientForProjectAccess(event: RequestEvent, access: Proj
 export async function requireProjectAccess(
   event: RequestEvent,
   projectSlug: string,
-  options: { writable?: boolean; roles?: ProjectAccess['role'][]; action?: string } = {}
+  options: { writable?: boolean; roles?: ProjectRole[]; action?: string } = {}
 ): Promise<ProjectAccess | ProjectAccessError> {
   const me = await event.locals.getCurrentUser();
   if (!me.user) return { status: 401, message: 'Not signed in.' };
@@ -74,17 +171,18 @@ export async function requireProjectAccess(
 
   if (memberError) return { status: 500, message: memberError.message };
   if (!member) return { status: 403, message: 'You do not have access to this project.' };
-  if (!allProjectRoles.has(member.role)) {
+  const role = member.role as ProjectRole;
+  if (!allProjectRoleSet.has(role)) {
     return { status: 403, message: 'Your project role is not recognized.' };
   }
-  if (options.writable && !writableRoles.has(member.role)) {
+  if (options.writable && !writableRoleSet.has(role)) {
     return { status: 403, message: `Not authorized to ${options.action ?? 'modify this project'}.` };
   }
-  if (options.roles && !options.roles.includes(member.role)) {
+  if (options.roles && !options.roles.includes(role)) {
     return { status: 403, message: `Not authorized to ${options.action ?? 'modify this project'}.` };
   }
 
-  return { project, user: me.user, role: member.role };
+  return { project, user: me.user, role };
 }
 
 export function isProjectAccessError(value: ProjectAccess | ProjectAccessError): value is ProjectAccessError {

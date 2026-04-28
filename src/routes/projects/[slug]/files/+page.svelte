@@ -32,7 +32,9 @@
   const documentTool = $derived($page.url.searchParams.get('tool') === 'specifications' ? 'specifications' : 'drawings');
   const toolTitle = $derived(documentTool === 'specifications' ? 'Specifications' : 'Drawings');
   const canModifyFiles = $derived(Boolean(data.fileAccess?.canModify));
+  const canUploadFiles = $derived(Boolean(data.fileAccess?.canUpload));
   const canDeleteFiles = $derived(Boolean(data.fileAccess?.canDelete));
+  const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
   const uploadFolder = $derived(activeFolder === 'All files' ? '' : activeFolder);
 
   const toolFiles = $derived(data.files.filter((file) => (documentTool === 'specifications' ? isSpecification(file) : !isSpecification(file))));
@@ -106,6 +108,10 @@
 
   function fileIsStorageOnly(file: (typeof data.files)[number]) {
     return file.id.startsWith('storage:');
+  }
+
+  function fileIsPdf(file: (typeof data.files)[number]) {
+    return /pdf/i.test(file.mimeType ?? '') || /\.pdf$/i.test(file.name);
   }
 
   function fileEndpoint(id: string) {
@@ -333,7 +339,7 @@
       </p>
     </div>
     <div class="tool-actions">
-      {#if canModifyFiles}
+      {#if canUploadFiles}
         <FileUploadButton projectSlug={data.project.id} folderName={uploadFolder} />
       {:else}
         <span class="readonly-chip">Read-only access</span>
@@ -431,8 +437,10 @@
                     {/if}
                   </td>
                   <td>
-                    {#if fileHasStorage(file)}
+                    {#if fileHasStorage(file) && fileIsPdf(file)}
                       <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
+                    {:else if fileHasStorage(file)}
+                      <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
                     {:else}
                       <span class="record-link muted-link">{documentNumber(file)}</span>
                     {/if}
@@ -469,10 +477,12 @@
                           <Copy size={15} />
                         </button>
                       {/if}
-                      {#if canModifyFiles && !fileIsStorageOnly(file)}
+                      {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
                         <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
                           <RefreshCw size={15} />
                         </button>
+                      {/if}
+                      {#if canModifyFiles && !fileIsStorageOnly(file)}
                         <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
                           <Pencil size={15} />
                         </button>
@@ -499,7 +509,7 @@
                       <td>
                         {#if renamePageId === pageRow.id}
                           <input class="field sheet-edit-number" bind:value={renamePageSheetNumber} aria-label="Sheet number" />
-                        {:else if fileHasStorage(file)}
+                        {:else if fileHasStorage(file) && fileIsPdf(file)}
                           <a class="record-link" href={viewerHref(file.id, pageRow.pageNumber)}>{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</a>
                         {:else}
                           <span class="record-link muted-link">{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</span>

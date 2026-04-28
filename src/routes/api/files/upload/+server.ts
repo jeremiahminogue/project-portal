@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { buildStorageKey, encodeStorageId, putObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
-import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
+import { registerUploadedFile } from '$lib/server/file-ingest';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
@@ -39,35 +39,6 @@ function contentTypeFor(filename: string, contentType?: string) {
   return 'application/octet-stream';
 }
 
-async function folderIdFor(projectId: string, folderName: string, userId: string, client: App.Locals['supabase']) {
-  if (!client || !folderName) return null;
-
-  const { data: existing, error: existingError } = await client
-    .from('files')
-    .select('id')
-    .eq('project_id', projectId)
-    .eq('is_folder', true)
-    .eq('name', folderName)
-    .maybeSingle();
-
-  if (existingError) throw new Error(existingError.message);
-  if (existing?.id) return existing.id as string;
-
-  const { data: created, error: createError } = await client
-    .from('files')
-    .insert({
-      project_id: projectId,
-      name: folderName,
-      is_folder: true,
-      uploaded_by: userId
-    })
-    .select('id')
-    .single();
-
-  if (createError) throw new Error(createError.message);
-  return created.id as string;
-}
-
 export const POST: RequestHandler = async (event) => {
   const form = await event.request.formData();
   const projectSlug = formString(form, 'projectSlug');
@@ -102,62 +73,18 @@ export const POST: RequestHandler = async (event) => {
     console.error('[files] direct upload failed:', error);
     return json({ error: storageErrorMessage(error, 'upload this file') }, { status: storageErrorStatus(error) });
   }
-  const ocr = await analyzeDrawingUploadSafely(bytes, rawFile.name, contentType, folderName);
-  const analysis = ocr.analysis;
-
   try {
-    const parentFolderId = await folderIdFor(access.project.id, folderName, access.user.id, event.locals.supabase);
-    const { data, error } = await event.locals.supabase
-      .from('files')
-      .insert({
-        project_id: access.project.id,
-        parent_folder_id: parentFolderId,
-        name: rawFile.name,
-        is_folder: false,
-        storage_key: storageKey,
-        size_bytes: rawFile.size,
-        mime_type: contentType,
-        document_kind: analysis.documentKind,
-        sheet_number: analysis.sheetNumber,
-        sheet_title: analysis.sheetTitle,
-        revision: analysis.revision,
-        page_count: analysis.pageCount,
-        ocr_status: analysis.ocrStatus,
-        ocr_text: analysis.ocrText,
-        uploaded_by: access.user.id,
-        tags: []
-      })
-      .select('id, name, storage_key')
-      .single();
-
-    if (error) return json({ error: error.message }, { status: 500 });
-    if (analysis.pages.length > 0) {
-      const { error: pageError } = await event.locals.supabase.from('drawing_pages').insert(
-        analysis.pages.map((page) => ({
-          project_id: access.project.id,
-          file_id: data.id,
-          page_number: page.pageNumber,
-          name: page.name,
-          sheet_number: page.sheetNumber,
-          sheet_title: page.sheetTitle,
-          revision: page.revision,
-          ocr_text: page.text
-        }))
-      );
-      if (pageError) return json({ error: pageError.message }, { status: 500 });
-    }
-
-    return json(
-      {
-        id: data.id,
-        name: data.name,
-        storageKey: data.storage_key,
-        ocrStatus: analysis.ocrStatus,
-        ocrDeferred: !ocr.completed,
-        ocrReason: ocr.reason
-      },
-      { status: ocr.completed ? 201 : 202 }
-    );
+    const result = await registerUploadedFile({
+      event,
+      access,
+      storageKey,
+      name: rawFile.name,
+      sizeBytes: rawFile.size,
+      mimeType: contentType,
+      folderName,
+      bytes
+    });
+    return json(result, { status: result.ocrDeferred ? 202 : 201 });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Could not save file record.' }, { status: 500 });
   }

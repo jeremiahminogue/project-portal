@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { isProjectAccessError, projectRoleCapabilities, requireProjectAccess } from '$lib/server/project-access';
 import { getFiles, getFolders, getProject } from '$lib/server/queries';
 import type { PageServerLoad } from './$types';
 
@@ -16,8 +16,11 @@ export const load: PageServerLoad = async (event) => {
     files,
     folders,
     fileAccess: {
-      canModify: !event.locals.supabase || role === 'superadmin' || role === 'admin' || role === 'member',
-      canDelete: !event.locals.supabase || role === 'superadmin' || role === 'admin'
+      role,
+      canModify: role ? projectRoleCapabilities[role].canEditFiles : !event.locals.supabase,
+      canUpload: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase,
+      canDelete: role ? projectRoleCapabilities[role].canDeleteFiles : !event.locals.supabase,
+      canReindex: role ? projectRoleCapabilities[role].canReindexFiles : !event.locals.supabase
     }
   };
 };

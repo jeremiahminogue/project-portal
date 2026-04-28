@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { buildStorageKey, createPresignedUploadUrl, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { issueUploadSession } from '$lib/server/upload-session';
 import type { RequestHandler } from './$types';
 
 const MAX_BYTES = 100 * 1024 * 1024;
@@ -26,7 +27,10 @@ export const POST: RequestHandler = async (event) => {
   if (typeof projectSlug !== 'string' || typeof filename !== 'string') {
     return json({ error: 'Missing upload fields.' }, { status: 400 });
   }
-  if (typeof sizeBytes === 'number' && sizeBytes > MAX_BYTES) return json({ error: 'File is too large.' }, { status: 413 });
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    return json({ error: 'File size is required.' }, { status: 400 });
+  }
+  if (sizeBytes > MAX_BYTES) return json({ error: 'File is too large.' }, { status: 413 });
   const contentType = contentTypeFor(filename, typeof body?.contentType === 'string' ? body.contentType : undefined);
 
   if (!locals.supabase) {
@@ -39,7 +43,18 @@ export const POST: RequestHandler = async (event) => {
 
   const key = buildStorageKey(projectSlug, filename);
   try {
-    return json(await createPresignedUploadUrl(key, contentType));
+    const upload = await createPresignedUploadUrl(key, contentType);
+    return json({
+      ...upload,
+      uploadToken: issueUploadSession({
+        projectSlug,
+        key,
+        name: filename,
+        sizeBytes,
+        mimeType: contentType,
+        userId: access.user.id
+      })
+    });
   } catch (error) {
     console.error('[files] presigned upload failed:', error);
     return json({ error: storageErrorMessage(error, 'prepare the upload') }, { status: storageErrorStatus(error) });

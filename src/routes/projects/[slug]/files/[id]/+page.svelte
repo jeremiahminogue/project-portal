@@ -25,6 +25,8 @@
   const sheetLabel = $derived(activeSheet?.sheetNumber ?? data.file.sheetNumber ?? `Sheet ${activePage}`);
   const previousPage = $derived(Math.max(1, activePage - 1));
   const nextPage = $derived(Math.min(sheetCount, activePage + 1));
+  const isPdf = $derived(/pdf/i.test(data.file.mimeType ?? '') || /\.pdf$/i.test(data.file.name));
+  const isImage = $derived((data.file.mimeType ?? '').startsWith('image/'));
 
   function clampPage(value: number) {
     if (!Number.isFinite(value)) return 1;
@@ -87,9 +89,21 @@
       </aside>
     {/if}
     <div class="viewer-frame">
-      {#key `${data.downloadSrc}:${activePage}`}
-        <EmbedPdfViewer src={data.downloadSrc} title={title} page={activePage} />
-      {/key}
+      {#if isPdf}
+        {#key `${data.downloadSrc}:${activePage}`}
+          <EmbedPdfViewer src={data.downloadSrc} title={title} page={activePage} />
+        {/key}
+      {:else if isImage}
+        <div class="image-preview">
+          <img src={data.downloadSrc} alt={title} />
+        </div>
+      {:else}
+        <div class="viewer-error">
+          <strong>Preview is not available for this file type</strong>
+          <span>{data.file.name}</span>
+          <a class="btn btn-primary" href={data.downloadUrl}>Download file</a>
+        </div>
+      {/if}
     </div>
   </div>
 </section>
@@ -273,6 +287,39 @@
     height: 100%;
     overflow: auto;
     background: #dfe2e1;
+  }
+
+  .image-preview {
+    display: grid;
+    min-height: 100%;
+    place-items: center;
+    padding: 1rem;
+  }
+
+  .image-preview img {
+    max-width: 100%;
+    max-height: calc(100dvh - 5rem);
+    border-radius: 0.4rem;
+    background: #fff;
+    box-shadow: 0 16px 42px rgba(20, 22, 20, 0.18);
+  }
+
+  .viewer-error {
+    display: grid;
+    height: 100%;
+    min-height: 24rem;
+    align-content: center;
+    justify-items: center;
+    gap: 0.6rem;
+    padding: 2rem;
+    background: #f8f9f7;
+    color: #4b514c;
+    text-align: center;
+  }
+
+  .viewer-error strong {
+    color: #191b19;
+    font-size: 1.1rem;
   }
 
   @media (max-width: 900px) {

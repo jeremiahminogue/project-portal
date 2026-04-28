@@ -11,6 +11,19 @@
   let uploading = $state(false);
   let message = $state('');
 
+  class UploadError extends Error {
+    stage: 'prepare' | 'storage' | 'register' | 'server';
+
+    constructor(
+      stage: 'prepare' | 'storage' | 'register' | 'server',
+      message: string
+    ) {
+      super(message);
+      this.name = 'UploadError';
+      this.stage = stage;
+    }
+  }
+
   function contentTypeFor(file: File) {
     if (file.type) return file.type;
     if (/\.pdf$/i.test(file.name)) return 'application/pdf';
@@ -21,8 +34,22 @@
     return await response.json().catch(() => ({}));
   }
 
-  async function uploadOne(file: File) {
-    const contentType = contentTypeFor(file);
+  async function uploadThroughPortal(file: File, contentType: string) {
+    const form = new FormData();
+    form.set('projectSlug', projectSlug);
+    form.set('folderName', folderName);
+    form.set('file', file, file.name);
+
+    const response = await fetch('/api/files/upload', {
+      method: 'POST',
+      body: form
+    });
+    const result = await readJson(response);
+    if (!response.ok) throw new UploadError('server', result.error ?? 'Portal upload failed.');
+    return result.warning ? `${file.name} uploaded. ${result.warning}` : `${file.name} uploaded.`;
+  }
+
+  async function uploadDirectToStorage(file: File, contentType: string) {
     const uploadUrlResponse = await fetch('/api/files/upload-url', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -35,17 +62,22 @@
     });
     const uploadUrl = await readJson(uploadUrlResponse);
     if (!uploadUrlResponse.ok || typeof uploadUrl.url !== 'string' || typeof uploadUrl.key !== 'string') {
-      throw new Error(uploadUrl.error ?? 'Could not prepare upload.');
+      throw new UploadError('prepare', uploadUrl.error ?? 'Could not prepare upload.');
     }
 
-    const storageResponse = await fetch(uploadUrl.url, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: file
-    });
+    let storageResponse: Response;
+    try {
+      storageResponse = await fetch(uploadUrl.url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file
+      });
+    } catch (error) {
+      throw new UploadError('storage', error instanceof Error ? error.message : 'Storage upload failed.');
+    }
     if (!storageResponse.ok) {
       const details = await storageResponse.text().catch(() => '');
-      throw new Error(details || `Storage upload failed with status ${storageResponse.status}.`);
+      throw new UploadError('storage', details || `Storage upload failed with status ${storageResponse.status}.`);
     }
 
     const registerResponse = await fetch('/api/files', {
@@ -58,12 +90,24 @@
         sizeBytes: file.size,
         mimeType: contentType,
         folderName,
-        tags: []
+        tags: [],
+        uploadToken: uploadUrl.uploadToken
       })
     });
     const result = await readJson(registerResponse);
-    if (!registerResponse.ok) throw new Error(result.error ?? 'Upload saved to storage, but portal registration failed.');
-    return `${file.name} uploaded.`;
+    if (!registerResponse.ok) throw new UploadError('register', result.error ?? 'Upload saved to storage, but portal registration failed.');
+    return result.warning ? `${file.name} uploaded. ${result.warning}` : `${file.name} uploaded.`;
+  }
+
+  async function uploadOne(file: File) {
+    const contentType = contentTypeFor(file);
+    try {
+      return await uploadDirectToStorage(file, contentType);
+    } catch (error) {
+      if (!(error instanceof UploadError) || error.stage !== 'storage') throw error;
+      message = `Storage upload was blocked by the browser; finishing ${file.name} through the portal...`;
+      return await uploadThroughPortal(file, contentType);
+    }
   }
 
   async function upload(files: File[]) {

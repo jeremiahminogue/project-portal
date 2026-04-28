@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { MessageSquarePlus, Send } from '@lucide/svelte';
+  import { MessageSquarePlus, Send, Trash2 } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import { initialsFor, relativeTime } from '$lib/utils';
 
@@ -41,11 +41,28 @@
       </div>
       <div class="overflow-y-auto p-2">
         {#each data.subjects as subject}
-          <button class={`subject ${selected?.id === subject.id ? 'active' : ''}`} onclick={() => (active = subject.id)}>
-            <span class="font-black">{subject.name}</span>
-            <span class="line-clamp-1 text-xs text-pe-sub">{subject.description}</span>
-            <span class="text-xs font-bold text-pe-sub">{subject.messageCount} messages</span>
-          </button>
+          <div class={`subject-row ${selected?.id === subject.id ? 'active' : ''}`}>
+            <button class="subject" onclick={() => (active = subject.id)}>
+              <span class="font-black">{subject.name}</span>
+              <span class="line-clamp-1 text-xs text-pe-sub">{subject.description}</span>
+              <span class="text-xs font-bold text-pe-sub">{subject.messageCount} messages</span>
+            </button>
+            {#if data.chatAccess?.canDelete}
+              <form
+                method="post"
+                action="?/deleteSubject"
+                use:enhance
+                onsubmit={(event) => {
+                  if (!confirm(`Delete "${subject.name}" and all messages in it?`)) event.preventDefault();
+                }}
+              >
+                <input type="hidden" name="subjectId" value={subject.id} />
+                <button class="delete-chat-button" type="submit" aria-label={`Delete ${subject.name}`}>
+                  <Trash2 size={15} />
+                </button>
+              </form>
+            {/if}
+          </div>
         {/each}
       </div>
     </aside>
@@ -71,6 +88,22 @@
                 </div>
                 <div class="overflow-wrap-anywhere rounded-xl border border-black/8 bg-white px-4 py-3 text-sm leading-6 text-pe-body">{message.body}</div>
               </div>
+              {#if data.chatAccess?.canDelete}
+                <form
+                  class="ml-auto"
+                  method="post"
+                  action="?/deleteMessage"
+                  use:enhance
+                  onsubmit={(event) => {
+                    if (!confirm('Delete this chat message?')) event.preventDefault();
+                  }}
+                >
+                  <input type="hidden" name="messageId" value={message.id} />
+                  <button class="delete-message-button" type="submit" aria-label="Delete chat message">
+                    <Trash2 size={14} />
+                  </button>
+                </form>
+              {/if}
             </article>
           {/each}
         </div>
@@ -94,26 +127,50 @@
 </PageShell>
 
 <style>
-  .subject {
+  .subject-row {
     display: grid;
-    width: 100%;
-    gap: 0.25rem;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
     border-left: 3px solid transparent;
     border-radius: 0.5rem;
-    padding: 0.8rem;
-    text-align: left;
     transition:
       background-color 150ms ease,
       border-color 150ms ease;
   }
 
-  .subject:hover,
-  .subject.active {
+  .subject-row:hover,
+  .subject-row.active {
     border-left-color: #18a53a;
     background: rgba(25, 27, 25, 0.055);
   }
 
+  .subject {
+    display: grid;
+    width: 100%;
+    gap: 0.25rem;
+    border: 0;
+    background: transparent;
+    padding: 0.8rem;
+    text-align: left;
+  }
+
   .overflow-wrap-anywhere {
     overflow-wrap: anywhere;
+  }
+
+  .delete-chat-button,
+  .delete-message-button {
+    display: inline-grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 0.35rem;
+    color: #9a3412;
+  }
+
+  .delete-chat-button:hover,
+  .delete-message-button:hover {
+    background: #fff1ed;
+    color: #b42318;
   }
 </style>

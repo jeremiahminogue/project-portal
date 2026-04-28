@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
-import { encodeStorageId } from '$lib/server/object-storage';
-import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { deleteObject, encodeStorageId, headObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
+import { registerUploadedFile } from '$lib/server/file-ingest';
+import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { isProjectStorageKey, verifyUploadSession } from '$lib/server/upload-session';
 import type { RequestHandler } from './$types';
 
 const MAX_BYTES = 100 * 1024 * 1024;
@@ -9,7 +11,7 @@ export const POST: RequestHandler = async (event) => {
   const { request, locals } = event;
   const body = await request.json().catch(() => null);
 
-  const { projectSlug, key, name, sizeBytes, mimeType, folderName, tags } = body ?? {};
+  const { projectSlug, key, name, sizeBytes, mimeType, folderName, tags, uploadToken } = body ?? {};
   if (
     typeof projectSlug !== 'string' ||
     typeof key !== 'string' ||
@@ -18,7 +20,12 @@ export const POST: RequestHandler = async (event) => {
   ) {
     return json({ error: 'Missing file fields.' }, { status: 400 });
   }
-  if (typeof sizeBytes !== 'number' || sizeBytes < 0 || sizeBytes > MAX_BYTES) return json({ error: 'Invalid file size.' }, { status: 400 });
+  if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0 || sizeBytes > MAX_BYTES) {
+    return json({ error: 'Invalid file size.' }, { status: 400 });
+  }
+  if (!isProjectStorageKey(projectSlug, key)) {
+    return json({ error: 'Invalid storage key for this project.' }, { status: 400 });
+  }
 
   if (!locals.supabase) {
     return json({ id: encodeStorageId(key), name, storageKey: key }, { status: 201 });
@@ -26,53 +33,52 @@ export const POST: RequestHandler = async (event) => {
 
   const access = await requireProjectAccess(event, projectSlug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
-  const client = databaseClientForProjectAccess(event, access);
-  if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
-  let parentFolderId: string | null = null;
-  if (typeof folderName === 'string' && folderName) {
-    const { data: folder } = await client
-      .from('files')
-      .select('id')
-      .eq('project_id', access.project.id)
-      .eq('is_folder', true)
-      .eq('name', folderName)
-      .maybeSingle();
-    parentFolderId = folder?.id ?? null;
-
-    if (!parentFolderId) {
-      const { data: createdFolder, error: folderError } = await client
-        .from('files')
-        .insert({
-          project_id: access.project.id,
-          name: folderName,
-          is_folder: true,
-          uploaded_by: access.user.id
-        })
-        .select('id')
-        .single();
-
-      if (folderError) return json({ error: folderError.message }, { status: 500 });
-      parentFolderId = createdFolder.id;
-    }
+  if (typeof uploadToken !== 'string') return json({ error: 'Upload authorization is missing.' }, { status: 400 });
+  let session: ReturnType<typeof verifyUploadSession>;
+  try {
+    session = verifyUploadSession(uploadToken);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Upload authorization is invalid.' }, { status: 400 });
   }
 
-  const { data, error } = await client
-    .from('files')
-    .insert({
-      project_id: access.project.id,
-      parent_folder_id: parentFolderId,
-      name,
-      is_folder: false,
-      storage_key: key,
-      size_bytes: sizeBytes,
-      mime_type: mimeType,
-      uploaded_by: access.user.id,
-      tags: Array.isArray(tags) ? tags : []
-    })
-    .select('id, name, storage_key')
-    .single();
+  if (
+    session.projectSlug !== projectSlug ||
+    session.key !== key ||
+    session.name !== name ||
+    session.sizeBytes !== sizeBytes ||
+    session.mimeType !== mimeType ||
+    session.userId !== access.user.id
+  ) {
+    return json({ error: 'Upload metadata does not match the issued upload authorization.' }, { status: 400 });
+  }
 
-  if (error) return json({ error: error.message }, { status: 500 });
-  return json({ id: data.id, name: data.name, storageKey: data.storage_key }, { status: 201 });
+  try {
+    const object = await headObject(key);
+    const storedType = object.ContentType?.split(';')[0].trim().toLowerCase();
+    const expectedType = mimeType.split(';')[0].trim().toLowerCase();
+    if (object.ContentLength !== sizeBytes || storedType !== expectedType) {
+      await deleteObject(key).catch(() => undefined);
+      return json({ error: 'Uploaded object metadata did not match the file that was authorized.' }, { status: 400 });
+    }
+  } catch (error) {
+    console.error('[files] uploaded object verification failed:', error);
+    return json({ error: storageErrorMessage(error, 'verify the upload') }, { status: storageErrorStatus(error) });
+  }
+
+  try {
+    const result = await registerUploadedFile({
+      event,
+      access,
+      storageKey: key,
+      name,
+      sizeBytes,
+      mimeType,
+      folderName: typeof folderName === 'string' ? folderName : '',
+      tags
+    });
+    return json(result, { status: result.ocrDeferred ? 202 : 201 });
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Could not save file record.' }, { status: 500 });
+  }
 };

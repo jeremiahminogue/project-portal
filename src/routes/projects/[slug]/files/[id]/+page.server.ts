@@ -7,6 +7,15 @@ function filenameFromStorageKey(key: string) {
   return key.split('/').pop()?.replace(/^[a-f0-9]{8}-/i, '') || 'project-file.pdf';
 }
 
+function contentTypeFromName(name: string) {
+  if (/\.pdf$/i.test(name)) return 'application/pdf';
+  if (/\.(png|webp|gif)$/i.test(name)) return `image/${name.split('.').pop()?.toLowerCase()}`;
+  if (/\.jpe?g$/i.test(name)) return 'image/jpeg';
+  if (/\.docx$/i.test(name)) return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  if (/\.xlsx$/i.test(name)) return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  return 'application/octet-stream';
+}
+
 export const load: PageServerLoad = async (event) => {
   const access = await requireProjectAccess(event, event.params.slug);
   if (isProjectAccessError(access)) throw error(access.status, access.message);
@@ -25,7 +34,7 @@ export const load: PageServerLoad = async (event) => {
         sheetNumber: null,
         sheetTitle: name.replace(/\.[^.]+$/, ''),
         revision: null,
-        mimeType: 'application/pdf',
+        mimeType: contentTypeFromName(name),
         pages: []
       },
       downloadSrc,

@@ -91,15 +91,35 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   const fileRoute = file('src/routes/api/files/[id]/+server.ts');
   const downloadRoute = file('src/routes/api/files/[id]/download/+server.ts');
   const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
+  const registerRoute = file('src/routes/api/files/+server.ts');
   const objectStorage = file('src/lib/server/object-storage.ts');
+  const ingest = file('src/lib/server/file-ingest.ts');
+  const uploadSession = file('src/lib/server/upload-session.ts');
   assert.match(uploadButton, /\/api\/files\/upload-url/);
   assert.match(uploadButton, /method: 'PUT'/);
+  assert.match(uploadButton, /uploadThroughPortal/);
+  assert.match(uploadButton, /error\.stage !== 'storage'/);
   assert.match(uploadButton, /\/api\/files'/);
+  assert.match(uploadButton, /uploadToken: uploadUrl\.uploadToken/);
+  assert.match(uploadUrlRoute, /typeof sizeBytes !== 'number'/);
+  assert.match(uploadUrlRoute, /issueUploadSession/);
+  assert.match(registerRoute, /verifyUploadSession/);
+  assert.match(registerRoute, /isProjectStorageKey/);
+  assert.match(registerRoute, /headObject\(key\)/);
+  assert.match(registerRoute, /Uploaded object metadata did not match/);
+  assert.match(registerRoute, /deleteObject\(key\)/);
+  assert.match(ingest, /registerUploadedFile/);
+  assert.match(ingest, /analyzeDrawingUploadSafely/);
+  assert.match(ingest, /drawing_pages/);
+  assert.match(uploadSession, /timingSafeEqual/);
+  assert.match(uploadSession, /projectStoragePrefix/);
   assert.match(fileRoute, /storage cleanup after database delete failed/);
   assert.match(fileRoute, /warning: 'File was removed from the portal, but object storage cleanup failed.'/);
   assert.match(downloadRoute, /storageErrorMessage\(error, 'read this file'\)/);
   assert.match(uploadUrlRoute, /storageErrorMessage\(error, 'prepare the upload'\)/);
   assert.match(objectStorage, /function signature/);
+  assert.match(objectStorage, /export async function headObject/);
+  assert.match(objectStorage, /'content-type': contentType/);
   assert.match(objectStorage, /fetch\(url/);
   assert.doesNotMatch(objectStorage, /@aws-sdk/);
 });
@@ -111,4 +131,43 @@ test('production hardening migration adds review RLS and audit log', () => {
   assert.match(migration, /Project reviewers can update RFIs/);
   assert.match(migration, /Project reviewers can update submittals/);
   assert.match(migration, /create table if not exists admin_audit_log/);
+});
+
+test('project roles have explicit production capabilities', () => {
+  const access = file('src/lib/server/project-access.ts');
+  const filesPage = file('src/routes/projects/[slug]/files/+page.server.ts');
+  assert.match(access, /projectRoleCapabilities/);
+  assert.match(access, /canUploadFiles/);
+  assert.match(access, /canDeleteChat/);
+  assert.match(access, /guest:\s*\{[\s\S]*canUploadFiles: false/);
+  assert.match(access, /readonly:\s*\{[\s\S]*canCreateCommunication: false/);
+  assert.match(filesPage, /projectRoleCapabilities\[role\]\.canUploadFiles/);
+  assert.match(filesPage, /projectRoleCapabilities\[role\]\.canReindexFiles/);
+});
+
+test('chat admin deletion and activity hardening are present', () => {
+  const chatServer = file('src/routes/projects/[slug]/chat/+page.server.ts');
+  const chatUi = file('src/routes/projects/[slug]/chat/+page.svelte');
+  const migration = file('supabase/migrations/0007_chat_and_upload_permissions.sql');
+  assert.match(chatServer, /roles: \['superadmin', 'admin'\]/);
+  assert.match(chatServer, /deleteSubject/);
+  assert.match(chatServer, /deleteMessage/);
+  assert.match(chatServer, /touchError/);
+  assert.match(chatUi, /data\.chatAccess\?\.canDelete/);
+  assert.match(chatUi, /Trash2/);
+  assert.match(migration, /chat_messages_touch_subject/);
+  assert.match(migration, /Project admins can delete chat subjects/);
+  assert.match(migration, /Project admins can delete chat messages/);
+});
+
+test('viewer does not force non-PDF files into the PDF renderer', () => {
+  const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
+  const viewer = file('src/routes/projects/[slug]/files/[id]/+page.svelte');
+  const viewerServer = file('src/routes/projects/[slug]/files/[id]/+page.server.ts');
+  assert.match(filesPage, /function fileIsPdf/);
+  assert.match(filesPage, /fileHasStorage\(file\) && fileIsPdf\(file\)/);
+  assert.match(viewer, /const isPdf/);
+  assert.match(viewer, /{:else if isImage}/);
+  assert.match(viewer, /Preview is not available for this file type/);
+  assert.match(viewerServer, /contentTypeFromName/);
 });

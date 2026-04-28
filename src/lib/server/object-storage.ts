@@ -220,14 +220,15 @@ export async function createPresignedUploadUrl(key: string, contentType: string,
   const config = getObjectStorageConfig();
   const target = storageTarget(config, key);
   const { amzDate, shortDate } = amzNow();
-  const headers = { host: target.host };
+  const headers = { host: target.host, 'content-type': contentType };
   const scope = `${shortDate}/${config.region}/s3/aws4_request`;
+  const signedHeaderNames = signedHeaders(headers).signedHeaders;
   const queryParams = {
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': `${config.accessKeyId}/${scope}`,
     'X-Amz-Date': amzDate,
     'X-Amz-Expires': String(expiresInSeconds),
-    'X-Amz-SignedHeaders': 'host'
+    'X-Amz-SignedHeaders': signedHeaderNames
   };
   const query = canonicalQuery(queryParams);
   const signed = signature({
@@ -265,6 +266,18 @@ export async function getObject(key: string, range?: string) {
     ContentType: response.headers.get('content-type') ?? undefined,
     ContentLength: contentLength ? Number(contentLength) : undefined,
     ContentRange: response.headers.get('content-range') ?? undefined
+  };
+}
+
+export async function headObject(key: string) {
+  const config = getObjectStorageConfig();
+  const response = await storageFetch(config, 'HEAD', key);
+  const contentLength = response.headers.get('content-length');
+  return {
+    ContentType: response.headers.get('content-type') ?? undefined,
+    ContentLength: contentLength ? Number(contentLength) : undefined,
+    ETag: response.headers.get('etag') ?? undefined,
+    LastModified: response.headers.get('last-modified') ?? undefined
   };
 }
 

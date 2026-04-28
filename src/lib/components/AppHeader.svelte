@@ -11,7 +11,7 @@
 <header class="sticky top-0 z-40 border-b border-black/20 bg-pe-body text-white">
   <div class="mx-auto flex h-14 max-w-[1480px] items-center justify-between gap-2 px-3 sm:h-16 sm:gap-4 sm:px-6 lg:px-8">
     <a href="/" class="flex min-w-0 shrink items-center gap-2 sm:gap-3" aria-label="Pueblo Electric project portal">
-      <span class="grid h-11 w-[150px] place-items-center bg-white px-2 sm:w-[210px]">
+      <span class="grid h-11 w-[150px] place-items-center overflow-hidden rounded-md bg-white px-2 sm:w-[210px]">
         <img src="/brand/Pueblo_Electrics-1.png" alt="Pueblo Electric" class="max-h-8 w-auto object-contain sm:max-h-9" />
       </span>
       <span class="hidden h-6 w-px bg-white/18 sm:block"></span>
