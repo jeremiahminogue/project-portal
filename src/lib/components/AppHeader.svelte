@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
+  import { onMount } from 'svelte';
   import {
     CalendarDays,
     ChevronDown,
@@ -73,10 +74,42 @@
   const activeTool = $derived(
     projectTools.find((tool) => tool.active?.($page.url) ?? $page.url.pathname === tool.href) ?? projectTools[0]
   );
+
+  let headerRoot: HTMLElement;
+  let openMenu = $state<'project' | 'tools' | ''>('');
+
+  function closeMenus() {
+    openMenu = '';
+  }
+
+  function toggleMenu(menu: 'project' | 'tools') {
+    openMenu = openMenu === menu ? '' : menu;
+  }
+
+  function handleWindowClick(event: MouseEvent) {
+    if (!openMenu || !headerRoot || !(event.target instanceof Node)) return;
+    if (!headerRoot.contains(event.target)) closeMenus();
+  }
+
+  function handleWindowKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') closeMenus();
+  }
+
+  $effect(() => {
+    $page.url.href;
+    closeMenus();
+  });
+
+  onMount(() => closeMenus());
 </script>
 
+<svelte:window onclick={handleWindowClick} onkeydown={handleWindowKeydown} />
+
 <header class="sticky top-0 z-40 border-b border-black/20 bg-pe-body text-white">
-  <div class="mx-auto flex min-h-14 max-w-[1480px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:min-h-16 sm:gap-4 sm:px-6 lg:px-8">
+  <div
+    bind:this={headerRoot}
+    class="mx-auto flex min-h-14 max-w-[1480px] flex-wrap items-center justify-between gap-2 px-3 py-2 sm:min-h-16 sm:gap-4 sm:px-6 lg:px-8"
+  >
     <div class="flex min-w-0 flex-1 flex-wrap items-center gap-2 sm:gap-3">
       <a href="/" class="flex min-w-0 shrink-0 items-center gap-2 sm:gap-3" aria-label="Pueblo Electric project portal">
         <span class="grid h-11 w-[128px] place-items-center overflow-hidden rounded-md bg-white px-2 sm:w-[190px]">
@@ -86,45 +119,63 @@
 
       {#if project && slug}
         <span class="hidden h-8 w-px bg-white/18 md:block"></span>
-        <details class="header-dropdown project-selector">
-          <summary>
+        <div class="header-dropdown project-selector" class:open={openMenu === 'project'}>
+          <button
+            class="header-menu-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === 'project'}
+            onclick={() => toggleMenu('project')}
+          >
             <span>
               <small>Project</small>
               <strong>{project.title}</strong>
             </span>
-            <ChevronDown size={15} />
-          </summary>
-          <div class="header-dropdown-panel project-panel">
-            {#each projects as option}
-              <a class:active-project={option.id === slug} href={`/projects/${option.id}`}>
-                <span>{option.number ?? `#${option.id}`}</span>
-                <strong>{option.title}</strong>
-                {#if option.address || option.owner}
-                  <small>{option.address || option.owner}</small>
-                {/if}
-              </a>
-            {/each}
-          </div>
-        </details>
+            <span class="trigger-chevron"><ChevronDown size={15} /></span>
+          </button>
+          {#if openMenu === 'project'}
+            <div class="header-dropdown-panel project-panel">
+              <div class="panel-kicker">Switch Project</div>
+              {#each projects as option}
+                <a class:active-project={option.id === slug} href={`/projects/${option.id}`} onclick={closeMenus}>
+                  <span>{option.number ?? `#${option.id}`}</span>
+                  <strong>{option.title}</strong>
+                  {#if option.address || option.owner}
+                    <small>{option.address || option.owner}</small>
+                  {/if}
+                </a>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
-        <details class="header-dropdown tools-selector">
-          <summary>
+        <div class="header-dropdown tools-selector" class:open={openMenu === 'tools'}>
+          <button
+            class="header-menu-trigger"
+            type="button"
+            aria-haspopup="menu"
+            aria-expanded={openMenu === 'tools'}
+            onclick={() => toggleMenu('tools')}
+          >
             <span>
               <small>Project Tools</small>
               <strong>{activeTool?.label ?? 'Tools'}</strong>
             </span>
-            <ChevronDown size={15} />
-          </summary>
-          <nav class="header-dropdown-panel tools-panel" aria-label="Project tools">
-            {#each projectTools as tool}
-              {@const Icon = tool.icon}
-              <a href={tool.href} class:active-tool={tool.active?.($page.url) ?? $page.url.pathname === tool.href}>
-                <Icon size={16} />
-                <span>{tool.label}</span>
-              </a>
-            {/each}
-          </nav>
-        </details>
+            <span class="trigger-chevron"><ChevronDown size={15} /></span>
+          </button>
+          {#if openMenu === 'tools'}
+            <nav class="header-dropdown-panel tools-panel" aria-label="Project tools">
+              <div class="panel-kicker">Project Tools</div>
+              {#each projectTools as tool}
+                {@const Icon = tool.icon}
+                <a href={tool.href} class:active-tool={tool.active?.($page.url) ?? $page.url.pathname === tool.href} onclick={closeMenus}>
+                  <Icon size={16} />
+                  <span>{tool.label}</span>
+                </a>
+              {/each}
+            </nav>
+          {/if}
+        </div>
       {:else}
         <span class="hidden h-6 w-px bg-white/18 sm:block"></span>
         <span class="hidden text-sm font-semibold text-white/78 sm:block">Project Portal</span>
@@ -181,49 +232,60 @@
     min-width: 0;
   }
 
-  .header-dropdown summary {
+  .header-menu-trigger {
     display: inline-flex;
     align-items: center;
     justify-content: space-between;
     gap: 0.65rem;
     min-height: 2.75rem;
-    border-radius: 0.28rem;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    background: rgba(255, 255, 255, 0.08);
+    border-radius: 0.36rem;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.07)),
+      rgba(255, 255, 255, 0.05);
     padding: 0.42rem 0.55rem 0.42rem 0.65rem;
     color: #fff;
-    list-style: none;
     cursor: pointer;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 10px 24px -20px rgba(0, 0, 0, 0.85);
     transition:
       background-color 140ms ease,
-      border-color 140ms ease;
+      border-color 140ms ease,
+      box-shadow 140ms ease,
+      transform 140ms ease;
   }
 
-  .header-dropdown summary::-webkit-details-marker {
-    display: none;
+  .header-menu-trigger:hover,
+  .header-dropdown.open .header-menu-trigger {
+    border-color: rgba(24, 165, 58, 0.74);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.1)),
+      rgba(24, 165, 58, 0.06);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.16),
+      0 14px 30px -22px rgba(0, 0, 0, 0.9);
   }
 
-  .header-dropdown summary:hover,
-  .header-dropdown[open] summary {
-    border-color: rgba(24, 165, 58, 0.7);
-    background: rgba(255, 255, 255, 0.12);
+  .header-menu-trigger:active {
+    transform: translateY(1px);
   }
 
-  .header-dropdown summary span {
+  .header-menu-trigger span {
     display: grid;
     gap: 0.08rem;
     min-width: 0;
     text-align: left;
   }
 
-  .header-dropdown summary small {
+  .header-menu-trigger small {
     color: rgba(255, 255, 255, 0.7);
     font-size: 0.64rem;
     font-weight: 850;
     line-height: 1;
   }
 
-  .header-dropdown summary strong {
+  .header-menu-trigger strong {
     max-width: 16rem;
     overflow: hidden;
     color: #fff;
@@ -234,11 +296,20 @@
     white-space: nowrap;
   }
 
-  .project-selector summary {
+  .trigger-chevron {
+    color: rgba(255, 255, 255, 0.72);
+    transition: transform 150ms ease;
+  }
+
+  .header-dropdown.open .trigger-chevron {
+    transform: rotate(180deg);
+  }
+
+  .project-selector .header-menu-trigger {
     width: min(21rem, 34vw);
   }
 
-  .tools-selector summary {
+  .tools-selector .header-menu-trigger {
     min-width: 10.5rem;
   }
 
@@ -248,12 +319,25 @@
     left: 0;
     z-index: 50;
     width: min(22rem, calc(100vw - 1.5rem));
-    border: 1px solid rgba(25, 27, 25, 0.12);
-    border-radius: 0.45rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.58rem;
     background: #fff;
-    padding: 0.35rem;
+    padding: 0.45rem;
     color: #191b19;
-    box-shadow: 0 22px 60px -34px rgba(0, 0, 0, 0.55);
+    box-shadow:
+      0 28px 74px -38px rgba(0, 0, 0, 0.62),
+      0 0 0 1px rgba(255, 255, 255, 0.8) inset;
+    animation: menu-enter 130ms ease-out both;
+    transform-origin: top left;
+  }
+
+  .panel-kicker {
+    padding: 0.45rem 0.55rem 0.38rem;
+    color: #717970;
+    font-size: 0.65rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   .project-panel {
@@ -265,15 +349,31 @@
   .project-panel a {
     display: grid;
     gap: 0.12rem;
-    border-radius: 0.28rem;
-    padding: 0.62rem 0.7rem;
+    border-radius: 0.4rem;
+    border: 1px solid transparent;
+    padding: 0.66rem 0.72rem;
+    transition:
+      background-color 130ms ease,
+      border-color 130ms ease,
+      transform 130ms ease;
   }
 
   .project-panel a:hover,
   .project-panel a.active-project,
   .tools-panel a:hover,
   .tools-panel a.active-tool {
-    background: #eef3fb;
+    border-color: #dfe6f1;
+    background: #f2f6fb;
+  }
+
+  .project-panel a:hover,
+  .tools-panel a:hover {
+    transform: translateX(1px);
+  }
+
+  .project-panel a.active-project,
+  .tools-panel a.active-tool {
+    background: linear-gradient(90deg, rgba(24, 165, 58, 0.13), #f7faf8);
   }
 
   .project-panel span {
@@ -306,11 +406,16 @@
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    border-radius: 0.28rem;
-    padding: 0.58rem 0.65rem;
+    border-radius: 0.4rem;
+    border: 1px solid transparent;
+    padding: 0.62rem 0.68rem;
     color: #2e342f;
     font-size: 0.82rem;
     font-weight: 800;
+    transition:
+      background-color 130ms ease,
+      border-color 130ms ease,
+      transform 130ms ease;
   }
 
   .tools-panel a.active-tool {
@@ -318,36 +423,47 @@
     box-shadow: inset 3px 0 0 #18a53a;
   }
 
+  @keyframes menu-enter {
+    from {
+      opacity: 0;
+      transform: translateY(-0.25rem) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
   @media (max-width: 900px) {
-    .project-selector summary {
+    .project-selector .header-menu-trigger {
       width: min(17rem, 36vw);
     }
 
-    .header-dropdown summary strong {
+    .header-menu-trigger strong {
       max-width: 11rem;
     }
   }
 
   @media (max-width: 720px) {
-    .project-selector summary {
+    .project-selector .header-menu-trigger {
       width: 9.5rem;
     }
 
-    .tools-selector summary {
+    .tools-selector .header-menu-trigger {
       min-width: 8.5rem;
     }
 
-    .header-dropdown summary small {
+    .header-menu-trigger small {
       display: none;
     }
 
-    .header-dropdown summary strong {
+    .header-menu-trigger strong {
       max-width: 6.5rem;
     }
   }
 
   @media (max-width: 560px) {
-    .project-selector summary {
+    .project-selector .header-menu-trigger {
       width: min(10rem, 42vw);
     }
   }
