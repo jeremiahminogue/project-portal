@@ -1,8 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
-import { redirect, type Handle } from '@sveltejs/kit';
-import { getLocalAdminSession } from '$lib/server/local-auth';
-import { serverEnv } from '$lib/server/env';
-import { ensureConfiguredSuperadmin } from '$lib/server/superadmin';
+import { error, redirect, type Handle } from '@sveltejs/kit';
+import { getLocalAdminSession, getLocalMockSession } from '$lib/server/local-auth';
+import { isLocalMockAuthForced, isProductionRuntime, serverEnv } from '$lib/server/env';
 
 function env(name: string) {
   return serverEnv(name);
@@ -16,23 +15,30 @@ export function supabaseAnonKey() {
   return env('PUBLIC_SUPABASE_ANON_KEY') ?? env('NEXT_PUBLIC_SUPABASE_ANON_KEY');
 }
 
-let configuredSuperadminId: string | null = null;
-
 function isProtectedPath(pathname: string) {
   return (
     pathname === '/' ||
+    pathname === '/login' ||
+    pathname.startsWith('/auth') ||
     pathname.startsWith('/projects') ||
     pathname.startsWith('/admin') ||
-    pathname.startsWith('/directory')
+    pathname.startsWith('/directory') ||
+    pathname.startsWith('/api/files')
   );
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
   const url = supabaseUrl();
   const anonKey = supabaseAnonKey();
+  const pathname = event.url.pathname;
+  const forceLocalMockAuth = isLocalMockAuthForced();
   event.locals.isLocalSuperadmin = false;
 
-  if (url && anonKey) {
+  if ((!url || !anonKey) && isProductionRuntime() && isProtectedPath(pathname)) {
+    throw error(503, 'Portal authentication is not configured.');
+  }
+
+  if (url && anonKey && !forceLocalMockAuth) {
     event.locals.supabase = createServerClient(url, anonKey, {
       cookies: {
         getAll: () => event.cookies.getAll(),
@@ -52,31 +58,21 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
 
   event.locals.getCurrentUser = async () => {
+    if (forceLocalMockAuth) {
+      event.locals.isLocalSuperadmin = false;
+      return getLocalMockSession() ?? { user: null, profile: null, isSuperadmin: false };
+    }
+
     const localAdmin = getLocalAdminSession(event);
     if (localAdmin) {
       event.locals.isLocalSuperadmin = true;
-      if (event.locals.supabase) {
-        try {
-          if (!configuredSuperadminId) {
-            const configuredUser = await ensureConfiguredSuperadmin();
-            configuredSuperadminId = configuredUser.id;
-          }
-          return {
-            ...localAdmin,
-            user: { ...localAdmin.user, id: configuredSuperadminId },
-            profile: { ...localAdmin.profile, id: configuredSuperadminId }
-          };
-        } catch {
-          configuredSuperadminId = null;
-        }
-      }
       return localAdmin;
     }
 
     const supabase = event.locals.supabase;
     if (!supabase) {
       event.locals.isLocalSuperadmin = false;
-      return { user: null, profile: null, isSuperadmin: false };
+      return getLocalMockSession() ?? { user: null, profile: null, isSuperadmin: false };
     }
 
     const {
@@ -104,7 +100,6 @@ export const handle: Handle = async ({ event, resolve }) => {
   };
 
   const me = await event.locals.getCurrentUser();
-  const pathname = event.url.pathname;
 
   if (me.user && pathname === '/login') {
     throw redirect(303, '/');

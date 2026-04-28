@@ -1,13 +1,16 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { RequestEvent } from '@sveltejs/kit';
-import { serverEnv } from './env';
+import { isLocalMockAuthEnabled, isLocalSuperadminEnabled, serverEnv } from './env';
 
 const LOCAL_SESSION_COOKIE = 'pe_portal_session';
 const LOCAL_SESSION_MAX_AGE = 60 * 60 * 12;
 export const LOCAL_SUPERADMIN_ID = 'local-superadmin-jeremiah';
 export const LOCAL_SUPERADMIN_EMAIL = 'jeremiah@puebloelectrics.com';
+const LOCAL_MOCK_USER_ID = '00000000-0000-4000-8000-000000000001';
+const LOCAL_MOCK_USER_EMAIL = 'mock.portal.user@puebloelectrics.local';
 
 export function getLocalSuperadminPassword() {
+  if (!isLocalSuperadminEnabled()) return null;
   return serverEnv('PORTAL_LOCAL_SUPERADMIN_PASSWORD') ?? null;
 }
 
@@ -52,6 +55,25 @@ function localSuperadmin() {
   };
 }
 
+export function getLocalMockSession() {
+  if (!isLocalMockAuthEnabled()) return null;
+
+  return {
+    user: { id: LOCAL_MOCK_USER_ID, email: LOCAL_MOCK_USER_EMAIL },
+    profile: {
+      id: LOCAL_MOCK_USER_ID,
+      full_name: 'Local Portal User',
+      email: LOCAL_MOCK_USER_EMAIL,
+      role: 'admin' as const,
+      company: 'Pueblo Electric',
+      title: 'Mock Admin',
+      avatar_url: null,
+      is_superadmin: true
+    },
+    isSuperadmin: true
+  };
+}
+
 export function isLocalSuperadminCredentials(email: string, password: string) {
   const configuredPassword = getLocalSuperadminPassword();
   if (!configuredPassword) return false;
@@ -63,6 +85,10 @@ export function isLocalSuperadminCredentials(email: string, password: string) {
 }
 
 export function setLocalAdminSession(event: RequestEvent) {
+  if (!isLocalSuperadminEnabled()) {
+    throw new Error('Local superadmin sign-in is disabled.');
+  }
+
   const email = LOCAL_SUPERADMIN_EMAIL;
   const expiresAt = Date.now() + LOCAL_SESSION_MAX_AGE * 1000;
   const payload = `${encodeEmail(email)}.${expiresAt}`;
@@ -82,6 +108,8 @@ export function clearLocalAdminSession(event: RequestEvent) {
 }
 
 export function getLocalAdminSession(event: RequestEvent) {
+  if (!isLocalSuperadminEnabled()) return null;
+
   const token = event.cookies.get(LOCAL_SESSION_COOKIE);
   if (!token) return null;
 

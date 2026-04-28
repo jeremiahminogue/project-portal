@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { clearLocalAdminSession, setLocalAdminSession } from '$lib/server/local-auth';
-import { ensureConfiguredSuperadmin, isConfiguredSuperadmin } from '$lib/server/superadmin';
+import { isConfiguredSuperadmin } from '$lib/server/superadmin';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ url }) => {
@@ -26,14 +26,6 @@ export const actions: Actions = {
 
     if (isConfiguredSuperadmin(email, password)) {
       setLocalAdminSession(event);
-      try {
-        if (locals.supabase) await ensureConfiguredSuperadmin();
-      } catch (error) {
-        return fail(500, {
-          error: error instanceof Error ? error.message : 'Unable to provision the Pueblo Electric superadmin.',
-          email
-        });
-      }
       throw redirect(303, safeNext(next));
     }
 

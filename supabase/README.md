@@ -52,6 +52,7 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 - `chat_messages` — belong to a subject
 - `updates` — PM-authored posts (OAC recap, weekly, phase kickoff, safety)
 - `share_tokens` — public links (file, update preview) with expiry
+- `admin_audit_log` — superadmin action audit trail
 
 **Enums:**
 - `project_phase` — pre_con, design, construction, closeout
@@ -63,6 +64,7 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 **RLS Policies:**
 - All tables enforce per-project access via `project_members`.
 - Admins can do everything; members can insert/update/read; guests can read and insert chat/comments; readonly can only SELECT.
+- RFIs/submittals are hardened with helper policies: admins/members can create; admins/members/guests can review/update; readonly users stay read-only.
 - Share tokens bypass RLS (served via service-role-backed API routes with token validation).
 
 ---

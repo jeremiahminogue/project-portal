@@ -43,8 +43,8 @@ export function bytesToSize(bytes: number | null | undefined) {
 export function statusTone(label: string) {
   const text = label.toLowerCase();
   if (text.includes('approved') || text.includes('green') || text.includes('answered')) return 'green';
-  if (text.includes('revise') || text.includes('amber') || text.includes('review')) return 'amber';
-  if (text.includes('reject') || text.includes('red') || text.includes('open')) return 'red';
+  if (text.includes('revise') || text.includes('amber') || text.includes('review') || text.includes('partial') || text.includes('pending')) return 'amber';
+  if (text.includes('reject') || text.includes('red') || text.includes('open') || text.includes('failed')) return 'red';
   if (text.includes('design') || text.includes('blue')) return 'blue';
   if (text.includes('draft') || text.includes('gray') || text.includes('closed')) return 'gray';
   return 'neutral';

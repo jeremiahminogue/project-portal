@@ -1,7 +1,9 @@
 import type { RequestEvent } from '@sveltejs/kit';
+import { isProductionRuntime } from './env';
 import { createAdminClient } from './supabase-admin';
 
 const writableRoles = new Set(['admin', 'member']);
+const allProjectRoles = new Set(['superadmin', 'admin', 'member', 'guest', 'readonly']);
 
 export type ProjectAccess = {
   project: {
@@ -24,13 +26,23 @@ export type ProjectAccessError = {
 export async function requireProjectAccess(
   event: RequestEvent,
   projectSlug: string,
-  options: { writable?: boolean } = {}
+  options: { writable?: boolean; roles?: ProjectAccess['role'][]; action?: string } = {}
 ): Promise<ProjectAccess | ProjectAccessError> {
   const me = await event.locals.getCurrentUser();
   if (!me.user) return { status: 401, message: 'Not signed in.' };
 
-  const client = me.isSuperadmin && event.locals.isLocalSuperadmin ? createAdminClient() : event.locals.supabase;
-  if (!client) return { status: 400, message: 'Supabase is not configured yet.' };
+  const client =
+    me.isSuperadmin && event.locals.isLocalSuperadmin && event.locals.supabase
+      ? createAdminClient()
+      : event.locals.supabase;
+  if (!client) {
+    if (isProductionRuntime()) return { status: 503, message: 'Portal authentication is not configured.' };
+    return {
+      project: { id: projectSlug, slug: projectSlug, name: projectSlug },
+      user: me.user,
+      role: me.isSuperadmin ? 'superadmin' : 'admin'
+    };
+  }
 
   const { data: project, error: projectError } = await client
     .from('projects')
@@ -54,8 +66,14 @@ export async function requireProjectAccess(
 
   if (memberError) return { status: 500, message: memberError.message };
   if (!member) return { status: 403, message: 'You do not have access to this project.' };
+  if (!allProjectRoles.has(member.role)) {
+    return { status: 403, message: 'Your project role is not recognized.' };
+  }
   if (options.writable && !writableRoles.has(member.role)) {
-    return { status: 403, message: 'Not authorized to modify files for this project.' };
+    return { status: 403, message: `Not authorized to ${options.action ?? 'modify this project'}.` };
+  }
+  if (options.roles && !options.roles.includes(member.role)) {
+    return { status: 403, message: `Not authorized to ${options.action ?? 'modify this project'}.` };
   }
 
   return { project, user: me.user, role: member.role };

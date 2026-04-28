@@ -6,6 +6,24 @@ type EmailMessage = {
   html: string;
 };
 
+export function escapeHtml(value: string | null | undefined) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+export function textToHtml(value: string | null | undefined) {
+  return escapeHtml(value)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `<p>${line}</p>`)
+    .join('');
+}
+
 export async function sendPortalEmail(message: EmailMessage) {
   const apiKey = serverEnv('RESEND_API_KEY');
   const from = serverEnv('RESEND_FROM') ?? 'Pueblo Electric Portal <noreply@send.puebloelectrics.com>';
@@ -32,6 +50,7 @@ export async function sendPortalEmail(message: EmailMessage) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     console.error('[email] Resend failed:', result?.message ?? response.statusText);
+    return { error: result?.message ?? response.statusText };
   }
 
   return result;

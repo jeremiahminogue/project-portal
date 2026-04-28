@@ -1,7 +1,13 @@
-import { listAdminProjects, listAdminUsers } from '$lib/server/queries';
+import { requireSuperadmin } from '$lib/server/auth';
+import { listAdminAuditLogs, listAdminProjects, listAdminUsers } from '$lib/server/queries';
 import type { PageServerLoad } from './$types';
 
-export const load: PageServerLoad = async () => {
-  const [projects, users] = await Promise.all([listAdminProjects(), listAdminUsers()]);
-  return { projects, users };
+export const load: PageServerLoad = async (event) => {
+  await requireSuperadmin(event);
+  const [projects, users, auditLogs] = await Promise.all([
+    listAdminProjects(),
+    listAdminUsers(),
+    listAdminAuditLogs(12)
+  ]);
+  return { projects, users, auditLogs };
 };

@@ -20,3 +20,7 @@ export function createAdminClient() {
     }
   });
 }
+
+export function hasSupabaseAdminConfig() {
+  return Boolean(supabaseUrl() && serverEnv('SUPABASE_SERVICE_ROLE_KEY'));
+}

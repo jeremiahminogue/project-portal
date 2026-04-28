@@ -2,6 +2,8 @@
 
 Pueblo Electric's SvelteKit/Svelte 5 project portal for owner/client access to project files, drawings, specs, submittals, RFIs, updates, chat, and directory information.
 
+Production URL: `https://projectportal.puebloelectrics.com`
+
 ## Stack
 
 - Svelte 5 + SvelteKit 2
@@ -33,6 +35,8 @@ This repository also supports the Codex bundled Node runtime. If `npm` is not on
 | `npm run preview` | Preview the production build |
 | `npm run check` | Svelte and TypeScript diagnostics |
 | `npm run type-check` | TypeScript diagnostics |
+| `npm test` | Production-hardening regression tests |
+| `npm run ci` | Check, type-check, test, and build |
 | `npm run styles` | Regenerate Tailwind CSS only |
 
 ## Environment
@@ -54,8 +58,14 @@ Existing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` env vars a
 - `R2_REGION`
 - `RESEND_API_KEY`
 - `RESEND_FROM`
+- `PUBLIC_SITE_URL` (`https://projectportal.puebloelectrics.com` in production)
+- `PORTAL_MOCK_AUTH` (local-only; defaults on outside production)
+- `PORTAL_FORCE_MOCK_AUTH` (local-only override for screenshots/testing)
+- `PORTAL_ENABLE_LOCAL_SUPERADMIN` (local-only; keep false in production)
+- `PORTAL_OCR_INLINE_MAX_BYTES`
+- `PORTAL_OCR_TIMEOUT_MS`
 
-With no Supabase env vars, pages fall back to typed mock data from `src/lib/server/mock-data/`.
+With no Supabase env vars outside production, pages fall back to typed mock data from `src/lib/server/mock-data/` and a mock signed-in admin. In production, protected pages and file APIs fail closed if Supabase auth env vars are missing.
 
 ## App Surface
 

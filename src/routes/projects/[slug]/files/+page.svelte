@@ -95,6 +95,14 @@
     return match?.[1] ?? '0';
   }
 
+  function statusFor(file: (typeof data.files)[number]) {
+    if (file.ocrStatus === 'indexed') return 'Indexed';
+    if (file.ocrStatus === 'partial') return 'Partial';
+    if (file.ocrStatus === 'failed') return 'OCR Failed';
+    if (file.ocrStatus === 'pending') return 'Pending';
+    return file.storageKey ? 'Published' : 'Pending';
+  }
+
   function fileHasStorage(file: (typeof data.files)[number]) {
     return Boolean(file.storageKey || file.id.startsWith('storage:'));
   }
@@ -204,8 +212,9 @@
     notice = '';
     try {
       const response = await fetch(reindexEndpoint(file.id), { method: 'POST' });
-      if (!response.ok) throw new Error((await response.json()).error ?? 'OCR re-index failed.');
-      notice = 'OCR re-indexed.';
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'OCR re-index failed.');
+      notice = result.ocrDeferred ? 'OCR is pending for this file.' : 'OCR re-indexed.';
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'OCR re-index failed.';
@@ -373,7 +382,7 @@
                   <td>{formatDate(file.updatedAt)}</td>
                   <td>{formatDate(file.updatedAt)}</td>
                   <td><span class="set-link">{file.path}</span></td>
-                  <td><StatusPill label={file.ocrStatus === 'indexed' ? 'Indexed' : file.storageKey ? 'Published' : 'Pending'} /></td>
+                  <td><StatusPill label={statusFor(file)} /></td>
                   <td>
                     <div class="row-actions">
                       {#if fileHasStorage(file)}

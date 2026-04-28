@@ -15,7 +15,7 @@ export type DrawingAnalysis = {
   sheetNumber: string | null;
   sheetTitle: string | null;
   revision: string | null;
-  ocrStatus: 'indexed' | 'partial' | 'failed' | 'skipped';
+  ocrStatus: 'pending' | 'indexed' | 'partial' | 'failed' | 'skipped';
   ocrText: string;
   pages: DrawingPageAnalysis[];
 };
@@ -285,12 +285,32 @@ async function ocrPdfPage(page: any) {
   }
 }
 
-function classifyDocument(filename: string, contentType: string, folderName: string): DocumentKind {
+export function classifyDocument(filename: string, contentType: string, folderName: string): DocumentKind {
   const haystack = `${filename} ${contentType} ${folderName}`.toLowerCase();
   if (haystack.includes('spec')) return 'specification';
   if (haystack.includes('drawing') || haystack.includes('sheet') || haystack.includes('plan')) return 'drawing';
   if (contentType === 'application/pdf' || contentType.startsWith('image/')) return 'drawing';
   return 'file';
+}
+
+export function basicDrawingAnalysis(
+  filename: string,
+  contentType: string,
+  folderName = '',
+  status: DrawingAnalysis['ocrStatus'] = 'pending'
+): DrawingAnalysis {
+  const documentKind = classifyDocument(filename, contentType, folderName);
+  const fallback = parseSheetName(filename);
+  return {
+    documentKind,
+    pageCount: 1,
+    sheetNumber: fallback.sheetNumber,
+    sheetTitle: fallback.sheetTitle,
+    revision: fallback.revision,
+    ocrStatus: documentKind === 'file' ? 'skipped' : status,
+    ocrText: '',
+    pages: []
+  };
 }
 
 async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<DrawingPageAnalysis[]> {
@@ -366,16 +386,7 @@ export async function analyzeDrawingUpload(bytes: Uint8Array, filename: string, 
   const fallback = parseSheetName(filename);
 
   if (documentKind !== 'drawing' && documentKind !== 'specification') {
-    return {
-      documentKind,
-      pageCount: 1,
-      sheetNumber: fallback.sheetNumber,
-      sheetTitle: fallback.sheetTitle,
-      revision: fallback.revision,
-      ocrStatus: 'skipped',
-      ocrText: '',
-      pages: []
-    };
+    return basicDrawingAnalysis(filename, contentType, folderName, 'skipped');
   }
 
   try {

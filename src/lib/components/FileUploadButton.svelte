@@ -22,7 +22,9 @@
         body: form
     });
 
-    if (!response.ok) throw new Error((await response.json()).error ?? 'Upload failed.');
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error ?? 'Upload failed.');
+    return result.ocrDeferred ? `${file.name} uploaded. OCR is pending.` : `${file.name} uploaded.`;
   }
 
   async function upload(files: File[]) {
@@ -33,9 +35,9 @@
     try {
       for (const file of files) {
         message = `Uploading ${file.name}...`;
-        await uploadOne(file);
+        message = await uploadOne(file);
       }
-      message = files.length === 1 ? `${files[0].name} uploaded.` : `${files.length} files uploaded.`;
+      message = files.length === 1 ? message : `${files.length} files uploaded.`;
       await invalidateAll();
     } catch (error) {
       message = error instanceof Error ? error.message : 'Upload failed.';

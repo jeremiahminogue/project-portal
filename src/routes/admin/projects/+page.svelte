@@ -1,11 +1,13 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Plus } from '@lucide/svelte';
+  import { Pencil, Plus, Trash2, Users } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
 
   let { data, form } = $props();
   let createOpen = $state(false);
+  let editId = $state('');
+  let deleteId = $state('');
 </script>
 
 <svelte:head>
@@ -49,8 +51,50 @@
             <td><StatusPill label={project.phase} /></td>
             <td class="text-pe-sub">{project.percentComplete}%</td>
             <td class="text-pe-sub">{project.memberCount}</td>
-            <td><a class="text-sm font-bold text-pe-green-dark" href={`/projects/${project.slug}`}>Open</a></td>
+            <td>
+              <div class="flex flex-wrap items-center gap-2">
+                <a class="text-sm font-bold text-pe-green-dark" href={`/projects/${project.slug}`}>Open</a>
+                <a class="inline-flex items-center gap-1 text-sm font-bold text-pe-sub" href="/admin/users"><Users size={14} />Members</a>
+                <button class="inline-flex items-center gap-1 text-sm font-bold text-pe-sub" type="button" onclick={() => (editId = editId === project.id ? '' : project.id)}>
+                  <Pencil size={14} />Edit
+                </button>
+                <button class="inline-flex items-center gap-1 text-sm font-bold text-red-700" type="button" onclick={() => (deleteId = deleteId === project.id ? '' : project.id)}>
+                  <Trash2 size={14} />Delete
+                </button>
+              </div>
+            </td>
           </tr>
+          {#if editId === project.id}
+            <tr>
+              <td colspan="7">
+                <form class="grid gap-3 rounded-lg border border-black/10 bg-white p-4 md:grid-cols-2 xl:grid-cols-4" method="post" action="?/updateProject" use:enhance>
+                  <input type="hidden" name="id" value={project.id} />
+                  <div><label class="label" for={`edit-name-${project.id}`}>Project name</label><input id={`edit-name-${project.id}`} class="field" name="name" value={project.name} required /></div>
+                  <div><label class="label" for={`edit-slug-${project.id}`}>Project number</label><input id={`edit-slug-${project.id}`} class="field" name="slug" value={project.slug} required /></div>
+                  <div><label class="label" for={`edit-customer-${project.id}`}>Customer</label><input id={`edit-customer-${project.id}`} class="field" name="customer" value={project.customer} required /></div>
+                  <div><label class="label" for={`edit-phase-${project.id}`}>Phase</label><select id={`edit-phase-${project.id}`} class="field" name="phase"><option value="pre_con" selected={project.phase === 'pre_con'}>Pre-Con</option><option value="design" selected={project.phase === 'design'}>Design</option><option value="construction" selected={project.phase === 'construction'}>Construction</option><option value="closeout" selected={project.phase === 'closeout'}>Closeout</option></select></div>
+                  <div class="md:col-span-2"><label class="label" for={`edit-address-${project.id}`}>Address</label><input id={`edit-address-${project.id}`} class="field" name="address" value={project.address ?? ''} /></div>
+                  <div><label class="label" for={`edit-percent-${project.id}`}>Complete</label><input id={`edit-percent-${project.id}`} class="field" name="percentComplete" type="number" min="0" max="100" value={project.percentComplete} /></div>
+                  <div class="flex items-end"><button class="btn btn-primary w-full" type="submit">Save project</button></div>
+                </form>
+              </td>
+            </tr>
+          {/if}
+          {#if deleteId === project.id}
+            <tr>
+              <td colspan="7">
+                <form class="grid gap-3 rounded-lg border border-red-200 bg-red-50 p-4 md:grid-cols-[minmax(0,1fr)_auto]" method="post" action="?/deleteProject" use:enhance>
+                  <input type="hidden" name="id" value={project.id} />
+                  <input type="hidden" name="slug" value={project.slug} />
+                  <div>
+                    <label class="label text-red-800" for={`delete-${project.id}`}>Type {project.slug} to delete this project and its project data</label>
+                    <input id={`delete-${project.id}`} class="field border-red-200" name="confirmSlug" autocomplete="off" />
+                  </div>
+                  <div class="flex items-end"><button class="btn bg-red-700 text-white hover:bg-red-800" type="submit">Delete</button></div>
+                </form>
+              </td>
+            </tr>
+          {/if}
         {/each}
       </tbody>
     </table>

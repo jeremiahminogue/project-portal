@@ -17,6 +17,7 @@ pp-next-build/
 # env
 .env
 .env*.local
+.env.local.backup-*
 
 # logs
 npm-debug.log*
@@ -38,3 +39,4 @@ yarn-error.log*
 next-env.d.ts
 
 supabase/.temp/
+.env*.local

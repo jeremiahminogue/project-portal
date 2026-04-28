@@ -1,11 +1,12 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Copy, Mail, Plus, Send, ShieldCheck, UserPlus, X } from '@lucide/svelte';
+  import { Copy, Mail, Plus, Send, ShieldCheck, Trash2, UserPlus, X } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
 
   let { data, form } = $props();
   let createOpen = $state(true);
+  let deleteUserId = $state('');
 
   async function copyInviteLink() {
     if (!form?.inviteLink) return;
@@ -39,6 +40,9 @@
       {#if form.emailSkipped}
         <span class="ml-1 text-pe-sub">Email service is not configured, so no email was sent.</span>
       {/if}
+      {#if form.emailFailed}
+        <span class="ml-1 text-pe-sub">The email provider returned an error.</span>
+      {/if}
     </div>
   {/if}
   {#if form?.inviteLink}
@@ -59,7 +63,7 @@
       <div class="invite-panel-title">
         <div>
           <h2>Invite or add user</h2>
-          <p>Send an email invite by default. Add a temporary password only when you need password sign-in immediately.</p>
+          <p>Send a secure invite or access link. Users set their own credentials through Supabase.</p>
         </div>
         <label class="send-toggle">
           <input type="checkbox" name="sendEmail" checked />
@@ -74,13 +78,12 @@
         <div class="field-block"><label class="label" for="title">Title</label><input id="title" class="field" name="title" placeholder="Project manager" /></div>
         <div class="field-block wide"><label class="label" for="projectId">Project access</label><select id="projectId" class="field" name="projectId"><option value="">No project yet</option>{#each data.projects as project}<option value={project.id}>#{project.slug} {project.name}</option>{/each}</select></div>
         <div class="field-block"><label class="label" for="role">Project role</label><select id="role" class="field" name="role"><option value="member">Member</option><option value="admin">Admin</option><option value="guest">Guest</option><option value="readonly">Read-only</option></select></div>
-        <div class="field-block"><label class="label" for="password">Temporary password</label><input id="password" class="field" name="password" type="text" autocomplete="new-password" placeholder="Optional" /></div>
       </div>
 
       <div class="invite-actions">
         <div class="invite-note">
           <ShieldCheck size={16} />
-          Users can receive an invite/magic link by email, or sign in with the temporary password if one is set.
+          Users receive an invite or magic link by email. Temporary passwords are not created or sent.
         </div>
         <button class="btn btn-primary" type="submit">
           <Send size={16} />
@@ -155,7 +158,24 @@
                 Email access
               </button>
             </form>
+
+            <button class="btn btn-ghost email-button danger-text" type="button" onclick={() => (deleteUserId = deleteUserId === user.id ? '' : user.id)}>
+              <Trash2 size={15} />
+              Delete user
+            </button>
           </div>
+
+          {#if deleteUserId === user.id}
+            <form class="delete-user-form" method="post" action="?/deleteUser" use:enhance>
+              <input type="hidden" name="userId" value={user.id} />
+              <input type="hidden" name="email" value={user.email} />
+              <label class="label" for={`delete-user-${user.id}`}>Type {user.email} to delete this user</label>
+              <div>
+                <input id={`delete-user-${user.id}`} class="field" name="confirmEmail" autocomplete="off" />
+                <button class="btn bg-red-700 text-white hover:bg-red-800" type="submit">Delete</button>
+              </div>
+            </form>
+          {/if}
         </article>
       {/each}
     </div>
@@ -422,6 +442,25 @@
     font-size: 0.78rem;
   }
 
+  .danger-text {
+    color: #b42318;
+  }
+
+  .delete-user-form {
+    display: grid;
+    gap: 0.45rem;
+    border: 1px solid #fecaca;
+    border-radius: 0.45rem;
+    background: #fff1f2;
+    padding: 0.7rem;
+  }
+
+  .delete-user-form div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.45rem;
+  }
+
   @media (max-width: 1180px) {
     .invite-grid,
     .user-grid {
@@ -441,7 +480,8 @@
 
     .invite-grid,
     .user-grid,
-    .assign-form {
+    .assign-form,
+    .delete-user-form div {
       grid-template-columns: 1fr;
     }
 

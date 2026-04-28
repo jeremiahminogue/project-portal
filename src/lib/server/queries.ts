@@ -23,8 +23,9 @@ import {
   updates as mockUpdates
 } from './mock-data';
 import { bytesToSize, relativeTime } from '$lib/utils';
+import { isProductionRuntime } from './env';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
-import { createAdminClient } from './supabase-admin';
+import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
 type EventLike = Pick<RequestEvent, 'locals'>;
 
@@ -627,7 +628,30 @@ export type AdminUserRow = {
   }[];
 };
 
+export type AdminAuditRow = {
+  id: string;
+  createdAt: string;
+  actorEmail: string | null;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  details: Record<string, unknown>;
+};
+
 export async function listAdminProjects(): Promise<AdminProjectRow[]> {
+  if (!hasSupabaseAdminConfig() && !isProductionRuntime()) {
+    return mockProjects.map((project) => ({
+      id: project.id,
+      slug: project.id,
+      name: project.title,
+      customer: project.owner,
+      address: project.address,
+      phase: Object.entries(phaseToStatus).find(([, label]) => label === project.status)?.[0] ?? 'pre_con',
+      percentComplete: project.completionPercent,
+      memberCount: mockDirectory.length
+    }));
+  }
+
   const admin = createAdminClient();
   const [projects, members] = await Promise.all([
     admin.from('projects').select('id, slug, name, customer, address, phase, percent_complete').order('created_at', { ascending: false }),
@@ -653,6 +677,27 @@ export async function listAdminProjects(): Promise<AdminProjectRow[]> {
 }
 
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
+  if (!hasSupabaseAdminConfig() && !isProductionRuntime()) {
+    return [
+      {
+        id: '00000000-0000-4000-8000-000000000001',
+        email: 'mock.portal.user@puebloelectrics.local',
+        fullName: 'Local Portal User',
+        company: 'Pueblo Electric',
+        title: 'Mock Admin',
+        isSuperadmin: true,
+        projectCount: mockProjects.length,
+        emailConfirmed: true,
+        projects: mockProjects.map((project) => ({
+          id: project.id,
+          slug: project.id,
+          name: project.title,
+          role: 'admin'
+        }))
+      }
+    ];
+  }
+
   const admin = createAdminClient();
   const [users, profiles, members] = await Promise.all([
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
@@ -696,4 +741,30 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
       };
     })
     .sort((a, b) => Number(b.isSuperadmin) - Number(a.isSuperadmin) || a.email.localeCompare(b.email));
+}
+
+export async function listAdminAuditLogs(limit = 25): Promise<AdminAuditRow[]> {
+  if (!hasSupabaseAdminConfig() && !isProductionRuntime()) return [];
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from('admin_audit_log')
+    .select('id, created_at, actor_email, action, target_type, target_id, details')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (error) {
+    if (error.code === '42P01') return [];
+    throw new Error(error.message);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    createdAt: row.created_at,
+    actorEmail: row.actor_email,
+    action: row.action,
+    targetType: row.target_type,
+    targetId: row.target_id,
+    details: row.details ?? {}
+  }));
 }

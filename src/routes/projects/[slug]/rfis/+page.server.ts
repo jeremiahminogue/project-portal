@@ -1,7 +1,8 @@
 import { fail } from '@sveltejs/kit';
-import { actionError, formOptional, formString, requireUser } from '$lib/server/auth';
-import { sendPortalEmail } from '$lib/server/email';
-import { getDirectory, getProject, getProjectId, getRfis } from '$lib/server/queries';
+import { actionError, formOptional, formString } from '$lib/server/auth';
+import { escapeHtml, sendPortalEmail } from '$lib/server/email';
+import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { getDirectory, getProject, getRfis } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -17,13 +18,15 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions: Actions = {
   createRfi: async (event) => {
-    const me = await requireUser(event);
     const client = event.locals.supabase;
     if (!client) return actionError('Supabase is not configured yet.');
 
     const form = await event.request.formData();
-    const projectId = await getProjectId(event, event.params.slug);
-    if (!projectId) return actionError('Project not found.', 404);
+    const access = await requireProjectAccess(event, event.params.slug, {
+      writable: true,
+      action: 'create RFIs for this project'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
 
     const number = formString(form, 'number');
     const title = formString(form, 'title') || number;
@@ -33,9 +36,19 @@ export const actions: Actions = {
     const assignedOrg = formOptional(form, 'assignedOrg');
 
     if (!number || !question) return fail(400, { error: 'Number and question are required.' });
+    if (assignedTo) {
+      const { data: assignee, error: assigneeError } = await client
+        .from('project_members')
+        .select('id')
+        .eq('project_id', access.project.id)
+        .eq('user_id', assignedTo)
+        .maybeSingle();
+      if (assigneeError) return fail(400, { error: assigneeError.message });
+      if (!assignee) return fail(400, { error: 'Assignee must already belong to this project.' });
+    }
 
     const { error } = await client.from('rfis').insert({
-      project_id: projectId,
+      project_id: access.project.id,
       number,
       title,
       question,
@@ -47,12 +60,11 @@ export const actions: Actions = {
     });
 
     if (error) return fail(400, { error: error.message });
-    await maybeNotifyAssignee(event, assignedTo, `New RFI ${number}: ${title}`, me.profile?.full_name ?? me.user.email ?? 'Pueblo Electric');
+    await maybeNotifyAssignee(event, assignedTo, `New RFI ${number}: ${title}`, access.user.email ?? 'Pueblo Electric');
     return { ok: true };
   },
 
   answerRfi: async (event) => {
-    await requireUser(event);
     const client = event.locals.supabase;
     if (!client) return actionError('Supabase is not configured yet.');
 
@@ -61,19 +73,32 @@ export const actions: Actions = {
     const answer = formString(form, 'answer');
     const status = answer ? 'answered' : formString(form, 'status');
     if (!id) return fail(400, { error: 'RFI id is required.' });
+    if (!['open', 'answered', 'closed'].includes(status)) {
+      return fail(400, { error: 'Valid RFI status is required.' });
+    }
 
-    const { error } = await client.from('rfis').update({ answer, status }).eq('id', id);
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin', 'member', 'guest'],
+      action: 'update RFIs for this project'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
+
+    const { error } = await client
+      .from('rfis')
+      .update({ answer, status })
+      .eq('id', id)
+      .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
     return { ok: true };
   }
 };
 
-async function maybeNotifyAssignee(event: Parameters<typeof requireUser>[0], userId: string | null, subject: string, sender: string) {
+async function maybeNotifyAssignee(event: Parameters<typeof requireProjectAccess>[0], userId: string | null, subject: string, sender: string) {
   if (!userId || !event.locals.supabase) return;
   const { data: profile } = await event.locals.supabase.from('profiles').select('email, full_name').eq('id', userId).maybeSingle();
   await sendPortalEmail({
     to: profile?.email,
     subject,
-    html: `<p>${sender} assigned you a portal item.</p><p><strong>${subject}</strong></p>`
+    html: `<p>${escapeHtml(sender)} assigned you a portal item.</p><p><strong>${escapeHtml(subject)}</strong></p>`
   });
 }

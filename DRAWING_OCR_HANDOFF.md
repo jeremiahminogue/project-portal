@@ -23,6 +23,7 @@ When a user uploads a drawing PDF or image, the app should:
 The working source in this app is:
 
 - `src/lib/server/drawing-ocr.ts`
+- `src/lib/server/ocr-processing.ts`
 - `src/routes/api/files/upload/+server.ts`
 - `src/routes/api/files/[id]/reindex/+server.ts`
 - `src/routes/api/files/[id]/pages/[pageId]/+server.ts`
@@ -147,10 +148,11 @@ analyzeDrawingUpload(
 const bytes = new Uint8Array(await rawFile.arrayBuffer());
 ```
 
-4. Run OCR before or after object storage write:
+4. Store the object, then run the guarded inline OCR helper:
 
 ```ts
-const analysis = await analyzeDrawingUpload(bytes, rawFile.name, contentType, folderName);
+const ocr = await analyzeDrawingUploadSafely(bytes, rawFile.name, contentType, folderName);
+const analysis = ocr.analysis;
 ```
 
 5. Store file in object storage.
@@ -361,10 +363,12 @@ Flow:
 1. Load file row and storage key.
 2. Verify user can modify project files.
 3. Fetch object bytes from storage.
-4. Run `analyzeDrawingUpload`.
-5. Update the parent `files` metadata.
-6. Delete old `drawing_pages` for the file.
-7. Insert new `drawing_pages`.
+4. Mark the file `ocr_status = 'pending'`.
+5. Run `analyzeDrawingUploadSafely`.
+6. If OCR is deferred or times out, keep `ocr_status = 'pending'` and let the user retry re-index later.
+7. Update the parent `files` metadata.
+8. Delete old `drawing_pages` for the file.
+9. Insert new `drawing_pages`.
 
 Important: the UI should confirm before re-indexing because this replaces detected sheet/page metadata and could overwrite manual corrections.
 
@@ -464,5 +468,6 @@ Confirm:
 - Scanned drawings with rotated title blocks can still produce bad OCR.
 - Sheet indexes can look like valid sheet data; candidate scoring reduces but does not eliminate this.
 - OCR is CPU-heavy. For large uploads, move analysis into a background job if request timeouts become a problem.
+- Current production hardening bounds inline OCR with `PORTAL_OCR_INLINE_MAX_BYTES` and `PORTAL_OCR_TIMEOUT_MS`; oversized or timed-out work stays pending for manual re-index.
 - Manual correction is still required for edge cases, so keep that UI fast and visible.
 

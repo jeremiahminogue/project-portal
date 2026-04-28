@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { formString, requireSuperadmin } from '$lib/server/auth';
-import { sendPortalEmail } from '$lib/server/email';
+import { writeAdminAudit } from '$lib/server/admin-audit';
+import { escapeHtml, sendPortalEmail } from '$lib/server/email';
 import { listAdminProjects, listAdminUsers } from '$lib/server/queries';
 import { createAdminClient } from '$lib/server/supabase-admin';
 import type { Actions, PageServerLoad } from './$types';
@@ -47,20 +48,18 @@ async function sendUserAccessEmail({
   fullName,
   actionUrl,
   loginUrl,
-  projectName,
-  tempPassword
+  projectName
 }: {
   to: string;
   fullName?: string | null;
   actionUrl?: string;
   loginUrl: string;
   projectName?: string | null;
-  tempPassword?: string;
 }) {
-  const greeting = fullName ? `Hi ${fullName},` : 'Hi,';
+  const greeting = fullName ? `Hi ${escapeHtml(fullName)},` : 'Hi,';
   const targetUrl = actionUrl || loginUrl;
-  const projectLine = projectName ? `<p>You now have access to <strong>${projectName}</strong>.</p>` : '';
-  const passwordLine = tempPassword ? `<p>Your temporary password is: <strong>${tempPassword}</strong></p>` : '';
+  const projectLine = projectName ? `<p>You now have access to <strong>${escapeHtml(projectName)}</strong>.</p>` : '';
+  const safeTargetUrl = escapeHtml(targetUrl);
   return sendPortalEmail({
     to,
     subject: projectName ? `Project portal access: ${projectName}` : 'Pueblo Electric project portal access',
@@ -68,11 +67,17 @@ async function sendUserAccessEmail({
       <p>${greeting}</p>
       ${projectLine}
       <p>Pueblo Electric has added you to the project portal.</p>
-      ${passwordLine}
-      <p><a href="${targetUrl}">Open the Pueblo Electric project portal</a></p>
-      <p>If the button does not work, copy and paste this link into your browser:<br>${targetUrl}</p>
+      <p><a href="${safeTargetUrl}">Open the Pueblo Electric project portal</a></p>
+      <p>If the button does not work, copy and paste this link into your browser:<br>${safeTargetUrl}</p>
     `
   });
+}
+
+function emailDeliveryState(result: Awaited<ReturnType<typeof sendPortalEmail>>) {
+  return {
+    skipped: Boolean(result && typeof result === 'object' && 'skipped' in result),
+    failed: Boolean(result && typeof result === 'object' && 'error' in result)
+  };
 }
 
 async function projectNameFor(admin: ReturnType<typeof createAdminClient>, projectId: string) {
@@ -81,7 +86,8 @@ async function projectNameFor(admin: ReturnType<typeof createAdminClient>, proje
   return data?.name ?? null;
 }
 
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async (event) => {
+  await requireSuperadmin(event);
   const [users, projects] = await Promise.all([listAdminUsers(), listAdminProjects()]);
   return { users, projects };
 };
@@ -91,7 +97,6 @@ export const actions: Actions = {
     await requireSuperadmin(event);
     const form = await event.request.formData();
     const email = formString(form, 'email').toLowerCase();
-    const password = formString(form, 'password');
     const fullName = formString(form, 'fullName') || null;
     const company = formString(form, 'company') || null;
     const title = formString(form, 'title') || null;
@@ -100,7 +105,6 @@ export const actions: Actions = {
     const sendEmail = checked(form, 'sendEmail');
 
     if (!email) return fail(400, { error: 'Email is required.' });
-    if (password && password.length < 8) return fail(400, { error: 'Temporary password must be at least 8 characters.' });
 
     const admin = createAdminClient();
     const redirectTo = `${event.url.origin}/auth/callback?next=${encodeURIComponent(projectId ? `/projects` : '/')}`;
@@ -109,24 +113,7 @@ export const actions: Actions = {
     let userId = existing?.id;
     let actionLink: string | undefined;
 
-    if (existing && password) {
-      const updated = await admin.auth.admin.updateUserById(existing.id, {
-        password,
-        email_confirm: true,
-        user_metadata: fullNameMetadata(fullName)
-      });
-      if (updated.error) return fail(400, { error: updated.error.message });
-      userId = updated.data.user.id;
-    } else if (!existing && password) {
-      const created = await admin.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: fullNameMetadata(fullName)
-      });
-      if (created.error || !created.data.user) return fail(400, { error: created.error?.message ?? 'Could not create user.' });
-      userId = created.data.user.id;
-    } else if (!existing) {
+    if (!existing) {
       try {
         const generated = await generateAuthLink(admin, 'invite', email, redirectTo, fullName);
         userId = generated.user.id;
@@ -159,18 +146,31 @@ export const actions: Actions = {
           fullName,
           actionUrl: actionLink,
           loginUrl,
-          projectName,
-          tempPassword: password || undefined
+          projectName
         })
       : { skipped: true };
 
-    const emailSkipped = sendEmail && 'skipped' in emailResult;
+    const delivery = emailDeliveryState(emailResult);
+
+    await writeAdminAudit(event, existing ? 'user.update_or_invite' : 'user.create', 'user', userId, {
+      email,
+      projectId: projectId || null,
+      role,
+      emailSent: sendEmail && !delivery.skipped && !delivery.failed
+    });
 
     return {
       ok: true,
-      message: sendEmail ? (emailSkipped ? 'User saved. Email service is not configured yet, so use the invite link below.' : 'User saved and email sent.') : 'User saved.',
+      message: sendEmail
+        ? delivery.skipped
+          ? 'User saved. Email service is not configured yet, so use the invite link below.'
+          : delivery.failed
+            ? 'User saved, but the access email failed to send. Use the invite link below.'
+            : 'User saved and email sent.'
+        : 'User saved.',
       inviteLink: actionLink,
-      emailSkipped
+      emailSkipped: delivery.skipped,
+      emailFailed: delivery.failed
     };
   },
 
@@ -196,6 +196,7 @@ export const actions: Actions = {
     );
 
     if (error) return fail(400, { error: error.message });
+    await writeAdminAudit(event, 'membership.upsert', 'user', userId, { projectId, role });
 
     let emailSkipped = false;
     if (sendEmail) {
@@ -206,19 +207,34 @@ export const actions: Actions = {
       const authUser = user.data.user;
       const email = authUser?.email;
       if (authUser && email) {
+        let actionLink: string | undefined;
+        try {
+          const generated = await generateAuthLink(
+            admin,
+            'magiclink',
+            email,
+            `${event.url.origin}/auth/callback?next=/projects`,
+            (authUser.user_metadata?.full_name as string | undefined) ?? null
+          );
+          actionLink = generated.actionLink;
+        } catch {
+          actionLink = undefined;
+        }
         const emailResult = await sendUserAccessEmail({
           to: email,
           fullName: (authUser.user_metadata?.full_name as string | undefined) ?? null,
+          actionUrl: actionLink,
           loginUrl: `${event.url.origin}/login`,
           projectName: project.data?.name ?? null
         });
-        emailSkipped = 'skipped' in emailResult;
+        const delivery = emailDeliveryState(emailResult);
+        emailSkipped = delivery.skipped || delivery.failed;
       }
     }
 
     return {
       ok: true,
-      message: sendEmail ? (emailSkipped ? 'Access granted. Email service is not configured yet.' : 'Access granted and email sent.') : 'Access granted.',
+      message: sendEmail ? (emailSkipped ? 'Access granted. Access email was not sent.' : 'Access granted and email sent.') : 'Access granted.',
       emailSkipped
     };
   },
@@ -252,12 +268,14 @@ export const actions: Actions = {
       actionUrl: actionLink,
       loginUrl: `${event.url.origin}/login`
     });
+    await writeAdminAudit(event, 'user.email_access', 'user', userId, { email });
 
     return {
       ok: true,
       message: 'Access email prepared.',
       inviteLink: actionLink,
-      emailSkipped: 'skipped' in result
+      emailSkipped: emailDeliveryState(result).skipped,
+      emailFailed: emailDeliveryState(result).failed
     };
   },
 
@@ -277,6 +295,28 @@ export const actions: Actions = {
       .eq('user_id', userId);
 
     if (error) return fail(400, { error: error.message });
+    await writeAdminAudit(event, 'membership.remove', 'user', userId, { projectId });
+    return { ok: true };
+  },
+
+  deleteUser: async (event) => {
+    const me = await requireSuperadmin(event);
+    const form = await event.request.formData();
+    const userId = formString(form, 'userId');
+    const email = formString(form, 'email').toLowerCase();
+    const confirmEmail = formString(form, 'confirmEmail').toLowerCase();
+
+    if (!userId || !email || confirmEmail !== email) {
+      return fail(400, { error: 'Type the user email exactly before deleting.' });
+    }
+    if (me.user.id === userId) {
+      return fail(400, { error: 'You cannot delete your own account from here.' });
+    }
+
+    const admin = createAdminClient();
+    const deleted = await admin.auth.admin.deleteUser(userId);
+    if (deleted.error) return fail(400, { error: deleted.error.message });
+    await writeAdminAudit(event, 'user.delete', 'user', userId, { email });
     return { ok: true };
   }
 };

@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { analyzeDrawingUpload } from '$lib/server/drawing-ocr';
 import { getObject } from '$lib/server/object-storage';
+import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { createAdminClient } from '$lib/server/supabase-admin';
 import type { RequestHandler } from './$types';
@@ -66,9 +66,27 @@ export const POST: RequestHandler = async (event) => {
   const access = await requireProjectAccess(event, project.slug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
+  await client.from('files').update({ ocr_status: 'pending' }).eq('id', file.id);
+
   const object = await getObject(file.storage_key);
   const bytes = await bodyToBytes(object.Body);
-  const analysis = await analyzeDrawingUpload(bytes, file.name, contentTypeFor(file.name, file.mime_type));
+  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentTypeFor(file.name, file.mime_type));
+  const analysis = ocr.analysis;
+
+  if (!ocr.completed) {
+    const { error: statusError } = await client
+      .from('files')
+      .update({ ocr_status: analysis.ocrStatus })
+      .eq('id', file.id);
+    if (statusError) return json({ error: statusError.message }, { status: 500 });
+
+    return json({
+      ok: true,
+      ocrStatus: analysis.ocrStatus,
+      ocrDeferred: true,
+      ocrReason: ocr.reason
+    }, { status: 202 });
+  }
 
   const { error: updateError } = await client
     .from('files')
@@ -107,6 +125,8 @@ export const POST: RequestHandler = async (event) => {
   return json({
     ok: true,
     pageCount: analysis.pageCount,
-    ocrStatus: analysis.ocrStatus
-  });
+    ocrStatus: analysis.ocrStatus,
+    ocrDeferred: !ocr.completed,
+    ocrReason: ocr.reason
+  }, { status: ocr.completed ? 200 : 202 });
 };

@@ -10,7 +10,9 @@
     "build": "node ./scripts/patch-vite-realpath.mjs && tailwindcss -i ./src/tailwind.css -o ./src/tailwind.generated.css && vite build --configLoader native",
     "preview": "vite preview --host 0.0.0.0 --configLoader native",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
-    "type-check": "svelte-kit sync && tsc --noEmit"
+    "type-check": "svelte-kit sync && tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "ci": "npm run check && npm run type-check && npm test && npm run build"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1038.0",
