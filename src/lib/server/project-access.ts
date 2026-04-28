@@ -31,7 +31,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: boolean;
     canCreateCommunication: boolean;
     canReviewCommunication: boolean;
-    canEditProjectProgress: boolean;
     canDeleteChat: boolean;
     canManageProjectUsers: boolean;
   }
@@ -45,7 +44,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: true,
     canCreateCommunication: true,
     canReviewCommunication: true,
-    canEditProjectProgress: true,
     canDeleteChat: true,
     canManageProjectUsers: true
   },
@@ -58,7 +56,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: true,
     canCreateCommunication: true,
     canReviewCommunication: true,
-    canEditProjectProgress: true,
     canDeleteChat: true,
     canManageProjectUsers: true
   },
@@ -71,7 +68,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: true,
     canCreateCommunication: true,
     canReviewCommunication: true,
-    canEditProjectProgress: true,
     canDeleteChat: false,
     canManageProjectUsers: false
   },
@@ -84,7 +80,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: false,
     canCreateCommunication: true,
     canReviewCommunication: true,
-    canEditProjectProgress: false,
     canDeleteChat: false,
     canManageProjectUsers: false
   },
@@ -97,7 +92,6 @@ export const projectRoleCapabilities: Record<
     canReindexFiles: false,
     canCreateCommunication: false,
     canReviewCommunication: false,
-    canEditProjectProgress: false,
     canDeleteChat: false,
     canManageProjectUsers: false
   }
