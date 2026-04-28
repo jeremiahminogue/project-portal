@@ -1,7 +1,11 @@
 import { json } from '@sveltejs/kit';
 import { parseSheetName } from '$lib/server/drawing-ocr';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
-import { createAdminClient } from '$lib/server/supabase-admin';
+import {
+  databaseClientForCurrentUser,
+  databaseClientForProjectAccess,
+  isProjectAccessError,
+  requireProjectAccess
+} from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
 function cleanName(value: unknown) {
@@ -23,7 +27,7 @@ function pageName(sheetNumber: string | null, sheetTitle: string | null, fallbac
 }
 
 export const PATCH: RequestHandler = async (event) => {
-  const client = event.locals.isLocalSuperadmin ? createAdminClient() : event.locals.supabase;
+  let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
   const { data: page, error: pageError } = await client
@@ -47,6 +51,8 @@ export const PATCH: RequestHandler = async (event) => {
 
   const access = await requireProjectAccess(event, project.slug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+  client = databaseClientForProjectAccess(event, access);
+  if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
   const body = await event.request.json().catch(() => null);
   const requestedName = cleanName(body?.name);

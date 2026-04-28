@@ -1,7 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { contentDisposition, decodeStorageId } from '$lib/server/object-storage';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
-import { createAdminClient } from '$lib/server/supabase-admin';
+import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { PageServerLoad } from './$types';
 
 function filenameFromStorageKey(key: string) {
@@ -36,7 +35,7 @@ export const load: PageServerLoad = async (event) => {
     };
   }
 
-  const client = event.locals.isLocalSuperadmin ? createAdminClient() : event.locals.supabase;
+  const client = databaseClientForProjectAccess(event, access);
   if (!client) throw error(400, 'Supabase is not configured yet.');
 
   const { data: file, error: fileError } = await client

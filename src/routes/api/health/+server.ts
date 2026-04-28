@@ -8,7 +8,7 @@ export const GET: RequestHandler = async () => {
     ok: true,
     stack: 'sveltekit',
     svelte: '5',
-    siteUrl: serverEnv('PUBLIC_SITE_URL') ?? null,
+    siteUrl: serverEnv('PUBLIC_SITE_URL', 'NEXT_PUBLIC_SITE_URL', 'SITE_URL') ?? null,
     supabase: Boolean(serverEnv('PUBLIC_SUPABASE_URL', 'NEXT_PUBLIC_SUPABASE_URL')),
     supabaseAnonKey: Boolean(serverEnv('PUBLIC_SUPABASE_ANON_KEY', 'NEXT_PUBLIC_SUPABASE_ANON_KEY')),
     objectStorage: hasObjectStorageConfig(),

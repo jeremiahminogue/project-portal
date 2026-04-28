@@ -2,7 +2,7 @@
 
 Pueblo Electric's SvelteKit/Svelte 5 project portal for owner/client access to project files, drawings, specs, submittals, RFIs, updates, chat, and directory information.
 
-Production URL: `https://projectportal.puebloelectrics.com`
+Production URL: `https://portal.puebloelectrics.com`
 
 ## Stack
 
@@ -58,7 +58,7 @@ Existing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` env vars a
 - `R2_REGION`
 - `RESEND_API_KEY`
 - `RESEND_FROM`
-- `PUBLIC_SITE_URL` (`https://projectportal.puebloelectrics.com` in production)
+- `PUBLIC_SITE_URL` (`https://portal.puebloelectrics.com` in production)
 - `PORTAL_MOCK_AUTH` (local-only; defaults on outside production)
 - `PORTAL_FORCE_MOCK_AUTH` (local-only override for screenshots/testing)
 - `PORTAL_ENABLE_LOCAL_SUPERADMIN` (local-only; keep false in production)

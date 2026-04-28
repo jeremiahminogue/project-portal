@@ -1,6 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { isProductionRuntime } from './env';
-import { createAdminClient } from './supabase-admin';
+import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
 const writableRoles = new Set(['admin', 'member']);
 const allProjectRoles = new Set(['superadmin', 'admin', 'member', 'guest', 'readonly']);
@@ -23,6 +23,17 @@ export type ProjectAccessError = {
   message: string;
 };
 
+export async function databaseClientForCurrentUser(event: RequestEvent) {
+  const me = await event.locals.getCurrentUser();
+  if (me.isSuperadmin && hasSupabaseAdminConfig()) return createAdminClient();
+  return event.locals.supabase;
+}
+
+export function databaseClientForProjectAccess(event: RequestEvent, access: ProjectAccess) {
+  if (access.role === 'superadmin' && hasSupabaseAdminConfig()) return createAdminClient();
+  return event.locals.supabase;
+}
+
 export async function requireProjectAccess(
   event: RequestEvent,
   projectSlug: string,
@@ -31,10 +42,7 @@ export async function requireProjectAccess(
   const me = await event.locals.getCurrentUser();
   if (!me.user) return { status: 401, message: 'Not signed in.' };
 
-  const client =
-    me.isSuperadmin && event.locals.isLocalSuperadmin && event.locals.supabase
-      ? createAdminClient()
-      : event.locals.supabase;
+  const client = me.isSuperadmin && hasSupabaseAdminConfig() ? createAdminClient() : event.locals.supabase;
   if (!client) {
     if (isProductionRuntime()) return { status: 503, message: 'Portal authentication is not configured.' };
     return {

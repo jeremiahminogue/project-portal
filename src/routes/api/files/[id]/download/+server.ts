@@ -7,8 +7,7 @@ import {
   storageErrorMessage,
   storageErrorStatus
 } from '$lib/server/object-storage';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
-import { createAdminClient } from '$lib/server/supabase-admin';
+import { databaseClientForCurrentUser, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
 function headersFor({
@@ -39,10 +38,6 @@ function headersFor({
 function projectSlugFromStorageKey(key: string) {
   const match = /^projects\/([^/]+)\//.exec(key);
   return match?.[1] ?? null;
-}
-
-function databaseClient(event: Parameters<RequestHandler>[0]) {
-  return event.locals.isLocalSuperadmin ? createAdminClient() : event.locals.supabase;
 }
 
 export const GET: RequestHandler = async (event) => {
@@ -80,7 +75,7 @@ export const GET: RequestHandler = async (event) => {
     });
   }
 
-  const client = databaseClient(event);
+  const client = await databaseClientForCurrentUser(event);
   if (!client) {
     return json(
       { error: 'This file needs a storage record before it can be previewed or downloaded.' },

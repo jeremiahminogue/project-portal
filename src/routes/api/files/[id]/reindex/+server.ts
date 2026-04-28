@@ -1,13 +1,13 @@
 import { json } from '@sveltejs/kit';
 import { getObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
-import { createAdminClient } from '$lib/server/supabase-admin';
+import {
+  databaseClientForCurrentUser,
+  databaseClientForProjectAccess,
+  isProjectAccessError,
+  requireProjectAccess
+} from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
-
-function databaseClient(event: Parameters<RequestHandler>[0]) {
-  return event.locals.isLocalSuperadmin ? createAdminClient() : event.locals.supabase;
-}
 
 async function bodyToBytes(body: unknown) {
   if (!body) return new Uint8Array();
@@ -41,7 +41,7 @@ function contentTypeFor(filename: string, contentType?: string | null) {
 }
 
 export const POST: RequestHandler = async (event) => {
-  const client = databaseClient(event);
+  let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
   const { data: file, error: fileError } = await client
@@ -65,6 +65,8 @@ export const POST: RequestHandler = async (event) => {
 
   const access = await requireProjectAccess(event, project.slug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+  client = databaseClientForProjectAccess(event, access);
+  if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
   await client.from('files').update({ ocr_status: 'pending' }).eq('id', file.id);
 

@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { formString } from '$lib/server/auth';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { getFiles, getFolders, getProject } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -31,9 +31,10 @@ export const actions: Actions = {
 
     const access = await requireProjectAccess(event, event.params.slug, { writable: true });
     if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
-    if (!event.locals.supabase) return fail(400, { error: 'Supabase is not configured yet.' });
+    const client = databaseClientForProjectAccess(event, access);
+    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
 
-    const { data: existing, error: existingError } = await event.locals.supabase
+    const { data: existing, error: existingError } = await client
       .from('files')
       .select('id')
       .eq('project_id', access.project.id)
@@ -44,7 +45,7 @@ export const actions: Actions = {
     if (existingError) return fail(400, { error: existingError.message });
     if (existing) return { ok: true };
 
-    const { error: insertError } = await event.locals.supabase.from('files').insert({
+    const { error: insertError } = await client.from('files').insert({
       project_id: access.project.id,
       name,
       is_folder: true,
