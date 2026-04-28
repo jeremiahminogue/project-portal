@@ -96,12 +96,18 @@ test('admin page loads enforce superadmin access directly', () => {
 
 test('OCR reindex preserves good metadata while allowing page skeleton repair', () => {
   const source = file('src/routes/api/files/[id]/reindex/+server.ts');
+  const ocrProcessing = file('src/lib/server/ocr-processing.ts');
   assert.match(source, /if \(!ocr\.completed\)/);
   assert.match(source, /ocrDeferred: true/);
   assert.match(source, /drawing_pages/);
   assert.match(source, /shouldReplaceDeferredPages/);
   assert.match(source, /file\.page_count/);
   assert.match(source, /replaceDrawingPages/);
+  assert.match(source, /const force = Boolean/);
+  assert.match(source, /analyzeDrawingUploadSafely\(bytes, file\.name, contentType, folderName, documentKind, \{ force \}\)/);
+  assert.match(ocrProcessing, /PORTAL_OCR_MANUAL_TIMEOUT_MS/);
+  assert.match(ocrProcessing, /options\.force/);
+  assert.match(ocrProcessing, /MANUAL_OCR_TIMEOUT_MS/);
 });
 
 test('file APIs are Vercel-safe and storage failures are handled', () => {
@@ -113,6 +119,7 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   const objectStorage = file('src/lib/server/object-storage.ts');
   const ingest = file('src/lib/server/file-ingest.ts');
   const uploadSession = file('src/lib/server/upload-session.ts');
+  const groupRenameRoute = file('src/routes/api/files/groups/rename/+server.ts');
   assert.match(uploadButton, /\/api\/files\/upload-url/);
   assert.match(uploadButton, /upload-control-row/);
   assert.match(uploadButton, /upload-group-field/);
@@ -141,6 +148,10 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   assert.match(objectStorage, /export async function headObject/);
   assert.match(objectStorage, /'content-type': contentType/);
   assert.match(objectStorage, /fetch\(url/);
+  assert.match(groupRenameRoute, /requireProjectAccess\(event, projectSlug, \{ writable: true \}\)/);
+  assert.match(groupRenameRoute, /folderIdFor/);
+  assert.match(groupRenameRoute, /\.update\(\{ parent_folder_id: targetFolderId \}\)/);
+  assert.match(groupRenameRoute, /\.is\('parent_folder_id', null\)/);
   assert.doesNotMatch(objectStorage, /@aws-sdk/);
 });
 
@@ -174,8 +185,16 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(filesPage, /const uploadDocumentKind/);
   assert.match(filesPage, /documentKind=\{uploadDocumentKind\}/);
   assert.match(filesPage, /const defaultUploadFolder/);
-  assert.match(filesPage, /Rename \$\{group\.name\} group/);
+  assert.match(filesPage, /function groupRenameKey/);
+  assert.match(filesPage, /function groupCanRename/);
+  assert.match(filesPage, /Rename \$\{group\.name\} folder/);
   assert.match(filesPage, /<span>Edit<\/span>/);
+  assert.match(filesPage, /\/api\/files\/groups\/rename/);
+  assert.match(filesPage, /fileIds: group\.folderId \? \[\] : group\.files/);
+  assert.match(filesPage, /function groupOcrFiles/);
+  assert.match(filesPage, /function reindexGroup/);
+  assert.match(filesPage, /<span>OCR<\/span>/);
+  assert.match(filesPage, /body: JSON\.stringify\(\{ force: true \}\)/);
   assert.match(uploadUrlRoute, /normalizeDocumentKind/);
   assert.match(registerRoute, /session\.documentKind/);
   assert.match(uploadRoute, /formString\(form, 'documentKind'\)/);

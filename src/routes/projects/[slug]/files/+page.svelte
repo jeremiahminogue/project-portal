@@ -184,6 +184,14 @@
     return /pdf/i.test(file.mimeType ?? '') || /\.pdf$/i.test(file.name);
   }
 
+  function fileCanRunOcr(file: (typeof data.files)[number]) {
+    return fileHasStorage(file) && fileIsPdf(file) && !fileIsStorageOnly(file);
+  }
+
+  function groupOcrFiles(group: FileGroup) {
+    return group.files.filter(fileCanRunOcr);
+  }
+
   function fileEndpoint(id: string) {
     return `/api/files/${encodeURIComponent(id)}`;
   }
@@ -246,6 +254,14 @@
     return group.files.flatMap((file) => filePageIds(file));
   }
 
+  function groupRenameKey(group: FileGroup) {
+    return group.folderId || `virtual:${group.name}`;
+  }
+
+  function groupCanRename(group: FileGroup) {
+    return Boolean(group.folderId || group.files.some((file) => !fileIsStorageOnly(file)));
+  }
+
   function groupPagesSelected(group: FileGroup) {
     const ids = groupPageIds(group);
     return ids.length > 0 && ids.every((id) => selectedPageIds.includes(id));
@@ -259,11 +275,11 @@
   }
 
   function startRenameGroup(group: FileGroup) {
-    if (!group.folderId) {
-      notice = 'Upload into a named drawing group before renaming it.';
+    if (!groupCanRename(group)) {
+      notice = 'This group has no registered files to move into a renamed folder yet.';
       return;
     }
-    renameGroupId = group.folderId;
+    renameGroupId = groupRenameKey(group);
     renameGroupName = group.name;
     renameGroupOriginalName = group.name;
     notice = '';
@@ -285,13 +301,23 @@
   async function renameGroup() {
     const name = renameGroupName.trim();
     if (!renameGroupId || !name) return;
+    const group = groupedFiles.find((candidate) => groupRenameKey(candidate) === renameGroupId);
+    if (!group) {
+      notice = 'Group no longer exists in this view.';
+      return;
+    }
     busy = true;
     notice = '';
     try {
-      const response = await fetch(fileEndpoint(renameGroupId), {
-        method: 'PATCH',
+      const response = await fetch('/api/files/groups/rename', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
+        body: JSON.stringify({
+          projectSlug: data.project.id,
+          folderId: group.folderId,
+          name,
+          fileIds: group.folderId ? [] : group.files.filter((file) => !fileIsStorageOnly(file)).map((file) => file.id)
+        })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Group rename failed.');
       if (activeFolder === renameGroupOriginalName) activeFolder = name;
@@ -299,7 +325,7 @@
       renameGroupId = '';
       renameGroupName = '';
       renameGroupOriginalName = '';
-      notice = 'Drawing group updated.';
+      notice = 'Folder updated.';
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'Group rename failed.';
@@ -378,10 +404,49 @@
     busy = true;
     notice = '';
     try {
-      const response = await fetch(reindexEndpoint(file.id), { method: 'POST' });
+      const response = await fetch(reindexEndpoint(file.id), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ force: true })
+      });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'OCR re-index failed.');
       notice = result.ocrDeferred ? 'OCR is pending for this file.' : 'OCR re-indexed.';
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'OCR re-index failed.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function reindexGroup(group: FileGroup) {
+    const files = groupOcrFiles(group);
+    if (!files.length) return;
+    const ok = confirm(`Run OCR for ${files.length} PDF drawing set${files.length === 1 ? '' : 's'} in "${group.name}"? This will replace detected sheet numbers and titles.`);
+    if (!ok) return;
+
+    busy = true;
+    notice = `Running OCR for ${group.name}...`;
+    let completed = 0;
+    let deferred = 0;
+    let failed = 0;
+    try {
+      for (const file of files) {
+        const response = await fetch(reindexEndpoint(file.id), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ force: true })
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          failed += 1;
+          continue;
+        }
+        if (result.ocrDeferred) deferred += 1;
+        else completed += 1;
+      }
+      notice = `OCR finished for ${completed} drawing set${completed === 1 ? '' : 's'}${deferred ? `; ${deferred} still pending` : ''}${failed ? `; ${failed} failed` : ''}.`;
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'OCR re-index failed.';
@@ -589,10 +654,10 @@
                   {/if}
                 </td>
                 <td colspan="6">
-                  {#if renameGroupId === group.folderId && group.folderId}
+                  {#if renameGroupId === groupRenameKey(group)}
                     <div class="inline-rename group-rename">
-                      <input class="field min-h-9 py-2 text-sm" bind:value={renameGroupName} aria-label="Drawing group name" />
-                      <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save drawing group">
+                      <input class="field min-h-9 py-2 text-sm" bind:value={renameGroupName} aria-label="Folder name" />
+                      <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save folder name">
                         <Check size={15} />
                       </button>
                       <button
@@ -604,7 +669,7 @@
                           renameGroupName = '';
                           renameGroupOriginalName = '';
                         }}
-                        aria-label="Cancel drawing group edit"
+                        aria-label="Cancel folder edit"
                       >
                         <X size={15} />
                       </button>
@@ -614,10 +679,16 @@
                       <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group.name)}>
                         {group.name} ({group.count})
                       </button>
-                      {#if documentTool === 'drawings' && canModifyFiles && group.folderId}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} group`}>
+                      {#if canModifyFiles && groupCanRename(group)}
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} folder`}>
                           <Pencil size={14} />
                           <span>Edit</span>
+                        </button>
+                      {/if}
+                      {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.name} group`}>
+                          <RefreshCw size={14} />
+                          <span>OCR</span>
                         </button>
                       {/if}
                     </div>

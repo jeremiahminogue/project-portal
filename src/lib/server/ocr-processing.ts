@@ -14,6 +14,11 @@ type OcrOutcome = {
   reason?: 'deferred_size' | 'timeout' | 'failed';
 };
 
+type AnalyzeOcrOptions = {
+  force?: boolean;
+  timeoutMs?: number;
+};
+
 function numberEnv(name: string, fallback: number) {
   const value = Number(serverEnv(name));
   return Number.isFinite(value) && value > 0 ? value : fallback;
@@ -22,6 +27,7 @@ function numberEnv(name: string, fallback: number) {
 const INLINE_MAX_BYTES = numberEnv('PORTAL_OCR_INLINE_MAX_BYTES', 15 * 1024 * 1024);
 const PDF_PAGE_INDEX_MAX_BYTES = numberEnv('PORTAL_PDF_PAGE_INDEX_MAX_BYTES', 75 * 1024 * 1024);
 const OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_TIMEOUT_MS', 20_000);
+const MANUAL_OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_MANUAL_TIMEOUT_MS', 90_000);
 
 function timeout(ms: number) {
   return new Promise<never>((_, reject) => {
@@ -42,12 +48,13 @@ export async function analyzeDrawingUploadSafely(
   filename: string,
   contentType: string,
   folderName = '',
-  documentKindOverride: DocumentKind | null = null
+  documentKindOverride: DocumentKind | null = null,
+  options: AnalyzeOcrOptions = {}
 ): Promise<OcrOutcome> {
   const pending = basicDrawingAnalysis(filename, contentType, folderName, 'pending', documentKindOverride);
   if (pending.ocrStatus === 'skipped') return { analysis: pending, completed: true };
 
-  if (!shouldAnalyzeInline(bytes.byteLength)) {
+  if (!options.force && !shouldAnalyzeInline(bytes.byteLength)) {
     return {
       analysis: await basicDrawingAnalysisFromBytes(bytes, filename, contentType, folderName, 'pending', documentKindOverride),
       completed: false,
@@ -56,9 +63,10 @@ export async function analyzeDrawingUploadSafely(
   }
 
   try {
+    const timeoutMs = options.timeoutMs ?? (options.force ? MANUAL_OCR_TIMEOUT_MS : OCR_TIMEOUT_MS);
     const analysis = await Promise.race([
       analyzeDrawingUpload(bytes, filename, contentType, folderName, documentKindOverride),
-      timeout(OCR_TIMEOUT_MS)
+      timeout(timeoutMs)
     ]);
     return { analysis, completed: true };
   } catch (error) {

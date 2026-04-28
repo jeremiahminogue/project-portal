@@ -85,6 +85,13 @@ test('drawing OCR prefers title block metadata over sheet index entries', async 
   );
 });
 
+test('drawing OCR keeps full-page raster fallback for scanned title blocks', () => {
+  const source = readFileSync(new URL('../src/lib/server/drawing-ocr.ts', import.meta.url), 'utf8');
+  assert.match(source, /needsTitleBlockOcr/);
+  assert.match(source, /recognizeImage\(new Uint8Array\(canvas\.toBuffer\('image\/png'\)\)\)/);
+  assert.match(source, /needsOcr\(text, lines, sheetNumber, sheetTitle\) \|\| needsTitleBlockOcr/);
+});
+
 test('explicit spec and document uploads are not split into drawing pages', async () => {
   const { analyzeDrawingUpload, classifyDocument } = await loadDrawingOcrModule();
   const bytes = await drawingPdf([

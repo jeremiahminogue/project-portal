@@ -285,6 +285,12 @@ function needsOcr(text: string, lines: string[], sheetNumber: string | null, she
   return text.trim().length < 80 || (lines.length < 8 && !sheetNumber && !sheetTitle);
 }
 
+function needsTitleBlockOcr(titleBlockLines: string[], sheetNumberFromTitleBlock: boolean, sheetTitle: string | null) {
+  if (!sheetNumberFromTitleBlock) return true;
+  if (!sheetTitle) return true;
+  return titleBlockLines.length < 3;
+}
+
 function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock' = 'all') {
   const viewport = page.getViewport({ scale: 1 });
   const width = viewport.width || 1;
@@ -340,17 +346,12 @@ async function ocrPdfPage(page: any) {
     const canvas = canvasKit.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const canvasContext = canvas.getContext('2d');
     await page.render({ canvasContext, viewport }).promise;
-    const titleBlockTexts = await Promise.all([
+    const cropTexts = await Promise.all([
       recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.68, 0, canvas.width * 0.32, canvas.height)),
-      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.54, canvas.height * 0.68, canvas.width * 0.46, canvas.height * 0.32))
+      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.54, canvas.height * 0.68, canvas.width * 0.46, canvas.height * 0.32)),
+      recognizeImage(new Uint8Array(canvas.toBuffer('image/png')))
     ]);
-    const titleBlockText = titleBlockTexts.join('\n').slice(0, MAX_PAGE_TEXT);
-    const titleBlockLines = linesFromText(titleBlockText);
-    const sheetNumber = extractSheetNumber(titleBlockLines);
-    if (sheetNumber && extractSheetTitle(titleBlockLines, sheetNumber)) return titleBlockText;
-
-    const fullPageText = await recognizeImage(new Uint8Array(canvas.toBuffer('image/png')));
-    return [titleBlockText, fullPageText].filter(Boolean).join('\n').slice(0, MAX_PAGE_TEXT);
+    return cropTexts.join('\n').slice(0, MAX_PAGE_TEXT);
   } catch {
     return '';
   }
@@ -453,7 +454,7 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       let sheetTitle = extractSheetTitle(titleBlockLines, sheetNumber) ?? extractSheetTitle(lines, sheetNumber) ?? filenameFallback.sheetTitle;
       let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
 
-      if (needsOcr(text, lines, sheetNumber, sheetTitle) || !sheetNumber) {
+      if (needsOcr(text, lines, sheetNumber, sheetTitle) || needsTitleBlockOcr(titleBlockLines, sheetNumberFromTitleBlock, sheetTitle)) {
         const ocrText = await ocrPdfPage(page);
         if (ocrText) {
           const ocrLines = linesFromText(ocrText);

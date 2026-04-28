@@ -68,6 +68,8 @@ async function replaceDrawingPages(
 }
 
 export const POST: RequestHandler = async (event) => {
+  const body = await event.request.json().catch(() => ({}));
+  const force = Boolean((body as { force?: unknown })?.force);
   let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
@@ -122,7 +124,7 @@ export const POST: RequestHandler = async (event) => {
   const storedDocumentKind = normalizeDocumentKind(file.document_kind);
   const contextualDocumentKind = classifyDocument(file.name, contentType, folderName);
   const documentKind = storedDocumentKind === 'drawing' && contextualDocumentKind !== 'drawing' ? contextualDocumentKind : storedDocumentKind;
-  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind);
+  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind, { force });
   const analysis = ocr.analysis;
 
   if (!ocr.completed) {
