@@ -540,3 +540,34 @@ The page now matches `project-portal-mockup.html`. Changes:
 - Relax `profiles` SELECT so project members can display each other's names (see §1 soft-edge above).
 - Add RFI count badge to the quick-nav tiles. Currently uses `project.openSubmittals` / `project.openRfis` but those are placeholder `0`s for live data until the aggregate queries land.
 - Update the Chat sub-page's `h-[calc(100vh-180px)]` to account for the removed `<ProjectHeader>` (previously ~180px of chrome, now closer to 108px). Low-priority, chat still scrolls fine.
+
+---
+
+## 2026-04-28 — File upload broken in prod (CORS + Vercel 4.5MB cap)
+
+### Symptom
+Uploading any file from `https://portal.puebloelectrics.com` failed in console with:
+
+1. `Access to fetch at 'https://project-portal.t3.storage.dev/projects/.../...pdf?...' from origin 'https://portal.puebloelectrics.com' has been blocked by CORS policy: ... No 'Access-Control-Allow-Origin' header is present`
+2. After the direct-to-storage PUT failed, `FileUploadButton` fell back to `POST /api/files/upload` which returned `413 Content Too Large` (Vercel serverless body cap is 4.5MB; PDF was bigger).
+3. Stale browser tabs separately hit `404` on `_app/immutable/nodes/17.DUVuGqh6.js` etc — fine after a hard refresh; chunks are content-hashed and the deploy replaced them.
+
+### Root cause
+The Tigris bucket `project-portal` had no CORS configuration. The presigned PUT flow needs the bucket to advertise `Access-Control-Allow-Origin: https://portal.puebloelectrics.com` for both the preflight and the PUT itself.
+
+### Fix
+One-shot `scripts/set-tigris-cors.mjs` — sigv4-signs a `PutBucketCors` against the bucket and allows `https://portal.puebloelectrics.com` plus localhost for dev. Re-run any time the allowed origins change.
+
+```bash
+# from C:\Dev\project-portal
+vercel env pull .env.local                   # pulls Tigris/R2 creds locally
+node scripts/set-tigris-cors.mjs --print     # verify what's there now
+node scripts/set-tigris-cors.mjs             # write the policy
+```
+
+The script reads the same env-var aliases as `lib/server/object-storage.ts` (`TIGRIS_*`, `R2_*`, `S3_*`, `AWS_*`). Bucket name is taken from `TIGRIS_BUCKET` / `R2_BUCKET` / `BUCKET_NAME`. After PUT, it re-fetches and prints the active CORS config so you can eyeball it.
+
+### Notes for future
+- The `/api/files/upload` proxy fallback in `FileUploadButton.svelte` will always 413 on Vercel for files > 4.5MB. Once CORS is working, the direct-to-storage path handles up to 100MB and the fallback only matters for tiny files. If we ever move off Vercel serverless to a Node runtime without that cap, the fallback will quietly start working for large files again.
+- If the prod URL ever moves (e.g. add a staging hostname), pass it via `--origins=https://staging.puebloelectrics.com` and re-run the script. The policy is replaced wholesale, not merged.
+- 404s on JS chunks after a deploy are expected for any tab open across the deploy boundary. Hard refresh (Ctrl+Shift+R) clears them.
