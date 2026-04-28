@@ -21,13 +21,14 @@
 
   let { data } = $props();
   let query = $state('');
-  let activeFolder = $state('All files');
   let collapsedGroups = $state<string[]>([]);
   let renameGroupId = $state('');
   let renameGroupName = $state('');
   let renameGroupOriginalName = $state('');
   let renameId = $state('');
   let renameName = $state('');
+  let renameFileNumber = $state('');
+  let renameFileTitle = $state('');
   let renamePageId = $state('');
   let renamePageSheetNumber = $state('');
   let renamePageSheetTitle = $state('');
@@ -58,7 +59,7 @@
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
   const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
   const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
-  const uploadFolder = $derived(activeFolder === 'All files' ? defaultUploadFolder : activeFolder);
+  const uploadFolder = $derived(defaultUploadFolder);
 
   const toolFiles = $derived(
     data.files.filter((file) =>
@@ -67,9 +68,7 @@
   );
   const filteredFiles = $derived(
     toolFiles.filter((file) => {
-      const folderOk = activeFolder === 'All files' || file.path.startsWith(`${activeFolder}/`);
-      const queryOk = !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
-      return folderOk && queryOk;
+      return !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
     })
   );
   const groupedFiles = $derived(
@@ -79,7 +78,7 @@
         const files = filteredFiles.filter((file) => folderName(file) === name);
         return {
           name,
-          folderId: files.find((file) => file.parentFolderId)?.parentFolderId ?? data.folders.find((folder) => folder.name === name)?.id ?? '',
+          folderId: files.find((file) => file.parentFolderId)?.parentFolderId ?? '',
           files,
           count: documentTool === 'drawings' ? files.reduce((total, file) => total + drawingSheetCount(file), 0) : files.length
         };
@@ -209,6 +208,10 @@
     return `/api/files/${encodeURIComponent(fileId)}/reindex`;
   }
 
+  function reindexDocumentKind() {
+    return documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing';
+  }
+
   function filePageIds(file: (typeof data.files)[number]) {
     return (file.pages ?? []).map((page) => page.id);
   }
@@ -288,6 +291,8 @@
   function startRename(file: (typeof data.files)[number]) {
     renameId = file.id;
     renameName = file.name;
+    renameFileNumber = documentNumber(file);
+    renameFileTitle = documentTitle(file);
     notice = '';
   }
 
@@ -320,7 +325,6 @@
         })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Group rename failed.');
-      if (activeFolder === renameGroupOriginalName) activeFolder = name;
       collapsedGroups = collapsedGroups.map((value) => (value === renameGroupOriginalName ? name : value));
       renameGroupId = '';
       renameGroupName = '';
@@ -335,17 +339,24 @@
   }
 
   async function renameFile() {
-    if (!renameId || !renameName.trim()) return;
+    if (!renameId || (!renameName.trim() && !renameFileNumber.trim() && !renameFileTitle.trim())) return;
     busy = true;
     notice = '';
     try {
       const response = await fetch(fileEndpoint(renameId), {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: renameName.trim() })
+        body: JSON.stringify({
+          name: renameName.trim(),
+          sheetNumber: renameFileNumber.trim(),
+          sheetTitle: renameFileTitle.trim()
+        })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Rename failed.');
       renameId = '';
+      renameName = '';
+      renameFileNumber = '';
+      renameFileTitle = '';
       notice = 'Name updated.';
       await invalidateAll();
     } catch (error) {
@@ -407,11 +418,16 @@
       const response = await fetch(reindexEndpoint(file.id), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ force: true })
+        body: JSON.stringify({ force: true, documentKind: reindexDocumentKind() })
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'OCR re-index failed.');
-      notice = result.ocrDeferred ? 'OCR is pending for this file.' : 'OCR re-indexed.';
+      notice =
+        result.ocrStatus === 'skipped'
+          ? 'OCR was skipped for this file type.'
+          : result.ocrDeferred
+            ? 'OCR is pending for this file.'
+            : 'OCR re-indexed.';
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'OCR re-index failed.';
@@ -436,7 +452,7 @@
         const response = await fetch(reindexEndpoint(file.id), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ force: true })
+          body: JSON.stringify({ force: true, documentKind: 'drawing' })
         });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) {
@@ -567,12 +583,6 @@
           <Search size={16} />
           <input bind:value={query} placeholder="Search" />
         </div>
-        <select class="field compact" aria-label="Folder filter" bind:value={activeFolder}>
-          <option>All files</option>
-          {#each data.folders as folder}
-            <option>{folder.name}</option>
-          {/each}
-        </select>
         <span class="result-count">{filteredFiles.length} shown</span>
         {#if documentTool === 'drawings' && selectedPageIds.length}
           <div class="bulk-actions" aria-label="Selected drawing page actions">
@@ -681,13 +691,13 @@
                       </button>
                       {#if canModifyFiles && groupCanRename(group)}
                         <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} folder`}>
-                          <Pencil size={14} />
+                          <Pencil size={12} />
                           <span>Edit</span>
                         </button>
                       {/if}
                       {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
                         <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.name} group`}>
-                          <RefreshCw size={14} />
+                          <RefreshCw size={12} />
                           <span>OCR</span>
                         </button>
                       {/if}
@@ -768,7 +778,9 @@
                       <tr class="page-row sheet-row">
                         <td class="select-cell"></td>
                         <td class="sheet-number-cell">
-                          {#if fileHasStorage(file) && fileIsPdf(file)}
+                          {#if renameId === file.id}
+                            <input class="field sheet-edit-number" bind:value={renameFileNumber} aria-label="Drawing number" />
+                          {:else if fileHasStorage(file) && fileIsPdf(file)}
                             <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
                           {:else if fileHasStorage(file)}
                             <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
@@ -778,15 +790,7 @@
                         </td>
                         <td>
                           {#if renameId === file.id}
-                            <div class="inline-rename">
-                              <input class="field min-h-9 py-2 text-sm" bind:value={renameName} aria-label="File name" />
-                              <button class="icon-row-button primary" type="button" disabled={busy} onclick={renameFile} aria-label="Save file name">
-                                <Check size={15} />
-                              </button>
-                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => (renameId = '')} aria-label="Cancel rename">
-                                <X size={15} />
-                              </button>
-                            </div>
+                            <input class="field sheet-edit-title" bind:value={renameFileTitle} placeholder="Drawing title" aria-label="Drawing title" />
                           {:else}
                             <span class="record-title page-title">
                               <span>{documentTitle(file)}</span>
@@ -807,12 +811,31 @@
                                 <Copy size={15} />
                               </button>
                             {/if}
-                            {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
+                            {#if renameId === file.id}
+                              <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">
+                                <Check size={15} />
+                              </button>
+                              <button
+                                class="icon-row-button quiet"
+                                type="button"
+                                disabled={busy}
+                                onclick={() => {
+                                  renameId = '';
+                                  renameName = '';
+                                  renameFileNumber = '';
+                                  renameFileTitle = '';
+                                }}
+                                aria-label="Cancel file edit"
+                              >
+                                <X size={15} />
+                              </button>
+                            {/if}
+                            {#if renameId !== file.id && canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
                               <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
                                 <RefreshCw size={15} />
                               </button>
                             {/if}
-                            {#if canModifyFiles && !fileIsStorageOnly(file)}
+                            {#if renameId !== file.id && canModifyFiles && !fileIsStorageOnly(file)}
                               <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
                                 <Pencil size={15} />
                               </button>
@@ -833,7 +856,9 @@
                       <td class="select-cell">
                       </td>
                       <td>
-                        {#if fileHasStorage(file) && fileIsPdf(file)}
+                        {#if renameId === file.id}
+                          <input class="field sheet-edit-number" bind:value={renameFileNumber} aria-label={documentTool === 'specifications' ? 'Specification section' : 'File number'} />
+                        {:else if fileHasStorage(file) && fileIsPdf(file)}
                           <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
                         {:else if fileHasStorage(file)}
                           <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
@@ -843,15 +868,7 @@
                       </td>
                       <td>
                         {#if renameId === file.id}
-                          <div class="inline-rename">
-                            <input class="field min-h-9 py-2 text-sm" bind:value={renameName} aria-label="File name" />
-                            <button class="icon-row-button primary" type="button" disabled={busy} onclick={renameFile} aria-label="Save file name">
-                              <Check size={15} />
-                            </button>
-                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => (renameId = '')} aria-label="Cancel rename">
-                              <X size={15} />
-                            </button>
-                          </div>
+                          <input class="field sheet-edit-title" bind:value={renameFileTitle} placeholder={documentTool === 'specifications' ? 'Specification title' : 'Document title'} aria-label={documentTool === 'specifications' ? 'Specification title' : 'Document title'} />
                         {:else}
                           <span class="record-title">
                             <FileText size={14} />
@@ -873,12 +890,31 @@
                               <Copy size={15} />
                             </button>
                           {/if}
-                          {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
+                          {#if renameId === file.id}
+                            <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">
+                              <Check size={15} />
+                            </button>
+                            <button
+                              class="icon-row-button quiet"
+                              type="button"
+                              disabled={busy}
+                              onclick={() => {
+                                renameId = '';
+                                renameName = '';
+                                renameFileNumber = '';
+                                renameFileTitle = '';
+                              }}
+                              aria-label="Cancel file edit"
+                            >
+                              <X size={15} />
+                            </button>
+                          {/if}
+                          {#if renameId !== file.id && canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
                             <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
                               <RefreshCw size={15} />
                             </button>
                           {/if}
-                          {#if canModifyFiles && !fileIsStorageOnly(file)}
+                          {#if renameId !== file.id && canModifyFiles && !fileIsStorageOnly(file)}
                             <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
                               <Pencil size={15} />
                             </button>
@@ -1003,7 +1039,7 @@
   .group-label {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
+    gap: 0.25rem;
     min-width: 0;
   }
 
@@ -1016,15 +1052,16 @@
 
   .group-edit-button {
     justify-content: center;
-    gap: 0.3rem;
-    min-height: 1.65rem;
-    border: 1px solid rgba(25, 27, 25, 0.1);
-    border-radius: 0.28rem;
-    background: rgba(255, 255, 255, 0.72);
-    padding: 0.2rem 0.48rem;
+    gap: 0.18rem;
+    min-height: 1.25rem;
+    border: 1px solid rgba(25, 27, 25, 0.08);
+    border-radius: 0.22rem;
+    background: rgba(255, 255, 255, 0.55);
+    padding: 0.06rem 0.32rem;
     color: #3f4640;
-    font-size: 0.72rem;
+    font-size: 0.64rem;
     font-weight: 900;
+    line-height: 1;
   }
 
   .group-edit-button:disabled {

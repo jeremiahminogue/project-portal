@@ -69,7 +69,9 @@ async function replaceDrawingPages(
 
 export const POST: RequestHandler = async (event) => {
   const body = await event.request.json().catch(() => ({}));
-  const force = Boolean((body as { force?: unknown })?.force);
+  const requestBody = body as { force?: unknown; documentKind?: unknown };
+  const force = Boolean(requestBody.force);
+  const requestedDocumentKind = normalizeDocumentKind(requestBody.documentKind);
   let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
 
@@ -123,7 +125,8 @@ export const POST: RequestHandler = async (event) => {
   const contentType = contentTypeFor(file.name, file.mime_type);
   const storedDocumentKind = normalizeDocumentKind(file.document_kind);
   const contextualDocumentKind = classifyDocument(file.name, contentType, folderName);
-  const documentKind = storedDocumentKind === 'drawing' && contextualDocumentKind !== 'drawing' ? contextualDocumentKind : storedDocumentKind;
+  const documentKind =
+    requestedDocumentKind ?? (storedDocumentKind === 'drawing' && contextualDocumentKind !== 'drawing' ? contextualDocumentKind : storedDocumentKind);
   const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind, { force });
   const analysis = ocr.analysis;
 
@@ -145,6 +148,7 @@ export const POST: RequestHandler = async (event) => {
 
     return json({
       ok: true,
+      documentKind: analysis.documentKind,
       pageCount: shouldReplaceDeferredPages ? analysis.pageCount : file.page_count,
       ocrStatus: analysis.ocrStatus,
       ocrDeferred: true,
@@ -172,6 +176,7 @@ export const POST: RequestHandler = async (event) => {
 
   return json({
     ok: true,
+    documentKind: analysis.documentKind,
     pageCount: analysis.pageCount,
     ocrStatus: analysis.ocrStatus,
     ocrDeferred: !ocr.completed,

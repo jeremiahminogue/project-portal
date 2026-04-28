@@ -64,6 +64,7 @@ Existing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` env vars a
 - `PORTAL_ENABLE_LOCAL_SUPERADMIN` (local-only; keep false in production)
 - `PORTAL_OCR_INLINE_MAX_BYTES`
 - `PORTAL_OCR_TIMEOUT_MS`
+- `PORTAL_OCR_MANUAL_TIMEOUT_MS`
 
 With no Supabase env vars outside production, pages fall back to typed mock data from `src/lib/server/mock-data/` and a mock signed-in admin. In production, protected pages and file APIs fail closed if Supabase auth env vars are missing.
 

@@ -26,8 +26,8 @@ function numberEnv(name: string, fallback: number) {
 
 const INLINE_MAX_BYTES = numberEnv('PORTAL_OCR_INLINE_MAX_BYTES', 15 * 1024 * 1024);
 const PDF_PAGE_INDEX_MAX_BYTES = numberEnv('PORTAL_PDF_PAGE_INDEX_MAX_BYTES', 75 * 1024 * 1024);
-const OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_TIMEOUT_MS', 20_000);
-const MANUAL_OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_MANUAL_TIMEOUT_MS', 90_000);
+const OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_TIMEOUT_MS', 30_000);
+const MANUAL_OCR_TIMEOUT_MS = numberEnv('PORTAL_OCR_MANUAL_TIMEOUT_MS', 10 * 60_000);
 
 function timeout(ms: number) {
   return new Promise<never>((_, reject) => {

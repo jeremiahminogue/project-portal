@@ -352,7 +352,8 @@ async function ocrPdfPage(page: any) {
       recognizeImage(new Uint8Array(canvas.toBuffer('image/png')))
     ]);
     return cropTexts.join('\n').slice(0, MAX_PAGE_TEXT);
-  } catch {
+  } catch (error) {
+    console.error('[files] PDF raster OCR failed:', error);
     return '';
   }
 }

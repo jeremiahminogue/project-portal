@@ -104,8 +104,10 @@ test('OCR reindex preserves good metadata while allowing page skeleton repair', 
   assert.match(source, /file\.page_count/);
   assert.match(source, /replaceDrawingPages/);
   assert.match(source, /const force = Boolean/);
+  assert.match(source, /requestedDocumentKind/);
   assert.match(source, /analyzeDrawingUploadSafely\(bytes, file\.name, contentType, folderName, documentKind, \{ force \}\)/);
   assert.match(ocrProcessing, /PORTAL_OCR_MANUAL_TIMEOUT_MS/);
+  assert.match(ocrProcessing, /10 \* 60_000/);
   assert.match(ocrProcessing, /options\.force/);
   assert.match(ocrProcessing, /MANUAL_OCR_TIMEOUT_MS/);
 });
@@ -142,6 +144,8 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   assert.match(uploadSession, /projectStoragePrefix/);
   assert.match(fileRoute, /storage cleanup after database delete failed/);
   assert.match(fileRoute, /warning: 'File was removed from the portal, but object storage cleanup failed.'/);
+  assert.match(fileRoute, /sheet_number/);
+  assert.match(fileRoute, /sheet_title/);
   assert.match(downloadRoute, /storageErrorMessage\(error, 'read this file'\)/);
   assert.match(uploadUrlRoute, /storageErrorMessage\(error, 'prepare the upload'\)/);
   assert.match(objectStorage, /function signature/);
@@ -185,6 +189,10 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(filesPage, /const uploadDocumentKind/);
   assert.match(filesPage, /documentKind=\{uploadDocumentKind\}/);
   assert.match(filesPage, /const defaultUploadFolder/);
+  assert.match(filesPage, /const uploadFolder = \$derived\(defaultUploadFolder\)/);
+  assert.doesNotMatch(filesPage, /activeFolder/);
+  assert.doesNotMatch(filesPage, /Folder filter/);
+  assert.doesNotMatch(filesPage, /data\.folders\.find/);
   assert.match(filesPage, /function groupRenameKey/);
   assert.match(filesPage, /function groupCanRename/);
   assert.match(filesPage, /Rename \$\{group\.name\} folder/);
@@ -194,7 +202,12 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(filesPage, /function groupOcrFiles/);
   assert.match(filesPage, /function reindexGroup/);
   assert.match(filesPage, /<span>OCR<\/span>/);
-  assert.match(filesPage, /body: JSON\.stringify\(\{ force: true \}\)/);
+  assert.match(filesPage, /function reindexDocumentKind/);
+  assert.match(filesPage, /body: JSON\.stringify\(\{ force: true, documentKind: reindexDocumentKind\(\) \}\)/);
+  assert.match(filesPage, /body: JSON\.stringify\(\{ force: true, documentKind: 'drawing' \}\)/);
+  assert.match(filesPage, /renameFileNumber/);
+  assert.match(filesPage, /renameFileTitle/);
+  assert.match(filesPage, /Specification section/);
   assert.match(uploadUrlRoute, /normalizeDocumentKind/);
   assert.match(registerRoute, /session\.documentKind/);
   assert.match(uploadRoute, /formString\(form, 'documentKind'\)/);

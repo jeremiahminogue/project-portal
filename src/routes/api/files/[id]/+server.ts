@@ -41,6 +41,14 @@ function cleanName(value: unknown) {
     .slice(0, 200);
 }
 
+function cleanOptionalText(value: unknown, maxLength = 200) {
+  if (typeof value !== 'string') return undefined;
+  return value
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, maxLength);
+}
+
 async function loadDatabaseFile(event: RequestEvent, id: string): Promise<LoadedFile> {
   const client = await databaseClientForCurrentUser(event);
   if (!client) return { ok: false, response: json({ error: 'Supabase is not configured yet.' }, { status: 400 }) };
@@ -79,21 +87,30 @@ export const PATCH: RequestHandler = async (event) => {
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
   const body = await event.request.json().catch(() => null);
-  const name = cleanName(body?.name);
-  if (!name) return json({ error: 'Name is required.' }, { status: 400 });
+  const name = typeof body?.name === 'string' ? cleanName(body.name) : undefined;
+  const sheetNumber = cleanOptionalText(body?.sheetNumber, 80);
+  const sheetTitle = cleanOptionalText(body?.sheetTitle, 240);
+  if (typeof name === 'string' && !name) return json({ error: 'Name is required.' }, { status: 400 });
+  if (name === undefined && sheetNumber === undefined && sheetTitle === undefined) {
+    return json({ error: 'Provide a name, number, or title to update.' }, { status: 400 });
+  }
 
   const client = databaseClientForProjectAccess(event, access);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
+  const updates: Record<string, string | null> = {};
+  if (name !== undefined) updates.name = name;
+  if (sheetNumber !== undefined) updates.sheet_number = sheetNumber || null;
+  if (sheetTitle !== undefined) updates.sheet_title = sheetTitle || null;
 
   const { data, error } = await client
     .from('files')
-    .update({ name })
+    .update(updates)
     .eq('id', loaded.file.id)
-    .select('id, name')
+    .select('id, name, sheet_number, sheet_title')
     .single();
 
   if (error) return json({ error: error.message }, { status: 500 });
-  return json({ id: data.id, name: data.name });
+  return json({ id: data.id, name: data.name, sheetNumber: data.sheet_number, sheetTitle: data.sheet_title });
 };
 
 export const DELETE: RequestHandler = async (event) => {
