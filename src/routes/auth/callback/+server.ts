@@ -8,6 +8,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (code && locals.supabase) {
     const { error } = await locals.supabase.auth.exchangeCodeForSession(code);
     if (error) {
+      if (next === '/reset-password') {
+        throw redirect(303, `/reset-password?error=${encodeURIComponent(error.message)}`);
+      }
       throw redirect(303, `/login?error=${encodeURIComponent(error.message)}`);
     }
   }

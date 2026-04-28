@@ -51,7 +51,10 @@
           <input class="field" id="email" name="email" type="email" autocomplete="email" value={form?.email ?? ''} required placeholder="you@company.com" />
         </div>
         <div>
-          <label class="label" for="password">Password</label>
+          <div class="flex items-center justify-between gap-3">
+            <label class="label" for="password">Password</label>
+            <a class="text-xs font-black text-pe-green-dark underline" href="/forgot-password">Reset password</a>
+          </div>
           <div class="relative">
             <input class="field pr-11" id="password" name="password" type={showPassword ? 'text' : 'password'} autocomplete="current-password" required placeholder="Password" />
             <button class="absolute inset-y-0 right-0 grid w-11 place-items-center text-pe-sub hover:text-pe-body" type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onclick={() => (showPassword = !showPassword)}>

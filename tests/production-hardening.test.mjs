@@ -13,8 +13,24 @@ test('production auth fails closed and protects file APIs', () => {
   assert.match(hooks, /Portal authentication is not configured/);
   assert.match(hooks, /requiresAuthConfig\(pathname\)/);
   assert.match(hooks, /pathname === '\/login'/);
+  assert.match(hooks, /pathname === '\/reset-password'/);
   assert.doesNotMatch(protectedPathBody, /pathname === '\/login'/);
+  assert.doesNotMatch(protectedPathBody, /pathname === '\/reset-password'/);
   assert.match(hooks, /pathname\.startsWith\('\/api\/files'\)/);
+});
+
+test('password reset flow uses callback session before updateUser', () => {
+  const forgot = file('src/routes/forgot-password/+page.server.ts');
+  const reset = file('src/routes/reset-password/+page.server.ts');
+  const login = file('src/routes/login/+page.svelte');
+  const callback = file('src/routes/auth/callback/+server.ts');
+  assert.match(forgot, /resetPasswordForEmail/);
+  assert.match(forgot, /\/auth\/callback\?next=\/reset-password/);
+  assert.match(reset, /exchangeCodeForSession/);
+  assert.match(reset, /searchParams\.get\('error'\)/);
+  assert.match(reset, /updateUser\(\{ password \}\)/);
+  assert.match(callback, /next === '\/reset-password'/);
+  assert.match(login, /href="\/forgot-password"/);
 });
 
 test('local superadmin fallback is explicitly gated outside production', () => {

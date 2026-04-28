@@ -26,7 +26,13 @@ function isProtectedPath(pathname: string) {
 }
 
 function requiresAuthConfig(pathname: string) {
-  return isProtectedPath(pathname) || pathname === '/login' || pathname.startsWith('/auth');
+  return (
+    isProtectedPath(pathname) ||
+    pathname === '/login' ||
+    pathname === '/forgot-password' ||
+    pathname === '/reset-password' ||
+    pathname.startsWith('/auth')
+  );
 }
 
 export const handle: Handle = async ({ event, resolve }) => {
