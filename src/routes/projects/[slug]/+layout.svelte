@@ -1,7 +1,6 @@
 <script lang="ts">
   import { page } from '$app/stores';
   import AppHeader from '$lib/components/AppHeader.svelte';
-  import ProjectNav from '$lib/components/ProjectNav.svelte';
 
   let { data, children } = $props();
 
@@ -9,7 +8,6 @@
 </script>
 
 {#if !isDocumentViewer}
-  <AppHeader me={data.me} />
-  <ProjectNav slug={data.slug} title={data.project.title} />
+  <AppHeader me={data.me} project={data.project} projects={data.projects} slug={data.slug} />
 {/if}
 {@render children()}

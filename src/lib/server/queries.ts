@@ -38,6 +38,7 @@ type ProfileLite = {
 };
 
 export type PortalFile = FileEntry & {
+  parentFolderId?: string | null;
   storageKey?: string | null;
   mimeType?: string | null;
   documentKind?: 'drawing' | 'specification' | 'file';
@@ -378,6 +379,7 @@ async function getStorageFallbackFiles(slug: string): Promise<PortalFile[] | nul
         type: fileTypeFromName(name),
         updatedAt: object.LastModified?.toISOString() ?? new Date().toISOString(),
         uploadedBy: 'Object storage',
+        parentFolderId: null,
         storageKey: key,
         mimeType: null
       };
@@ -459,6 +461,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
       type: fileTypeFromName(row.name, row.mime_type),
       updatedAt: row.updated_at,
       uploadedBy: profileDisplayName(profile),
+      parentFolderId: row.parent_folder_id,
       tags: row.tags ?? undefined,
       storageKey: row.storage_key,
       mimeType: row.mime_type,
@@ -510,13 +513,24 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
     counts.set(child.parent_folder_id, (counts.get(child.parent_folder_id) ?? 0) + 1);
   }
 
-  const merged = new Map<string, number>();
-  for (const folder of folders ?? []) merged.set(folder.name, counts.get(folder.id) ?? 0);
+  const merged = new Map<string, FolderEntry>();
+  for (const folder of folders ?? []) {
+    merged.set(folder.name, {
+      id: folder.id,
+      name: folder.name,
+      fileCount: counts.get(folder.id) ?? 0
+    });
+  }
   for (const folder of (await getStorageFallbackFolders(slug)) ?? []) {
-    merged.set(folder.name, (merged.get(folder.name) ?? 0) + folder.fileCount);
+    const existing = merged.get(folder.name);
+    merged.set(folder.name, {
+      id: existing?.id,
+      name: folder.name,
+      fileCount: (existing?.fileCount ?? 0) + folder.fileCount
+    });
   }
 
-  return [...merged.entries()].map(([name, fileCount]) => ({ name, fileCount })).sort((a, b) => a.name.localeCompare(b.name));
+  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getUpdates(event: EventLike, slug: string): Promise<Update[]> {

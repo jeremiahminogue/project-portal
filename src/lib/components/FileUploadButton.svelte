@@ -5,12 +5,31 @@
   let {
     projectSlug,
     folderName = '',
-    fullWidth = false
-  }: { projectSlug: string; folderName?: string; fullWidth?: boolean } = $props();
+    fullWidth = false,
+    folderEditable = false,
+    folderLabel = 'Folder',
+    folderPlaceholder = 'Folder name'
+  }: {
+    projectSlug: string;
+    folderName?: string;
+    fullWidth?: boolean;
+    folderEditable?: boolean;
+    folderLabel?: string;
+    folderPlaceholder?: string;
+  } = $props();
   let input: HTMLInputElement;
+  let selectedFolderName = $state('');
+  let lastIncomingFolderName = $state('');
   let uploading = $state(false);
   let message = $state('');
   const portalFallbackLimitBytes = 4 * 1024 * 1024;
+
+  $effect(() => {
+    if (folderName !== lastIncomingFolderName) {
+      selectedFolderName = folderName;
+      lastIncomingFolderName = folderName;
+    }
+  });
 
   class UploadError extends Error {
     stage: 'prepare' | 'network' | 'storage' | 'register' | 'server';
@@ -38,7 +57,7 @@
   async function uploadThroughPortal(file: File, contentType: string) {
     const form = new FormData();
     form.set('projectSlug', projectSlug);
-    form.set('folderName', folderName);
+    form.set('folderName', selectedFolderName.trim());
     form.set('file', file, file.name);
 
     const response = await fetch('/api/files/upload', {
@@ -90,7 +109,7 @@
         name: file.name,
         sizeBytes: file.size,
         mimeType: contentType,
-        folderName,
+        folderName: selectedFolderName.trim(),
         tags: [],
         uploadToken: uploadUrl.uploadToken
       })
@@ -144,6 +163,12 @@
 
 <div class={`flex flex-col gap-1 ${fullWidth ? 'items-stretch' : 'items-end'}`}>
   <input bind:this={input} class="sr-only" type="file" multiple onchange={onChange} />
+  {#if folderEditable}
+    <label class={`upload-group-field ${fullWidth ? 'w-full' : ''}`}>
+      <span>{folderLabel}</span>
+      <input class="field" bind:value={selectedFolderName} placeholder={folderPlaceholder} disabled={uploading} />
+    </label>
+  {/if}
   <button class={`btn btn-primary ${fullWidth ? 'w-full' : ''}`} type="button" disabled={uploading} onclick={() => input?.click()}>
     <UploadCloud size={16} />
     {uploading ? 'Uploading...' : 'Upload files'}
@@ -152,3 +177,26 @@
     <p class={`max-w-64 text-xs font-semibold text-pe-sub ${fullWidth ? 'text-left' : 'text-right'}`}>{message}</p>
   {/if}
 </div>
+
+<style>
+  .upload-group-field {
+    display: grid;
+    gap: 0.25rem;
+    width: min(18rem, 100%);
+    text-align: left;
+  }
+
+  .upload-group-field span {
+    color: #4b514c;
+    font-size: 0.72rem;
+    font-weight: 850;
+  }
+
+  .upload-group-field input {
+    min-height: 2.1rem;
+    border-radius: 0.28rem;
+    padding: 0.42rem 0.55rem;
+    font-size: 0.8rem;
+    font-weight: 750;
+  }
+</style>

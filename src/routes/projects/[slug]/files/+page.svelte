@@ -3,6 +3,8 @@
   import { page } from '$app/stores';
   import {
     Check,
+    ChevronDown,
+    ChevronRight,
     Copy,
     Download,
     FileText,
@@ -20,6 +22,10 @@
   let { data } = $props();
   let query = $state('');
   let activeFolder = $state('All files');
+  let collapsedGroups = $state<string[]>([]);
+  let renameGroupId = $state('');
+  let renameGroupName = $state('');
+  let renameGroupOriginalName = $state('');
   let renameId = $state('');
   let renameName = $state('');
   let renamePageId = $state('');
@@ -28,6 +34,15 @@
   let busy = $state(false);
   let notice = $state('');
   let selectedPageIds = $state<string[]>([]);
+
+  type FileRow = (typeof data.files)[number];
+  type PageRow = NonNullable<FileRow['pages']>[number];
+  type FileGroup = {
+    name: string;
+    folderId: string;
+    files: FileRow[];
+    count: number;
+  };
 
   const documentTool = $derived(
     $page.url.searchParams.get('tool') === 'specifications'
@@ -58,10 +73,15 @@
   const groupedFiles = $derived(
     [...new Set(filteredFiles.map((file) => folderName(file)))]
       .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({
-        name,
-        files: filteredFiles.filter((file) => folderName(file) === name)
-      }))
+      .map((name) => {
+        const files = filteredFiles.filter((file) => folderName(file) === name);
+        return {
+          name,
+          folderId: files.find((file) => file.parentFolderId)?.parentFolderId ?? data.folders.find((folder) => folder.name === name)?.id ?? '',
+          files,
+          count: documentTool === 'drawings' ? files.reduce((total, file) => total + drawingSheetCount(file), 0) : files.length
+        };
+      })
   );
   const visibleDrawingPages = $derived(
     documentTool === 'drawings'
@@ -82,6 +102,10 @@
 
   function folderName(file: (typeof data.files)[number]) {
     return file.path.includes('/') ? file.path.split('/')[0] : 'General';
+  }
+
+  function drawingSheetCount(file: FileRow) {
+    return Math.max(file.pages?.length ?? 0, 1);
   }
 
   function isGeneralDocument(file: (typeof data.files)[number]) {
@@ -205,6 +229,41 @@
       : selectedPageIds.filter((id) => !ids.includes(id));
   }
 
+  function groupIsCollapsed(name: string) {
+    return collapsedGroups.includes(name);
+  }
+
+  function toggleGroupCollapsed(name: string) {
+    collapsedGroups = groupIsCollapsed(name) ? collapsedGroups.filter((value) => value !== name) : [...collapsedGroups, name];
+  }
+
+  function groupPageIds(group: FileGroup) {
+    return group.files.flatMap((file) => filePageIds(file));
+  }
+
+  function groupPagesSelected(group: FileGroup) {
+    const ids = groupPageIds(group);
+    return ids.length > 0 && ids.every((id) => selectedPageIds.includes(id));
+  }
+
+  function toggleGroupPages(group: FileGroup, checked: boolean) {
+    const ids = groupPageIds(group);
+    selectedPageIds = checked
+      ? [...new Set([...selectedPageIds, ...ids])]
+      : selectedPageIds.filter((id) => !ids.includes(id));
+  }
+
+  function startRenameGroup(group: FileGroup) {
+    if (!group.folderId) {
+      notice = 'Upload into a named drawing group before renaming it.';
+      return;
+    }
+    renameGroupId = group.folderId;
+    renameGroupName = group.name;
+    renameGroupOriginalName = group.name;
+    notice = '';
+  }
+
   function startRename(file: (typeof data.files)[number]) {
     renameId = file.id;
     renameName = file.name;
@@ -216,6 +275,32 @@
     renamePageSheetNumber = page.sheetNumber ?? `Page ${page.pageNumber}`;
     renamePageSheetTitle = page.sheetTitle ?? page.name;
     notice = '';
+  }
+
+  async function renameGroup() {
+    const name = renameGroupName.trim();
+    if (!renameGroupId || !name) return;
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch(fileEndpoint(renameGroupId), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!response.ok) throw new Error((await response.json()).error ?? 'Group rename failed.');
+      if (activeFolder === renameGroupOriginalName) activeFolder = name;
+      collapsedGroups = collapsedGroups.map((value) => (value === renameGroupOriginalName ? name : value));
+      renameGroupId = '';
+      renameGroupName = '';
+      renameGroupOriginalName = '';
+      notice = 'Drawing group updated.';
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Group rename failed.';
+    } finally {
+      busy = false;
+    }
   }
 
   async function renameFile() {
@@ -383,7 +468,13 @@
     </div>
     <div class="tool-actions">
       {#if canUploadFiles}
-        <FileUploadButton projectSlug={data.project.id} folderName={uploadFolder} />
+        <FileUploadButton
+          projectSlug={data.project.id}
+          folderName={uploadFolder}
+          folderEditable={documentTool === 'drawings'}
+          folderLabel="Drawing group"
+          folderPlaceholder="General, Civil, Electrical..."
+        />
       {:else}
         <span class="readonly-chip">Read-only access</span>
       {/if}
@@ -463,132 +554,256 @@
           </thead>
           <tbody>
             {#each groupedFiles as group}
-              <tr class="group-row">
-                <td><span class="group-caret">v</span></td>
-                <td colspan="6">{group.name} ({group.files.length})</td>
-              </tr>
-              {#each group.files as file}
-                <tr>
-                  <td class="select-cell">
-                    {#if documentTool === 'drawings' && file.pages?.length}
-                      <input
-                        type="checkbox"
-                        aria-label={`Select all pages in ${file.name}`}
-                        checked={filePagesSelected(file)}
-                        onchange={(event) => toggleFilePages(file, event.currentTarget.checked)}
-                      />
-                    {/if}
-                  </td>
-                  <td>
-                    {#if fileHasStorage(file) && fileIsPdf(file)}
-                      <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
-                    {:else if fileHasStorage(file)}
-                      <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
+              <tr class="group-row" class:collapsed-row={groupIsCollapsed(group.name)}>
+                <td class="group-control-cell">
+                  <button
+                    class="group-toggle"
+                    type="button"
+                    onclick={() => toggleGroupCollapsed(group.name)}
+                    aria-label={`${groupIsCollapsed(group.name) ? 'Expand' : 'Collapse'} ${group.name}`}
+                  >
+                    {#if groupIsCollapsed(group.name)}
+                      <ChevronRight size={15} />
                     {:else}
-                      <span class="record-link muted-link">{documentNumber(file)}</span>
+                      <ChevronDown size={15} />
                     {/if}
-                  </td>
-                  <td>
-                    {#if renameId === file.id}
-                      <div class="inline-rename">
-                        <input class="field min-h-9 py-2 text-sm" bind:value={renameName} aria-label="File name" />
-                        <button class="icon-row-button primary" type="button" disabled={busy} onclick={renameFile} aria-label="Save file name">
-                          <Check size={15} />
-                        </button>
-                        <button class="icon-row-button" type="button" disabled={busy} onclick={() => (renameId = '')} aria-label="Cancel rename">
-                          <X size={15} />
-                        </button>
-                      </div>
-                    {:else}
-                      <span class="record-title">
-                        <FileText size={14} />
-                        <span>{documentTitle(file)}</span>
-                      </span>
-                    {/if}
-                  </td>
-                  <td>{documentTool === 'documents' ? file.type.toUpperCase() : revisionFor(file)}</td>
-                  <td>{formatDate(file.updatedAt)}</td>
-                  <td><span class="set-link">{file.path}</span></td>
-                  <td>
-                    <div class="row-actions">
-                      <StatusPill label={statusFor(file)} />
-                      {#if fileHasStorage(file)}
-                        <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
-                          <Download size={15} />
-                        </a>
-                        <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
-                          <Copy size={15} />
-                        </button>
-                      {/if}
-                      {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
-                        <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
-                          <RefreshCw size={15} />
-                        </button>
-                      {/if}
-                      {#if canModifyFiles && !fileIsStorageOnly(file)}
-                        <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
-                          <Pencil size={15} />
-                        </button>
-                      {/if}
-                      {#if canDeleteFiles}
-                        <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`}>
-                          <Trash2 size={15} />
+                  </button>
+                  {#if documentTool === 'drawings'}
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all sheets in ${group.name}`}
+                      checked={groupPagesSelected(group)}
+                      disabled={!groupPageIds(group).length}
+                      onchange={(event) => toggleGroupPages(group, event.currentTarget.checked)}
+                    />
+                  {/if}
+                </td>
+                <td colspan="6">
+                  {#if renameGroupId === group.folderId && group.folderId}
+                    <div class="inline-rename group-rename">
+                      <input class="field min-h-9 py-2 text-sm" bind:value={renameGroupName} aria-label="Drawing group name" />
+                      <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save drawing group">
+                        <Check size={15} />
+                      </button>
+                      <button
+                        class="icon-row-button quiet"
+                        type="button"
+                        disabled={busy}
+                        onclick={() => {
+                          renameGroupId = '';
+                          renameGroupName = '';
+                          renameGroupOriginalName = '';
+                        }}
+                        aria-label="Cancel drawing group edit"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  {:else}
+                    <div class="group-label">
+                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group.name)}>
+                        {group.name} ({group.count})
+                      </button>
+                      {#if documentTool === 'drawings' && canModifyFiles && group.folderId}
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} group`}>
+                          <Pencil size={14} />
                         </button>
                       {/if}
                     </div>
-                  </td>
-                </tr>
-                {#if documentTool === 'drawings' && file.pages?.length}
-                  {#each file.pages as pageRow}
-                    <tr class="page-row" class:editing-row={renamePageId === pageRow.id}>
+                  {/if}
+                </td>
+              </tr>
+
+              {#if !groupIsCollapsed(group.name)}
+                {#if documentTool === 'drawings'}
+                  {#each group.files as file}
+                    {#if file.pages?.length}
+                      {#each file.pages as pageRow}
+                        <tr class="page-row sheet-row" class:editing-row={renamePageId === pageRow.id}>
+                          <td class="select-cell">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${pageRow.name}`}
+                              checked={pageSelected(pageRow.id)}
+                              onchange={(event) => togglePage(pageRow.id, event.currentTarget.checked)}
+                            />
+                          </td>
+                          <td class="sheet-number-cell">
+                            {#if renamePageId === pageRow.id}
+                              <input class="field sheet-edit-number" bind:value={renamePageSheetNumber} aria-label="Sheet number" />
+                            {:else if fileHasStorage(file) && fileIsPdf(file)}
+                              <a class="record-link" href={viewerHref(file.id, pageRow.pageNumber)}>{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</a>
+                            {:else}
+                              <span class="record-link muted-link">{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</span>
+                            {/if}
+                          </td>
+                          <td>
+                            {#if renamePageId === pageRow.id}
+                              <input class="field sheet-edit-title" bind:value={renamePageSheetTitle} placeholder="Drawing title" aria-label="Drawing title" />
+                            {:else}
+                              <span class="record-title page-title">
+                                <span>{pageRow.sheetTitle ?? pageRow.name}</span>
+                              </span>
+                            {/if}
+                          </td>
+                          <td>{pageRow.revision ?? revisionFor(file)}</td>
+                          <td>{formatDate(file.updatedAt)}</td>
+                          <td>
+                            {#if fileHasStorage(file) && fileIsPdf(file)}
+                              <a class="set-link" href={viewerHref(file.id)}>{file.name}</a>
+                            {:else}
+                              <span class="set-link">{file.name}</span>
+                            {/if}
+                          </td>
+                          <td>
+                            <div class="row-actions">
+                              <StatusPill label="Indexed" />
+                              {#if renamePageId === pageRow.id}
+                                <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
+                                  <Check size={15} />
+                                </button>
+                                <button class="icon-row-button quiet" type="button" disabled={busy} onclick={() => (renamePageId = '')} aria-label="Cancel drawing page edit">
+                                  <X size={15} />
+                                </button>
+                              {:else if fileHasStorage(file)}
+                                <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${pageRow.name}`}>
+                                  <Download size={15} />
+                                </a>
+                                <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${pageRow.name}`}>
+                                  <Copy size={15} />
+                                </button>
+                              {/if}
+                              {#if renamePageId !== pageRow.id && canModifyFiles && !fileIsStorageOnly(file)}
+                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`}>
+                                  <Pencil size={15} />
+                                </button>
+                              {/if}
+                            </div>
+                          </td>
+                        </tr>
+                      {/each}
+                    {:else}
+                      <tr class="page-row sheet-row">
+                        <td class="select-cell"></td>
+                        <td class="sheet-number-cell">
+                          {#if fileHasStorage(file) && fileIsPdf(file)}
+                            <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
+                          {:else if fileHasStorage(file)}
+                            <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
+                          {:else}
+                            <span class="record-link muted-link">{documentNumber(file)}</span>
+                          {/if}
+                        </td>
+                        <td>
+                          {#if renameId === file.id}
+                            <div class="inline-rename">
+                              <input class="field min-h-9 py-2 text-sm" bind:value={renameName} aria-label="File name" />
+                              <button class="icon-row-button primary" type="button" disabled={busy} onclick={renameFile} aria-label="Save file name">
+                                <Check size={15} />
+                              </button>
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => (renameId = '')} aria-label="Cancel rename">
+                                <X size={15} />
+                              </button>
+                            </div>
+                          {:else}
+                            <span class="record-title page-title">
+                              <span>{documentTitle(file)}</span>
+                            </span>
+                          {/if}
+                        </td>
+                        <td>{revisionFor(file)}</td>
+                        <td>{formatDate(file.updatedAt)}</td>
+                        <td><span class="set-link">{file.path}</span></td>
+                        <td>
+                          <div class="row-actions">
+                            <StatusPill label={statusFor(file)} />
+                            {#if fileHasStorage(file)}
+                              <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
+                                <Download size={15} />
+                              </a>
+                              <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
+                                <Copy size={15} />
+                              </button>
+                            {/if}
+                            {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
+                                <RefreshCw size={15} />
+                              </button>
+                            {/if}
+                            {#if canModifyFiles && !fileIsStorageOnly(file)}
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
+                                <Pencil size={15} />
+                              </button>
+                            {/if}
+                            {#if canDeleteFiles}
+                              <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`}>
+                                <Trash2 size={15} />
+                              </button>
+                            {/if}
+                          </div>
+                        </td>
+                      </tr>
+                    {/if}
+                  {/each}
+                {:else}
+                  {#each group.files as file}
+                    <tr>
                       <td class="select-cell">
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${pageRow.name}`}
-                          checked={pageSelected(pageRow.id)}
-                          onchange={(event) => togglePage(pageRow.id, event.currentTarget.checked)}
-                        />
                       </td>
                       <td>
-                        {#if renamePageId === pageRow.id}
-                          <input class="field sheet-edit-number" bind:value={renamePageSheetNumber} aria-label="Sheet number" />
-                        {:else if fileHasStorage(file) && fileIsPdf(file)}
-                          <a class="record-link" href={viewerHref(file.id, pageRow.pageNumber)}>{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</a>
+                        {#if fileHasStorage(file) && fileIsPdf(file)}
+                          <a class="record-link" href={viewerHref(file.id)}>{documentNumber(file)}</a>
+                        {:else if fileHasStorage(file)}
+                          <a class="record-link" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`}>{documentNumber(file)}</a>
                         {:else}
-                          <span class="record-link muted-link">{pageRow.sheetNumber ?? `Page ${pageRow.pageNumber}`}</span>
+                          <span class="record-link muted-link">{documentNumber(file)}</span>
                         {/if}
                       </td>
                       <td>
-                        {#if renamePageId === pageRow.id}
-                          <input class="field sheet-edit-title" bind:value={renamePageSheetTitle} placeholder="Drawing title" aria-label="Drawing title" />
+                        {#if renameId === file.id}
+                          <div class="inline-rename">
+                            <input class="field min-h-9 py-2 text-sm" bind:value={renameName} aria-label="File name" />
+                            <button class="icon-row-button primary" type="button" disabled={busy} onclick={renameFile} aria-label="Save file name">
+                              <Check size={15} />
+                            </button>
+                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => (renameId = '')} aria-label="Cancel rename">
+                              <X size={15} />
+                            </button>
+                          </div>
                         {:else}
-                          <span class="record-title page-title">
-                            <span class="page-number">P{pageRow.pageNumber}</span>
-                            <span>{pageRow.sheetTitle ?? pageRow.name}</span>
+                          <span class="record-title">
+                            <FileText size={14} />
+                            <span>{documentTitle(file)}</span>
                           </span>
                         {/if}
                       </td>
-                      <td>{pageRow.revision ?? revisionFor(file)}</td>
+                      <td>{documentTool === 'documents' ? file.type.toUpperCase() : revisionFor(file)}</td>
                       <td>{formatDate(file.updatedAt)}</td>
-                      <td><span class="set-link">{file.name}</span></td>
+                      <td><span class="set-link">{file.path}</span></td>
                       <td>
                         <div class="row-actions">
-                          <StatusPill label="Indexed" />
-                          {#if renamePageId === pageRow.id}
-                            <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
-                              <Check size={15} />
-                            </button>
-                            <button class="icon-row-button quiet" type="button" disabled={busy} onclick={() => (renamePageId = '')} aria-label="Cancel drawing page edit">
-                              <X size={15} />
-                            </button>
-                          {:else if fileHasStorage(file)}
-                            <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${pageRow.name}`}>
+                          <StatusPill label={statusFor(file)} />
+                          {#if fileHasStorage(file)}
+                            <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
                               <Download size={15} />
                             </a>
+                            <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
+                              <Copy size={15} />
+                            </button>
                           {/if}
-                          {#if renamePageId !== pageRow.id && canModifyFiles && !fileIsStorageOnly(file)}
-                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`}>
+                          {#if canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
+                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
+                              <RefreshCw size={15} />
+                            </button>
+                          {/if}
+                          {#if canModifyFiles && !fileIsStorageOnly(file)}
+                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
                               <Pencil size={15} />
+                            </button>
+                          {/if}
+                          {#if canDeleteFiles}
+                            <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`}>
+                              <Trash2 size={15} />
                             </button>
                           {/if}
                         </div>
@@ -596,7 +811,7 @@
                     </tr>
                   {/each}
                 {/if}
-              {/each}
+              {/if}
             {:else}
               <tr>
                 <td colspan="7">
@@ -629,7 +844,7 @@
   }
 
   .select-col {
-    width: 2.5rem;
+    width: 3.3rem;
   }
 
   .number-col {
@@ -664,6 +879,73 @@
     width: 1rem;
     height: 1rem;
     accent-color: #191b19;
+  }
+
+  .group-control-cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    padding-inline: 0.35rem !important;
+  }
+
+  .group-control-cell input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #191b19;
+  }
+
+  .group-toggle,
+  .group-edit-button,
+  .group-name-button {
+    display: inline-flex;
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: inherit;
+  }
+
+  .group-toggle {
+    justify-content: center;
+    width: 1.3rem;
+    height: 1.3rem;
+    border-radius: 0.2rem;
+    color: #59615a;
+  }
+
+  .group-toggle:hover,
+  .group-edit-button:hover {
+    background: rgba(25, 27, 25, 0.07);
+  }
+
+  .group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    min-width: 0;
+  }
+
+  .group-name-button {
+    min-width: 0;
+    padding: 0;
+    font-weight: 850;
+    text-align: left;
+  }
+
+  .group-edit-button {
+    justify-content: center;
+    width: 1.45rem;
+    height: 1.45rem;
+    border-radius: 0.2rem;
+    color: #59615a;
+  }
+
+  .group-rename {
+    max-width: 24rem;
+  }
+
+  .collapsed-row td {
+    border-bottom-color: #d8ddd7;
   }
 
   .drawings-table th,
@@ -764,20 +1046,12 @@
   }
 
   .page-title {
-    padding-left: 1.15rem;
+    padding-left: 0.8rem;
     font-weight: 700;
   }
 
-  .page-number {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 2rem;
-    border-radius: 0.25rem;
-    background: #eef1ed;
-    color: #59615a;
-    font-size: 0.68rem;
-    font-weight: 850;
+  .sheet-number-cell {
+    padding-left: 1.15rem !important;
   }
 
   .sheet-edit-number,

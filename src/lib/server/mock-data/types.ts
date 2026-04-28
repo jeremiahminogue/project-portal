@@ -68,6 +68,7 @@ export interface FileEntry {
 }
 
 export interface FolderEntry {
+  id?: string;
   name: string;
   fileCount: number;
 }
