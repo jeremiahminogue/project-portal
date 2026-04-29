@@ -75,7 +75,10 @@
   function timelineTicks(start: string, end: string) {
     const span = Math.max(1, daysBetween(start, end));
     const points = timelineDays <= 14 ? [0, 0.25, 0.5, 0.75, 1] : [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1];
-    return points.map((point) => addDays(start, Math.round(span * point)));
+    return points.map((point) => ({
+      date: addDays(start, Math.round(span * point)),
+      left: point * 100
+    }));
   }
 
   function barLeft(item: { startDate: string }) {
@@ -247,7 +250,7 @@
         <div>Activity</div>
         <div class="gantt-axis">
           {#each ticks as tick}
-            <span>{formatDate(tick, { month: 'short', day: 'numeric' })}</span>
+            <span style={`--left:${tick.left}%;`}>{formatDate(tick.date, { month: 'short', day: 'numeric' })}</span>
           {/each}
         </div>
       </div>
@@ -260,8 +263,10 @@
             <small>{formatDate(item.startDate)} - {formatDate(item.endDate)} · {durationLabel(item)}{isComplete(item) ? ' · Complete' : ''}</small>
           </div>
           <div class="bar-cell">
+            {#each ticks as tick}
+              <span class="grid-line" style={`--left:${tick.left}%;`}></span>
+            {/each}
             <div class="bar" style={`--left:${barLeft(item)}%;--width:${barWidth(item)}%;--color:${barColor(item)};`}>
-              <span>{item.percentComplete ?? 0}%</span>
             </div>
           </div>
         </div>
@@ -493,20 +498,33 @@
   }
 
   .gantt-axis {
-    display: flex;
-    justify-content: space-between;
-    gap: 0.75rem;
+    position: relative;
+    min-height: 2.6rem;
   }
 
   .gantt-axis span {
+    position: absolute;
+    left: var(--left);
+    top: 50%;
     display: grid;
-    min-width: 4.4rem;
+    min-width: 5rem;
     min-height: 2.1rem;
     place-items: center;
-    border-left: 1px solid rgba(31, 35, 32, 0.08);
+    transform: translate(-50%, -50%);
+    border-left: 1px solid rgba(31, 35, 32, 0.14);
     color: #2f3730;
     font-size: 0.78rem;
     font-weight: 950;
+  }
+
+  .gantt-axis span:first-child {
+    transform: translate(0, -50%);
+    place-items: center start;
+  }
+
+  .gantt-axis span:last-child {
+    transform: translate(-100%, -50%);
+    place-items: center end;
   }
 
   .task-cell {
@@ -582,10 +600,24 @@
 
   .bar-cell {
     position: relative;
-    min-height: 2.75rem;
-    background:
-      linear-gradient(90deg, rgba(31, 35, 32, 0.075) 1px, transparent 1px) 0 0 / 8.333% 100%,
-      #fbfcfa;
+    min-height: 2.65rem;
+    background: #fbfcfa;
+  }
+
+  .grid-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--left);
+    width: 1px;
+    background: rgba(31, 35, 32, 0.075);
+    transform: translateX(-0.5px);
+    pointer-events: none;
+  }
+
+  .grid-line:first-child,
+  .grid-line:last-child {
+    background: rgba(31, 35, 32, 0.14);
   }
 
   .bar {
@@ -594,7 +626,7 @@
     left: var(--left);
     width: var(--width);
     min-width: 0.55rem;
-    height: 1.15rem;
+    height: 1.08rem;
     transform: translateY(-50%);
     border: 1px solid color-mix(in srgb, var(--color), #fff 20%);
     border-radius: 0.32rem;
@@ -606,7 +638,6 @@
   }
 
   .group-row .bar {
-    height: 0.72rem;
     opacity: 0.92;
   }
 
@@ -625,16 +656,6 @@
     inset: 0;
     border-radius: inherit;
     background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.28) 42%, transparent 58%);
-  }
-
-  .bar span {
-    position: absolute;
-    right: 0.35rem;
-    top: 50%;
-    transform: translateY(-50%);
-    color: #fff;
-    font-size: 0.64rem;
-    font-weight: 900;
   }
 
   .empty-schedule {
