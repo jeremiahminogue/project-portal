@@ -20,11 +20,11 @@
   const editing = $derived(data.schedule.find((item) => item.id === editingId));
   const predecessorMap = $derived(new Map(data.schedule.map((item) => [item.id, item.title])));
   const visibleSchedule = $derived(filterSchedule(data.schedule, viewMode));
-  const timelineStart = $derived(timelineEdge(visibleSchedule, 'start'));
-  const timelineEnd = $derived(timelineEdge(visibleSchedule, 'end'));
+  const timelineStart = $derived(viewMode === 'full' ? timelineEdge(data.schedule, 'start') : data.todayIso);
+  const timelineEnd = $derived(viewMode === 'full' ? timelineEdge(data.schedule, 'end') : addDays(data.todayIso, Number(viewMode) * 7 - 1));
   const timelineDays = $derived(Math.max(1, daysBetween(timelineStart, timelineEnd) + 1));
   const ticks = $derived(timelineTicks(timelineStart, timelineEnd));
-  const activeCount = $derived(data.schedule.filter((item) => overlaps(item, data.todayIso, addDays(data.todayIso, 14))).length);
+  const activeCount = $derived(data.schedule.filter((item) => overlaps(item, data.todayIso, addDays(data.todayIso, 13))).length);
   const completedCount = $derived(data.schedule.filter((item) => (item.percentComplete ?? 0) >= 100).length);
 
   function parseIso(value: string) {
@@ -46,8 +46,15 @@
 
   function filterSchedule(schedule: typeof data.schedule, mode: 'full' | '2' | '3' | '4') {
     if (mode === 'full') return schedule;
-    const end = addDays(data.todayIso, Number(mode) * 7);
-    return schedule.filter((item) => overlaps(item, data.todayIso, end));
+    const end = addDays(data.todayIso, Number(mode) * 7 - 1);
+    const inWindow = new Set(schedule.filter((item) => overlaps(item, data.todayIso, end)).map((item) => item.id));
+    const visibleGroups = new Set(
+      schedule
+        .filter((item) => inWindow.has(item.id) && item.sourceWbs?.includes('.'))
+        .map((item) => item.sourceWbs?.split('.')[0])
+        .filter(Boolean)
+    );
+    return schedule.filter((item) => inWindow.has(item.id) || (isGroupHeader(item) && visibleGroups.has(item.sourceWbs ?? '')));
   }
 
   function timelineEdge(schedule: typeof data.schedule, edge: 'start' | 'end') {
@@ -67,18 +74,23 @@
 
   function timelineTicks(start: string, end: string) {
     const span = Math.max(1, daysBetween(start, end));
-    return [0, 0.25, 0.5, 0.75, 1].map((point) => addDays(start, Math.round(span * point)));
+    const points = timelineDays <= 14 ? [0, 0.25, 0.5, 0.75, 1] : [0, 1 / 6, 2 / 6, 3 / 6, 4 / 6, 5 / 6, 1];
+    return points.map((point) => addDays(start, Math.round(span * point)));
   }
 
   function barLeft(item: { startDate: string }) {
-    return Math.max(0, (daysBetween(timelineStart, item.startDate) / timelineDays) * 100);
+    const start = parseIso(item.startDate) < parseIso(timelineStart) ? timelineStart : item.startDate;
+    return Math.max(0, (daysBetween(timelineStart, start) / timelineDays) * 100);
   }
 
   function barWidth(item: { startDate: string; endDate: string }) {
-    return Math.max(0.8, ((daysBetween(item.startDate, item.endDate) + 1) / timelineDays) * 100);
+    const start = parseIso(item.startDate) < parseIso(timelineStart) ? timelineStart : item.startDate;
+    const end = parseIso(item.endDate) > parseIso(timelineEnd) ? timelineEnd : item.endDate;
+    return Math.max(0.8, ((daysBetween(start, end) + 1) / timelineDays) * 100);
   }
 
-  function barColor(item: { type: string; isBlackout: boolean }) {
+  function barColor(item: { type: string; isBlackout: boolean; percentComplete?: number | null }) {
+    if (isComplete(item)) return '#15803d';
     if (item.isBlackout) return '#b42318';
     if (item.type === 'bcer') return '#6d5bd0';
     if (item.type === 'ahj') return '#2563eb';
@@ -91,6 +103,14 @@
     return Math.min(5, item.sourceWbs ? item.sourceWbs.split('.').length : 1);
   }
 
+  function isGroupHeader(item: { sourceWbs?: string | null }) {
+    return Boolean(item.sourceWbs && /^\d+$/.test(item.sourceWbs));
+  }
+
+  function isComplete(item: { percentComplete?: number | null }) {
+    return (item.percentComplete ?? 0) >= 100;
+  }
+
   function predecessorLabel(item: { predecessorRefs?: string | null; predecessorId?: string | null }) {
     return item.predecessorRefs || (item.predecessorId ? predecessorMap.get(item.predecessorId) : '') || '-';
   }
@@ -98,6 +118,10 @@
   function durationLabel(item: { startDate: string; endDate: string }) {
     const days = daysBetween(item.startDate, item.endDate) + 1;
     return `${days} day${days === 1 ? '' : 's'}`;
+  }
+
+  function rangeLabel() {
+    return `${formatDate(timelineStart, { month: 'short', day: 'numeric' })} - ${formatDate(timelineEnd, { month: 'short', day: 'numeric' })}`;
   }
 </script>
 
@@ -184,6 +208,10 @@
         <label class="label" for="activity-progress">Progress</label>
         <input id="activity-progress" class="field" name="percentComplete" type="number" min="0" max="100" value={editing?.percentComplete ?? 0} />
       </div>
+      <label class="complete-check">
+        <input name="markComplete" type="checkbox" checked={isComplete(editing ?? { percentComplete: 0 })} />
+        Mark complete
+      </label>
       <label class="blackout-check">
         <input name="isBlackout" type="checkbox" checked={editing?.isBlackout ?? false} />
         Blackout
@@ -205,6 +233,7 @@
       <div>
         <span class="eyebrow">Gantt</span>
         <h2>{viewMode === 'full' ? 'Full schedule' : `${viewMode}-week look ahead`}</h2>
+        <p class="range-label">{rangeLabel()}</p>
       </div>
       <div class="view-tabs" aria-label="Schedule range">
         {#each viewTabs as tab}
@@ -224,11 +253,11 @@
       </div>
 
       {#each visibleSchedule as item}
-        <div class="gantt-row">
+        <div class="gantt-row" class:group-row={isGroupHeader(item)} class:complete-row={isComplete(item)}>
           <div class="task-cell" style={`--level:${rowLevel(item) - 1}`}>
-            <span>{item.sourceWbs ?? item.sourceOrder ?? ''}</span>
+            <span class="task-id">{item.sourceWbs ?? item.sourceOrder ?? ''}</span>
             <strong>{item.title}</strong>
-            <small>{formatDate(item.startDate)} - {formatDate(item.endDate)} · {durationLabel(item)}</small>
+            <small>{formatDate(item.startDate)} - {formatDate(item.endDate)} · {durationLabel(item)}{isComplete(item) ? ' · Complete' : ''}</small>
           </div>
           <div class="bar-cell">
             <div class="bar" style={`--left:${barLeft(item)}%;--width:${barWidth(item)}%;--color:${barColor(item)};`}>
@@ -254,7 +283,7 @@
         <thead><tr><th>ID</th><th>Activity</th><th>Start</th><th>Finish</th><th>Predecessors</th><th></th></tr></thead>
         <tbody>
           {#each visibleSchedule as item}
-            <tr>
+            <tr class:complete-row={isComplete(item)} class:group-row={isGroupHeader(item)}>
               <td>{item.sourceWbs ?? item.sourceOrder ?? '-'}</td>
               <td><strong>{item.title}</strong><br /><span class="text-pe-sub">{item.phase}</span></td>
               <td>{formatDate(item.startDate)}</td>
@@ -329,6 +358,7 @@
   }
 
   .replace-check,
+  .complete-check,
   .blackout-check {
     display: inline-flex;
     align-items: center;
@@ -400,6 +430,13 @@
     margin-bottom: 1rem;
   }
 
+  .range-label {
+    margin: 0.2rem 0 0;
+    color: #596159;
+    font-size: 0.82rem;
+    font-weight: 800;
+  }
+
   .view-tabs {
     display: inline-flex;
     gap: 0.25rem;
@@ -433,17 +470,17 @@
   .gantt-head,
   .gantt-row {
     display: grid;
-    grid-template-columns: minmax(19rem, 28rem) minmax(42rem, 1fr);
-    min-width: 62rem;
+    grid-template-columns: minmax(24rem, 36rem) minmax(46rem, 1fr);
+    min-width: 70rem;
   }
 
   .gantt-head {
     position: sticky;
     top: 0;
     z-index: 1;
-    color: #667067;
-    background: #f3f5f1;
-    font-size: 0.72rem;
+    color: #424a43;
+    background: linear-gradient(180deg, #f7f8f5 0%, #eef2ec 100%);
+    font-size: 0.76rem;
     font-weight: 900;
     text-transform: uppercase;
   }
@@ -458,41 +495,96 @@
   .gantt-axis {
     display: flex;
     justify-content: space-between;
-    gap: 1rem;
+    gap: 0.75rem;
+  }
+
+  .gantt-axis span {
+    display: grid;
+    min-width: 4.4rem;
+    min-height: 2.1rem;
+    place-items: center;
+    border-left: 1px solid rgba(31, 35, 32, 0.08);
+    color: #2f3730;
+    font-size: 0.78rem;
+    font-weight: 950;
   }
 
   .task-cell {
+    display: grid;
+    grid-template-columns: minmax(2rem, auto) minmax(8rem, 1fr) auto;
+    gap: 0.65rem;
+    align-items: center;
     padding-left: calc(0.85rem + var(--level) * 1rem);
     background: #fff;
   }
 
-  .task-cell span {
-    display: block;
+  .task-id {
     color: #8a928b;
-    font-size: 0.68rem;
-    font-weight: 850;
+    font-size: 0.72rem;
+    font-weight: 900;
   }
 
   .task-cell strong {
-    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: #1d211e;
     font-size: 0.88rem;
     font-weight: 900;
   }
 
   .task-cell small {
-    display: block;
-    margin-top: 0.18rem;
     color: #687168;
-    font-size: 0.73rem;
-    font-weight: 650;
+    font-size: 0.72rem;
+    font-weight: 750;
+    white-space: nowrap;
+  }
+
+  .group-row .task-cell,
+  .group-row .bar-cell {
+    background-color: #f4f7f2;
+  }
+
+  .group-row .task-cell {
+    border-left: 4px solid #149234;
+    padding-left: calc(0.6rem + var(--level) * 1rem);
+  }
+
+  .group-row .task-id,
+  .group-row .task-cell strong {
+    color: #111811;
+  }
+
+  .group-row .task-cell strong {
+    text-transform: uppercase;
+    letter-spacing: 0;
+  }
+
+  .group-row .task-cell small {
+    color: #3f4a40;
+  }
+
+  .complete-row .task-cell,
+  .complete-row .bar-cell {
+    background:
+      linear-gradient(90deg, rgba(20, 146, 52, 0.08), transparent 38%),
+      #fbfdfb;
+  }
+
+  .complete-row .task-cell strong {
+    color: #14532d;
+  }
+
+  .complete-row .task-cell small {
+    color: #1f7a3d;
   }
 
   .bar-cell {
     position: relative;
-    min-height: 4rem;
+    min-height: 2.75rem;
     background:
-      linear-gradient(90deg, rgba(31, 35, 32, 0.08) 1px, transparent 1px) 0 0 / 8.333% 100%,
+      linear-gradient(90deg, rgba(31, 35, 32, 0.075) 1px, transparent 1px) 0 0 / 8.333% 100%,
       #fbfcfa;
   }
 
@@ -502,11 +594,37 @@
     left: var(--left);
     width: var(--width);
     min-width: 0.55rem;
-    height: 1.25rem;
+    height: 1.15rem;
     transform: translateY(-50%);
-    border-radius: 0.25rem;
-    background: var(--color);
-    box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--color), #000 38%);
+    border: 1px solid color-mix(in srgb, var(--color), #fff 20%);
+    border-radius: 0.32rem;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--color), #fff 28%) 0%, var(--color) 48%, color-mix(in srgb, var(--color), #000 18%) 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 8px 18px -12px color-mix(in srgb, var(--color), #000 46%);
+  }
+
+  .group-row .bar {
+    height: 0.72rem;
+    opacity: 0.92;
+  }
+
+  .complete-row .bar {
+    background:
+      linear-gradient(180deg, #53d374 0%, #16a34a 48%, #087a32 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.52),
+      0 0 0 3px rgba(34, 197, 94, 0.1),
+      0 8px 18px -12px rgba(21, 128, 61, 0.58);
+  }
+
+  .complete-row .bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.28) 42%, transparent 58%);
   }
 
   .bar span {
@@ -520,7 +638,7 @@
   }
 
   .empty-schedule {
-    min-width: 62rem;
+    min-width: 70rem;
     padding: 1rem;
     color: #667067;
     font-weight: 750;

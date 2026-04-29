@@ -55,7 +55,9 @@ export const actions: Actions = {
     const phase = formString(form, 'phase');
     const startDate = formString(form, 'startDate');
     const endDate = formString(form, 'endDate');
-    const percentComplete = Math.min(100, Math.max(0, Number(formString(form, 'percentComplete') || 0)));
+    const percentComplete = form.get('markComplete') === 'on'
+      ? 100
+      : Math.min(100, Math.max(0, Number(formString(form, 'percentComplete') || 0)));
     if (!title || !phase || !startDate || !endDate) return fail(400, { error: 'Title, phase, start, and end are required.' });
     if (new Date(endDate).getTime() < new Date(startDate).getTime()) {
       return fail(400, { error: 'End date must be on or after the start date.' });
