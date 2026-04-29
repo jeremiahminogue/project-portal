@@ -135,7 +135,8 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(linkMigration, /create table if not exists submittal_attachments/);
   assert.match(linkMigration, /unique\(rfi_id, file_id\)/);
   assert.match(linkMigration, /unique\(submittal_id, file_id\)/);
-  assert.match(linkMigration, /jsonb_array_elements/);
+  assert.match(linkMigration, /Project uploaders can insert RFI attachments/);
+  assert.match(linkMigration, /Project uploaders can insert submittal attachments/);
   assert.match(helper, /uploadedItemAttachmentsFor/);
   assert.match(helper, /existingFileAttachmentsFor/);
   assert.match(helper, /syncItemAttachmentLinks/);
