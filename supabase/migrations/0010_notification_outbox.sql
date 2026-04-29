@@ -1,7 +1,7 @@
 -- Notification outbox, project notification matrix, and photo subscriptions.
 -- Modeled after Procore-style event matrices: workflow/action-required emails
 -- are mandatory, optional matrix rows are configurable, and uploaded photos can
--- be delivered as an hourly digest.
+-- be delivered as a daily digest.
 
 alter table rfis
   add column if not exists created_by uuid references auth.users(id) on delete set null,
@@ -92,7 +92,7 @@ create table if not exists notification_rules (
   recipient_kind text not null,
   enabled boolean not null default true,
   required boolean not null default false,
-  digest_frequency text not null default 'immediate' check (digest_frequency in ('immediate', 'hourly')),
+  digest_frequency text not null default 'immediate' check (digest_frequency in ('immediate', 'hourly', 'daily')),
   created_at timestamp with time zone not null default now(),
   updated_at timestamp with time zone not null default now(),
   unique(project_id, event_type, recipient_kind)
@@ -275,7 +275,7 @@ from (
     ('submittal.revise_resubmit', 'project_admins', true, false, 'immediate'),
     ('submittal.rejected', 'owner', true, false, 'immediate'),
     ('submittal.rejected', 'project_admins', true, false, 'immediate'),
-    ('photo.uploaded', 'photo_subscribers', true, false, 'hourly'),
+    ('photo.uploaded', 'photo_subscribers', true, false, 'daily'),
     ('photo.shared', 'shared_users', true, true, 'immediate'),
     ('photo.comment_mentioned', 'mentioned_users', true, true, 'immediate')
 ) as defaults(event_type, recipient_kind, enabled, required, digest_frequency)

@@ -31,7 +31,7 @@ export type RecipientKind =
   | 'shared_users'
   | 'mentioned_users';
 
-export type DigestFrequency = 'immediate' | 'hourly';
+export type DigestFrequency = 'immediate' | 'hourly' | 'daily';
 
 export type NotificationRule = {
   eventType: NotificationEventType;
@@ -185,7 +185,7 @@ export const notificationEventDefinitions: NotificationEventDefinition[] = [
     type: 'photo.uploaded',
     label: 'Photo uploaded',
     group: 'Photos',
-    description: 'Uploaded project photos are queued into the hourly photo digest.',
+    description: 'Uploaded project photos are queued into the daily photo digest.',
     userConfigurable: true
   },
   {
@@ -243,7 +243,7 @@ export const recipientKindDefinitions: RecipientKindDefinition[] = [
   {
     kind: 'photo_subscribers',
     label: 'Photo subscribers',
-    description: 'Users subscribed to hourly project photo upload emails.'
+    description: 'Users subscribed to daily project photo upload emails.'
   },
   {
     kind: 'shared_users',
@@ -296,7 +296,7 @@ export const defaultNotificationRules: NotificationRule[] = [
   { eventType: 'submittal.revise_resubmit', recipientKind: 'project_admins', enabled: true, required: false, digestFrequency: 'immediate' },
   { eventType: 'submittal.rejected', recipientKind: 'owner', enabled: true, required: false, digestFrequency: 'immediate' },
   { eventType: 'submittal.rejected', recipientKind: 'project_admins', enabled: true, required: false, digestFrequency: 'immediate' },
-  { eventType: 'photo.uploaded', recipientKind: 'photo_subscribers', enabled: true, required: false, digestFrequency: 'hourly' },
+  { eventType: 'photo.uploaded', recipientKind: 'photo_subscribers', enabled: true, required: false, digestFrequency: 'daily' },
   { eventType: 'photo.shared', recipientKind: 'shared_users', enabled: true, required: true, digestFrequency: 'immediate' },
   { eventType: 'photo.comment_mentioned', recipientKind: 'mentioned_users', enabled: true, required: true, digestFrequency: 'immediate' }
 ];

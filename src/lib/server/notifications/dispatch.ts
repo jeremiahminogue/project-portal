@@ -124,7 +124,7 @@ async function insertDelivery(
   recipient: NotificationRecipient,
   rendered: { subject: string; html: string }
 ) {
-  const status = recipient.digestFrequency === 'hourly' ? 'queued' : 'pending';
+  const status = recipient.digestFrequency === 'immediate' ? 'pending' : 'queued';
   const existing = await client
     .from('notification_deliveries')
     .select('id, status')
@@ -305,7 +305,9 @@ export async function flushPhotoDigestNotifications(event?: Pick<RequestEvent, '
   }
 
   const deliveries = ((data ?? []) as DeliveryRow[]).filter(
-    (delivery) => delivery.metadata?.event_type === 'photo.uploaded' && delivery.metadata?.digest_frequency === 'hourly'
+    (delivery) =>
+      delivery.metadata?.event_type === 'photo.uploaded' &&
+      (delivery.metadata?.digest_frequency === 'daily' || delivery.metadata?.digest_frequency === 'hourly')
   );
   if (!deliveries.length) return { sent: 0, skipped: 0, failed: 0 };
 

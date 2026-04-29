@@ -41,7 +41,7 @@
   <section class="tool-heading">
     <div class="min-w-0">
       <h1>Notifications</h1>
-      <p>Manage workflow emails, action-required alerts, and hourly photo digests for this project.</p>
+      <p>Manage workflow emails, action-required alerts, and daily photo digests for this project.</p>
       <div class="tool-tabs" aria-label="Notification sections">
         <a class:active={activeSection === 'my-notifications'} href="#my-notifications" onclick={() => (activeSection = 'my-notifications')}>My notifications</a>
         {#if data.access.canManageRules}<a class:active={activeSection === 'matrix'} href="#matrix" onclick={() => (activeSection = 'matrix')}>Project matrix</a>{/if}
@@ -89,8 +89,8 @@
         <input name="photoDigest" type="checkbox" checked={data.photoSubscribed} />
         <Clock3 size={16} />
         <span>
-          <strong>Subscribe to hourly uploaded-photo digest</strong>
-          <small>One hourly email lists new eligible project photos and includes download links when available.</small>
+          <strong>Subscribe to daily uploaded-photo digest</strong>
+          <small>One daily email lists new eligible project photos and includes download links when available.</small>
         </span>
       </label>
 
@@ -132,7 +132,7 @@
                       <strong>{recipientLabel(rule.recipientKind)}</strong>
                       <span>{recipientDescription(rule.recipientKind)}</span>
                     </td>
-                    <td>{rule.digestFrequency === 'hourly' ? 'Hourly digest' : 'Immediate'}</td>
+                    <td>{rule.digestFrequency === 'daily' ? 'Daily digest' : rule.digestFrequency === 'hourly' ? 'Hourly digest' : 'Immediate'}</td>
                     <td>
                       <label class="matrix-check">
                         <input name="rules" value={ruleKey(rule)} type="checkbox" checked={rule.enabled || rule.required} disabled={rule.required} />

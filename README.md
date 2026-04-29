@@ -85,13 +85,13 @@ With no Supabase env vars outside production, pages fall back to typed mock data
 - `/projects/[slug]/directory`
 - `/admin`, `/admin/projects`, `/admin/users` for superadmins
 - `/api/health` deployment smoke check
-- `/api/notifications/photo-digest` hourly uploaded-photo digest endpoint, scheduled by `vercel.json`
+- `/api/notifications/photo-digest` daily uploaded-photo digest endpoint, scheduled by `vercel.json`
 
 ## Notification Model
 
 - RFIs follow a Procore-style matrix: Ball in Court shifts always notify the new responsible user, while created/reassigned/response/closed/reopened/due-date events route through configurable creator, RFI manager, assignee, and distribution-list rules.
 - Submittals preserve Procore's Create/Update & Send behavior: optional configured emails only send when requested, but action-required workflow emails stay required.
-- Uploaded photos use a Procore-style subscription model: users subscribe to the hourly digest, and digest rows include project links plus per-photo download links.
+- Uploaded photos use a Procore-style subscription model: users subscribe to the daily digest, and digest rows include project links plus per-photo download links.
 
 ## Notes
 

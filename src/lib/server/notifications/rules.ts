@@ -28,12 +28,14 @@ function tableMissing(error: unknown) {
 }
 
 function rowToRule(row: RuleRow): NotificationRule {
+  const digestFrequency =
+    row.digest_frequency === 'daily' || row.digest_frequency === 'hourly' ? row.digest_frequency : 'immediate';
   return {
     eventType: row.event_type,
     recipientKind: row.recipient_kind,
     enabled: Boolean(row.enabled),
     required: Boolean(row.required),
-    digestFrequency: row.digest_frequency === 'hourly' ? 'hourly' : 'immediate'
+    digestFrequency
   };
 }
 

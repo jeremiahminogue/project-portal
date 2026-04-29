@@ -25,7 +25,7 @@ test('notification outbox migration creates durable events, deliveries, preferen
   assert.match(migration, /'rfi.assigned', 'assignee', true, false, 'immediate'/);
   assert.match(migration, /'rfi.created', 'distribution', true, false, 'immediate'/);
   assert.match(migration, /'rfi.due_date_changed', 'rfi_manager', true, false, 'immediate'/);
-  assert.match(migration, /'photo.uploaded', 'photo_subscribers', true, false, 'hourly'/);
+  assert.match(migration, /'photo.uploaded', 'photo_subscribers', true, false, 'daily'/);
   assert.match(migration, /Project admins can view notification events/);
   assert.match(migration, /public\.project_role\(notification_events\.project_id, auth\.uid\(\)\) = 'admin'/);
   assert.match(migration, /Users can view their notification deliveries/);
@@ -34,7 +34,7 @@ test('notification outbox migration creates durable events, deliveries, preferen
   assert.match(migration, /Users can manage their notification preferences/);
 });
 
-test('notification engine uses outbox processing, required action emails, preferences, and hourly photo digests', () => {
+test('notification engine uses outbox processing, required action emails, preferences, and daily photo digests', () => {
   const dispatch = file('src/lib/server/notifications/dispatch.ts');
   const recipients = file('src/lib/server/notifications/recipients.ts');
   const rules = file('src/lib/server/notifications/rules.ts');
@@ -50,7 +50,7 @@ test('notification engine uses outbox processing, required action emails, prefer
   assert.match(dispatch, /flushPhotoDigestNotifications/);
   assert.match(dispatch, /fileId: notificationEvent\.entityId/);
   assert.match(dispatch, /serverEnv\('NOTIFICATION_CRON_SECRET', 'CRON_SECRET'\)/);
-  assert.match(dispatch, /recipient\.digestFrequency === 'hourly' \? 'queued' : 'pending'/);
+  assert.match(dispatch, /recipient\.digestFrequency === 'immediate' \? 'pending' : 'queued'/);
   assert.match(recipients, /photo_subscribers/);
   assert.match(recipients, /mentioned_users/);
   assert.match(recipients, /shared_users/);
@@ -207,5 +207,5 @@ test('photo uploads queue digest notifications and the project has a notificatio
   assert.match(pageUi, /photoDigest/);
   assert.match(cronRoute, /flushPhotoDigestNotifications/);
   assert.match(vercel, /"path": "\/api\/notifications\/photo-digest"/);
-  assert.match(vercel, /"schedule": "0 \* \* \* \*"/);
+  assert.match(vercel, /"schedule": "0 8 \* \* \*"/);
 });

@@ -57,7 +57,7 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 - `notification_deliveries` — per-recipient email delivery attempts, statuses, and provider ids
 - `notification_preferences` — per-user optional email preferences by project and event type
 - `notification_rules` — project notification matrix overriding Procore-style defaults
-- `photo_subscriptions` — hourly uploaded-photo digest subscriptions
+- `photo_subscriptions` — daily uploaded-photo digest subscriptions
 
 **Enums:**
 - `project_phase` — pre_con, design, construction, closeout

@@ -152,7 +152,11 @@ function mergeRecipient(
     ...existing,
     required: existing.required || candidate.required,
     digestFrequency:
-      existing.digestFrequency === 'immediate' || candidate.digestFrequency === 'immediate' ? 'immediate' : 'hourly',
+      existing.digestFrequency === 'immediate' || candidate.digestFrequency === 'immediate'
+        ? 'immediate'
+        : existing.digestFrequency === 'daily' || candidate.digestFrequency === 'daily'
+          ? 'daily'
+          : 'hourly',
     kind: existing.required ? existing.kind : candidate.kind
   });
 }
