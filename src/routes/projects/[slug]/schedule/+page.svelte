@@ -23,19 +23,7 @@
   const timelineStart = $derived(timelineEdge(visibleSchedule, 'start'));
   const timelineEnd = $derived(timelineEdge(visibleSchedule, 'end'));
   const timelineDays = $derived(Math.max(1, daysBetween(timelineStart, timelineEnd) + 1));
-  const ticks = $derived(timelineTicks(timelineStart, timelineEnd, viewMode));
-  const todayPct = $derived.by(() => {
-    const offset = daysBetween(timelineStart, data.todayIso);
-    const span = daysBetween(timelineStart, timelineEnd);
-    if (offset < 0 || offset > span) return null;
-    return (offset / timelineDays) * 100;
-  });
-  const ganttStyle = $derived(
-    `--grid-step:${100 / timelineDays}%;` +
-    (todayPct !== null
-      ? `--today-pct:${todayPct}%;--today-display:block;`
-      : '--today-display:none;')
-  );
+  const ticks = $derived(timelineTicks(timelineStart, timelineEnd));
   const activeCount = $derived(data.schedule.filter((item) => overlaps(item, data.todayIso, addDays(data.todayIso, 14))).length);
   const completedCount = $derived(data.schedule.filter((item) => (item.percentComplete ?? 0) >= 100).length);
 
@@ -77,22 +65,9 @@
     }, edge === 'start' ? schedule[0].startDate : schedule[0].endDate);
   }
 
-  function timelineTicks(start: string, end: string, mode: 'full' | '2' | '3' | '4') {
+  function timelineTicks(start: string, end: string) {
     const span = Math.max(1, daysBetween(start, end));
-    const total = span + 1;
-    let stepDays: number;
-    if (mode === '2') stepDays = 2;
-    else if (mode === '3') stepDays = 3;
-    else if (mode === '4') stepDays = 4;
-    else stepDays = Math.max(1, Math.ceil(span / 7));
-    const out: Array<{ iso: string; pct: number }> = [];
-    for (let d = 0; d <= span; d += stepDays) {
-      out.push({ iso: addDays(start, d), pct: (d / total) * 100 });
-    }
-    if (out[out.length - 1]?.iso !== end) {
-      out.push({ iso: end, pct: (span / total) * 100 });
-    }
-    return out;
+    return [0, 0.25, 0.5, 0.75, 1].map((point) => addDays(start, Math.round(span * point)));
   }
 
   function barLeft(item: { startDate: string }) {
@@ -238,37 +213,27 @@
       </div>
     </div>
 
-    <div class="gantt" style={ganttStyle}>
+    <div class="gantt">
       <div class="gantt-head">
-        <div class="head-label">Activity</div>
+        <div>Activity</div>
         <div class="gantt-axis">
           {#each ticks as tick}
-            <span class="tick" style={`left:${tick.pct}%`}>
-              <em>{formatDate(tick.iso, { month: 'short' })}</em>
-              <strong>{formatDate(tick.iso, { day: 'numeric' })}</strong>
-            </span>
+            <span>{formatDate(tick, { month: 'short', day: 'numeric' })}</span>
           {/each}
-          {#if todayPct !== null}
-            <span class="today-pin" style={`left:${todayPct}%`}>Today</span>
-          {/if}
         </div>
       </div>
 
       {#each visibleSchedule as item}
         <div class="gantt-row">
           <div class="task-cell" style={`--level:${rowLevel(item) - 1}`}>
-            <span class="wbs">{item.sourceWbs ?? item.sourceOrder ?? ''}</span>
-            <div class="task-meta">
-              <strong>{item.title}</strong>
-              <small>{formatDate(item.startDate)} - {formatDate(item.endDate)} · {durationLabel(item)}</small>
-            </div>
+            <span>{item.sourceWbs ?? item.sourceOrder ?? ''}</span>
+            <strong>{item.title}</strong>
+            <small>{formatDate(item.startDate)} - {formatDate(item.endDate)} · {durationLabel(item)}</small>
           </div>
           <div class="bar-cell">
-            <div
-              class="bar"
-              title={`${item.title} (${formatDate(item.startDate)} - ${formatDate(item.endDate)})`}
-              style={`--left:${barLeft(item)}%;--width:${barWidth(item)}%;--color:${barColor(item)};`}
-            ></div>
+            <div class="bar" style={`--left:${barLeft(item)}%;--width:${barWidth(item)}%;--color:${barColor(item)};`}>
+              <span>{item.percentComplete ?? 0}%</span>
+            </div>
           </div>
         </div>
       {:else}
@@ -475,140 +440,60 @@
   .gantt-head {
     position: sticky;
     top: 0;
-    z-index: 2;
-    color: #4a524a;
-    background: linear-gradient(180deg, #f5f7f2 0%, #eef1eb 100%);
-    border-bottom: 1px solid rgba(31, 35, 32, 0.12);
-    font-size: 0.7rem;
+    z-index: 1;
+    color: #667067;
+    background: #f3f5f1;
+    font-size: 0.72rem;
     font-weight: 900;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
   }
 
-  .head-label {
-    padding: 0.55rem 0.85rem;
-    border-right: 1px solid rgba(31, 35, 32, 0.08);
-  }
-
+  .gantt-head > div,
   .task-cell,
   .bar-cell {
-    border-bottom: 1px solid rgba(31, 35, 32, 0.06);
-    padding: 0.4rem 0.85rem;
+    border-bottom: 1px solid rgba(31, 35, 32, 0.08);
+    padding: 0.72rem 0.85rem;
   }
 
   .gantt-axis {
-    position: relative;
-    height: 2.4rem;
-  }
-
-  .gantt-axis .tick {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    transform: translateX(-50%);
     display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 0.05rem;
-    padding: 0 0.3rem;
-    color: #525a52;
-    line-height: 1;
-    pointer-events: none;
-  }
-
-  .gantt-axis .tick em {
-    color: #8a928b;
-    font-size: 0.6rem;
-    font-style: normal;
-    font-weight: 850;
-    letter-spacing: 0.06em;
-  }
-
-  .gantt-axis .tick strong {
-    color: #1d211e;
-    font-size: 0.85rem;
-    font-weight: 900;
-    text-transform: none;
-    letter-spacing: 0;
-  }
-
-  .gantt-axis .today-pin {
-    position: absolute;
-    top: 0.2rem;
-    transform: translateX(-50%);
-    padding: 0.1rem 0.45rem;
-    border-radius: 999px;
-    background: #d1342f;
-    color: #fff;
-    font-size: 0.62rem;
-    font-weight: 900;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    box-shadow: 0 4px 10px -4px rgba(209, 52, 47, 0.55);
-    z-index: 1;
+    justify-content: space-between;
+    gap: 1rem;
   }
 
   .task-cell {
-    display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    padding-left: calc(0.85rem + var(--level) * 0.85rem);
+    padding-left: calc(0.85rem + var(--level) * 1rem);
     background: #fff;
-    min-height: 2.6rem;
   }
 
-  .task-cell .wbs {
-    flex: 0 0 auto;
-    min-width: 2.4rem;
+  .task-cell span {
+    display: block;
     color: #8a928b;
-    font-size: 0.65rem;
+    font-size: 0.68rem;
     font-weight: 850;
-    letter-spacing: 0.02em;
   }
 
-  .task-meta {
-    flex: 1 1 auto;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    line-height: 1.25;
-  }
-
-  .task-meta strong {
+  .task-cell strong {
+    display: block;
     color: #1d211e;
-    font-size: 0.86rem;
+    font-size: 0.88rem;
     font-weight: 900;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
-  .task-meta small {
-    color: #7d847e;
-    font-size: 0.7rem;
+  .task-cell small {
+    display: block;
+    margin-top: 0.18rem;
+    color: #687168;
+    font-size: 0.73rem;
     font-weight: 650;
   }
 
   .bar-cell {
     position: relative;
-    min-height: 2.6rem;
+    min-height: 4rem;
     background:
-      linear-gradient(90deg, rgba(31, 35, 32, 0.06) 1px, transparent 1px) 0 0 / var(--grid-step, 8.333%) 100%,
+      linear-gradient(90deg, rgba(31, 35, 32, 0.08) 1px, transparent 1px) 0 0 / 8.333% 100%,
       #fbfcfa;
-  }
-
-  .bar-cell::before {
-    content: '';
-    display: var(--today-display, none);
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: var(--today-pct, 0);
-    width: 0;
-    border-left: 2px solid rgba(209, 52, 47, 0.7);
-    pointer-events: none;
-    z-index: 1;
   }
 
   .bar {
@@ -617,20 +502,21 @@
     left: var(--left);
     width: var(--width);
     min-width: 0.55rem;
-    height: 1.05rem;
+    height: 1.25rem;
     transform: translateY(-50%);
-    border-radius: 0.4rem;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.32) 0%, rgba(255, 255, 255, 0) 48%, rgba(0, 0, 0, 0.18) 100%),
-      linear-gradient(90deg,
-        color-mix(in srgb, var(--color), #fff 10%) 0%,
-        var(--color) 45%,
-        color-mix(in srgb, var(--color), #000 18%) 100%);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.45),
-      inset 0 -1px 0 rgba(0, 0, 0, 0.18),
-      0 4px 10px -6px color-mix(in srgb, var(--color), #000 40%);
-    z-index: 2;
+    border-radius: 0.25rem;
+    background: var(--color);
+    box-shadow: 0 8px 18px -12px color-mix(in srgb, var(--color), #000 38%);
+  }
+
+  .bar span {
+    position: absolute;
+    right: 0.35rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #fff;
+    font-size: 0.64rem;
+    font-weight: 900;
   }
 
   .empty-schedule {
