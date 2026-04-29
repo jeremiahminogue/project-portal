@@ -227,12 +227,26 @@ export async function getSchedule(event: EventLike, slug: string): Promise<Sched
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
 
-  const { data, error } = await client
+  const scheduleSelect =
+    'id, phase, title, activity_type, start_date, end_date, owner, status, is_blackout, predecessor_id, predecessor_refs, source_order, source_wbs, percent_complete';
+  const legacyScheduleSelect =
+    'id, phase, title, activity_type, start_date, end_date, owner, status, is_blackout, predecessor_id, percent_complete';
+  let result: any = await client
     .from('schedule_activities')
-    .select('id, phase, title, activity_type, start_date, end_date, owner, status, is_blackout, predecessor_id, percent_complete')
+    .select(scheduleSelect)
     .eq('project_id', projectId)
+    .order('source_order', { ascending: true, nullsFirst: false })
     .order('start_date', { ascending: true });
 
+  if (result.error?.code === '42703') {
+    result = await client
+      .from('schedule_activities')
+      .select(legacyScheduleSelect)
+      .eq('project_id', projectId)
+      .order('start_date', { ascending: true });
+  }
+
+  const { data, error } = result;
   if (error) throw new Error(`getSchedule failed: ${error.message}`);
   return (data ?? []).map((row: any) => ({
     id: row.id,
@@ -245,6 +259,9 @@ export async function getSchedule(event: EventLike, slug: string): Promise<Sched
     status: row.status as StatusChip,
     isBlackout: Boolean(row.is_blackout),
     predecessorId: row.predecessor_id,
+    predecessorRefs: row.predecessor_refs,
+    sourceOrder: row.source_order,
+    sourceWbs: row.source_wbs,
     percentComplete: row.percent_complete ?? 0
   }));
 }

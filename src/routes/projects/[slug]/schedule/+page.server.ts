@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { formOptional, formString } from '$lib/server/auth';
 import { databaseClientForProjectAccess, isProjectAccessError, projectRoleCapabilities, requireProjectAccess } from '$lib/server/project-access';
 import { getProject, getSchedule } from '$lib/server/queries';
+import { parseScheduleImport } from '$lib/server/schedule-import';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -11,6 +12,7 @@ export const load: PageServerLoad = async (event) => {
   return {
     project,
     schedule,
+    todayIso: new Date().toLocaleDateString('en-CA', { timeZone: 'America/Denver' }),
     scheduleAccess: {
       canManage: role ? projectRoleCapabilities[role].canManageSchedule : !event.locals.supabase,
       canDelete: role ? projectRoleCapabilities[role].canDeleteSchedule : !event.locals.supabase
@@ -54,7 +56,8 @@ export const actions: Actions = {
       owner: formOptional(form, 'owner'),
       status: validStatus(formString(form, 'status')),
       is_blackout: form.get('isBlackout') === 'on',
-      percent_complete: percentComplete
+      percent_complete: percentComplete,
+      predecessor_refs: formOptional(form, 'predecessorRefs')
     };
 
     const result = id
@@ -78,5 +81,57 @@ export const actions: Actions = {
     const { error } = await client.from('schedule_activities').delete().eq('id', id).eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
     return { ok: true };
+  },
+
+  importSchedule: async (event) => {
+    const form = await event.request.formData();
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin', 'member'],
+      action: 'import schedule activities for this project'
+    });
+    if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+    const client = databaseClientForProjectAccess(event, access);
+    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
+
+    const file = form.get('scheduleFile');
+    if (!(file instanceof File) || file.size === 0) return fail(400, { error: 'Choose a Microsoft Project PDF, XML, or CSV export.' });
+
+    let activities;
+    try {
+      activities = await parseScheduleImport(file);
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : 'Could not read that schedule export.' });
+    }
+    if (!activities.length) return fail(400, { error: 'No schedule activities were found in that export.' });
+
+    const replaceSchedule = form.get('replaceSchedule') === 'on';
+    if (replaceSchedule && !projectRoleCapabilities[access.role].canDeleteSchedule) {
+      return fail(403, { error: 'Not authorized to replace this project schedule.' });
+    }
+
+    if (replaceSchedule) {
+      const deleted = await client.from('schedule_activities').delete().eq('project_id', access.project.id);
+      if (deleted.error) return fail(400, { error: deleted.error.message });
+    }
+
+    const { error } = await client.from('schedule_activities').insert(
+      activities.map((activity) => ({
+        project_id: access.project.id,
+        phase: activity.phase,
+        title: activity.title,
+        activity_type: activity.activityType,
+        start_date: activity.startDate,
+        end_date: activity.endDate,
+        owner: activity.owner,
+        status: activity.status,
+        is_blackout: activity.isBlackout,
+        percent_complete: activity.percentComplete,
+        source_order: activity.sourceOrder,
+        source_wbs: activity.sourceWbs,
+        predecessor_refs: activity.predecessorRefs
+      }))
+    );
+    if (error) return fail(400, { error: error.message });
+    return { ok: true, imported: activities.length };
   }
 };

@@ -31,6 +31,9 @@ export interface ScheduleActivity {
   isBlackout: boolean;
   isToday?: boolean;
   predecessorId?: string | null;
+  predecessorRefs?: string | null;
+  sourceOrder?: number | null;
+  sourceWbs?: string | null;
   percentComplete?: number;
 }
 

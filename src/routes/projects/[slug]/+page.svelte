@@ -1,14 +1,13 @@
 <script lang="ts">
   import { CalendarDays, FileText, FolderOpen, MessageSquare, Users } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
-  import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate, relativeTime } from '$lib/utils';
 
   let { data } = $props();
   const project = $derived(data.project);
   const openSubmittals = $derived(data.submittals.filter((item) => !['Approved', 'Rejected'].includes(item.status)));
   const openRfis = $derived(data.rfis.filter((item) => item.status === 'Open'));
-  const nextActivities = $derived(data.schedule.slice(0, 5));
+  const nextActivities = $derived(data.schedule.slice(0, 6));
 </script>
 
 <svelte:head>
@@ -16,95 +15,271 @@
 </svelte:head>
 
 <PageShell>
-  <section class="mb-6 grid gap-5 lg:grid-cols-[1fr_360px]">
-    <div class="glass rounded-xl p-6">
-      <p class="text-xs font-black uppercase tracking-[0.16em] text-pe-green-dark">{project.number}</p>
-      <h1 class="mt-2 max-w-4xl text-3xl font-black leading-tight text-pe-body">{project.title}</h1>
-      <p class="mt-3 text-sm leading-6 text-pe-sub">{project.address} &middot; {project.owner}</p>
-      <div class="mt-5 flex flex-wrap items-center gap-3">
-        <StatusPill label={project.status} />
-        <span class="rounded-full bg-black/5 px-3 py-1 text-xs font-bold text-pe-sub">Target {formatDate(project.targetComplete || project.nextMilestoneDate)}</span>
-      </div>
-      <div class="mt-6">
-        <div class="mb-2 flex justify-between text-xs font-bold uppercase tracking-[0.08em] text-pe-sub">
-          <span>Project completion</span>
-          <span>{project.completionPercent}%</span>
-        </div>
-        <div class="h-2.5 overflow-hidden rounded-full bg-black/8">
-          <div class="h-full rounded-full bg-pe-green" style={`width:${project.completionPercent}%`}></div>
-        </div>
-      </div>
+  <section class="dashboard-hero">
+    <div>
+      <p class="eyebrow">{project.number}</p>
+      <h1>{project.title}</h1>
+      <p>{project.address} · {project.owner}</p>
     </div>
-
-    <div class="panel rounded-xl p-5">
-      <h2 class="text-base font-black text-pe-body">Next milestone</h2>
-      <p class="mt-2 text-xl font-black text-pe-body">{project.nextMilestone || 'Not set'}</p>
-      <p class="mt-2 text-sm text-pe-sub">{formatDate(project.nextMilestoneDate, { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-      <a class="btn btn-secondary mt-5 w-full" href={`/projects/${data.slug}/schedule`}>
-        <CalendarDays size={16} />
-        View schedule
-      </a>
-    </div>
-  </section>
-
-  <section class="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-    <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/submittals`}>
-      <FileText class="text-pe-green" size={24} />
-      <div class="mt-4 text-3xl font-black text-pe-body">{openSubmittals.length}</div>
-      <div class="text-sm font-bold text-pe-sub">Open submittals</div>
-    </a>
-    <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/rfis`}>
-      <MessageSquare class="text-pe-green" size={24} />
-      <div class="mt-4 text-3xl font-black text-pe-body">{openRfis.length}</div>
-      <div class="text-sm font-bold text-pe-sub">Open RFIs</div>
-    </a>
-    <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/files`}>
-      <FolderOpen class="text-pe-green" size={24} />
-      <div class="mt-4 text-3xl font-black text-pe-body">{data.files.length}</div>
-      <div class="text-sm font-bold text-pe-sub">Drawings, specs & docs</div>
-    </a>
-    <a class="panel lift rounded-xl p-5" href={`/projects/${data.slug}/directory`}>
-      <Users class="text-pe-green" size={24} />
-      <div class="mt-4 text-3xl font-black text-pe-body">{data.directory.length}</div>
-      <div class="text-sm font-bold text-pe-sub">Team members</div>
+    <a class="btn btn-primary" href={`/projects/${data.slug}/schedule`}>
+      <CalendarDays size={16} />
+      Open schedule
     </a>
   </section>
 
-  <section class="grid gap-6 lg:grid-cols-[1.1fr_.9fr]">
-    <div class="panel rounded-xl p-5">
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-base font-black text-pe-body">Upcoming work</h2>
-        <a class="text-sm font-bold text-pe-green-dark" href={`/projects/${data.slug}/schedule`}>Schedule</a>
+  <section class="dashboard-metrics">
+    <a href={`/projects/${data.slug}/schedule`}>
+      <CalendarDays size={19} />
+      <span>Schedule activities</span>
+      <strong>{data.schedule.length}</strong>
+    </a>
+    <a href={`/projects/${data.slug}/submittals`}>
+      <FileText size={19} />
+      <span>Open submittals</span>
+      <strong>{openSubmittals.length}</strong>
+    </a>
+    <a href={`/projects/${data.slug}/rfis`}>
+      <MessageSquare size={19} />
+      <span>Open RFIs</span>
+      <strong>{openRfis.length}</strong>
+    </a>
+    <a href={`/projects/${data.slug}/files`}>
+      <FolderOpen size={19} />
+      <span>Files</span>
+      <strong>{data.files.length}</strong>
+    </a>
+    <a href={`/projects/${data.slug}/directory`}>
+      <Users size={19} />
+      <span>Team</span>
+      <strong>{data.directory.length}</strong>
+    </a>
+  </section>
+
+  <section class="dashboard-grid">
+    <div class="panel dashboard-panel">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Look ahead</span>
+          <h2>Upcoming schedule</h2>
+        </div>
+        <a href={`/projects/${data.slug}/schedule`}>View Gantt</a>
       </div>
-      <div class="space-y-3">
+      <div class="schedule-list">
         {#each nextActivities as item}
-          <div class="flex items-center justify-between gap-3 rounded-lg border border-black/8 bg-white/72 p-3">
-            <div>
-              <div class="text-sm font-black text-pe-body">{item.title}</div>
-              <div class="text-xs text-pe-sub">{item.phase} &middot; {item.owner}</div>
-            </div>
-            <div class="text-right text-xs font-bold text-pe-sub">{formatDate(item.startDate)} - {formatDate(item.endDate)}</div>
-          </div>
+          <a href={`/projects/${data.slug}/schedule`}>
+            <span>{formatDate(item.startDate)} - {formatDate(item.endDate)}</span>
+            <strong>{item.title}</strong>
+            <small>{item.phase}</small>
+          </a>
+        {:else}
+          <p class="empty-note">No schedule activities have been imported yet.</p>
         {/each}
       </div>
     </div>
 
-    <div class="panel rounded-xl p-5">
-      <div class="mb-4 flex items-center justify-between">
-        <h2 class="text-base font-black text-pe-body">Latest updates</h2>
-        <a class="text-sm font-bold text-pe-green-dark" href={`/projects/${data.slug}/updates`}>Updates</a>
+    <div class="panel dashboard-panel">
+      <div class="panel-heading">
+        <div>
+          <span class="eyebrow">Updates</span>
+          <h2>Latest project notes</h2>
+        </div>
+        <a href={`/projects/${data.slug}/updates`}>All updates</a>
       </div>
-      <div class="space-y-3">
+      <div class="updates-list">
         {#each data.updates.slice(0, 4) as update}
-          <article class="rounded-lg border border-black/8 bg-white/72 p-3">
-            <div class="mb-1 flex items-center justify-between gap-3">
-              <h3 class="text-sm font-black text-pe-body">{update.title}</h3>
-              <span class="text-xs font-bold text-pe-sub">{relativeTime(update.postedDate)}</span>
+          <article>
+            <div>
+              <h3>{update.title}</h3>
+              <span>{relativeTime(update.postedDate)}</span>
             </div>
-            <p class="line-clamp-2 text-sm leading-6 text-pe-sub">{update.body}</p>
+            <p>{update.body}</p>
           </article>
+        {:else}
+          <p class="empty-note">No updates posted yet.</p>
         {/each}
       </div>
     </div>
   </section>
 </PageShell>
+
+<style>
+  .dashboard-hero {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(31, 35, 32, 0.1);
+  }
+
+  .dashboard-hero h1 {
+    margin: 0.2rem 0 0;
+    max-width: 58rem;
+    color: #191b19;
+    font-size: clamp(1.65rem, 3vw, 2.75rem);
+    font-weight: 950;
+    line-height: 1.05;
+  }
+
+  .dashboard-hero p:last-child {
+    margin-top: 0.45rem;
+    color: #667067;
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .dashboard-metrics {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .dashboard-metrics a {
+    display: grid;
+    min-height: 7.2rem;
+    align-content: space-between;
+    padding: 1rem;
+    border: 1px solid rgba(31, 35, 32, 0.09);
+    border-radius: 0.65rem;
+    background: #fff;
+    transition:
+      transform 150ms ease,
+      border-color 150ms ease,
+      box-shadow 150ms ease;
+  }
+
+  .dashboard-metrics a:hover {
+    transform: translateY(-1px);
+    border-color: rgba(20, 146, 52, 0.35);
+    box-shadow: 0 16px 36px -32px rgba(0, 0, 0, 0.45);
+  }
+
+  .dashboard-metrics :global(svg) {
+    color: #149234;
+  }
+
+  .dashboard-metrics span {
+    color: #667067;
+    font-size: 0.76rem;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .dashboard-metrics strong {
+    color: #191b19;
+    font-size: 2rem;
+    font-weight: 950;
+    line-height: 1;
+  }
+
+  .dashboard-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    gap: 1rem;
+  }
+
+  .dashboard-panel {
+    border-radius: 0.7rem;
+    padding: 1rem;
+  }
+
+  .panel-heading {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.8rem;
+  }
+
+  .panel-heading h2 {
+    margin: 0.1rem 0 0;
+    color: #191b19;
+    font-size: 1.1rem;
+    font-weight: 900;
+  }
+
+  .panel-heading a {
+    color: #149234;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .schedule-list,
+  .updates-list {
+    display: grid;
+    gap: 0.55rem;
+  }
+
+  .schedule-list a,
+  .updates-list article {
+    padding: 0.85rem;
+    border: 1px solid rgba(31, 35, 32, 0.08);
+    border-radius: 0.55rem;
+    background: rgba(255, 255, 255, 0.82);
+  }
+
+  .schedule-list span {
+    color: #667067;
+    font-size: 0.72rem;
+    font-weight: 850;
+  }
+
+  .schedule-list strong,
+  .updates-list h3 {
+    display: block;
+    margin-top: 0.18rem;
+    color: #191b19;
+    font-size: 0.92rem;
+    font-weight: 900;
+  }
+
+  .schedule-list small,
+  .updates-list span,
+  .updates-list p,
+  .empty-note {
+    color: #687168;
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
+  .updates-list article > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  .updates-list h3 {
+    margin: 0;
+  }
+
+  .updates-list p {
+    display: -webkit-box;
+    margin: 0.35rem 0 0;
+    overflow: hidden;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  @media (max-width: 980px) {
+    .dashboard-hero,
+    .panel-heading {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .dashboard-hero .btn {
+      width: 100%;
+    }
+
+    .dashboard-metrics {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .dashboard-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
