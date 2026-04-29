@@ -21,6 +21,8 @@ function siteUrl() {
 }
 
 function projectPath(event: PersistedNotificationEvent) {
+  const shareUrl = metadataString(event, 'shareUrl');
+  if (shareUrl) return shareUrl;
   const slug = metadataString(event, 'projectSlug');
   if (!slug) return siteUrl();
   if (event.entityType === 'rfi') return `${siteUrl()}/projects/${encodeURIComponent(slug)}/rfis`;

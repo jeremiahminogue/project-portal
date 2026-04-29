@@ -34,6 +34,12 @@ type DeliveryRow = {
   created_at: string;
 };
 
+type RetryDeliveryRow = DeliveryRow & {
+  subject: string;
+  html: string;
+  retry_count?: number;
+};
+
 function tableMissing(error: unknown) {
   const candidate = error as { code?: string; message?: string } | null;
   return candidate?.code === '42P01' || /does not exist/i.test(candidate?.message ?? '');
@@ -195,6 +201,35 @@ async function sendDelivery(
     .update({ status: 'sent', provider_message_id: result.id ?? null, sent_at: new Date().toISOString() })
     .eq('id', deliveryId);
   return { sent: true };
+}
+
+export async function retryNotificationDelivery(client: Client, deliveryId: string) {
+  const { data, error } = await client
+    .from('notification_deliveries')
+    .select('id, event_id, project_id, recipient_user_id, recipient_email, recipient_name, metadata, created_at, subject, html, retry_count')
+    .eq('id', deliveryId)
+    .maybeSingle();
+  if (error) {
+    if (tableMissing(error)) return { skipped: true, reason: 'missing_schema' };
+    throw new Error(error.message);
+  }
+  const delivery = data as RetryDeliveryRow | null;
+  if (!delivery?.recipient_email) throw new Error('Delivery is missing a recipient email.');
+
+  const recipient: NotificationRecipient = {
+    userId: delivery.recipient_user_id,
+    email: delivery.recipient_email,
+    name: delivery.recipient_name ?? delivery.recipient_email,
+    kind: (delivery.metadata?.recipient_kind as NotificationRecipient['kind']) ?? 'project_admins',
+    required: delivery.metadata?.required === true,
+    digestFrequency: (delivery.metadata?.digest_frequency as NotificationRecipient['digestFrequency']) ?? 'immediate'
+  };
+
+  await client
+    .from('notification_deliveries')
+    .update({ status: 'processing', error: null, retry_count: (delivery.retry_count ?? 0) + 1, last_retry_at: new Date().toISOString() })
+    .eq('id', delivery.id);
+  return sendDelivery(client, delivery.id, recipient, { subject: delivery.subject, html: delivery.html });
 }
 
 export async function processNotificationEvent(client: Client, event: PersistedNotificationEvent) {

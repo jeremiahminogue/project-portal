@@ -2,7 +2,8 @@ export {
   canRunNotificationCron,
   flushPhotoDigestNotifications,
   notifyProjectEvent,
-  processNotificationEvent
+  processNotificationEvent,
+  retryNotificationDelivery
 } from './dispatch';
 export { isPhotoUpload } from './photos';
 export {

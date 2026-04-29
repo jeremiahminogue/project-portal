@@ -8,7 +8,8 @@ import {
   notificationEventDefinitions,
   recipientKindDefinitions,
   saveProjectNotificationRules,
-  saveUserNotificationPreferences
+  saveUserNotificationPreferences,
+  retryNotificationDelivery
 } from '$lib/server/notifications';
 import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { getProject } from '$lib/server/queries';
@@ -133,6 +134,37 @@ export const actions: Actions = {
       await saveProjectNotificationRules(client, access.project.id, enabledRuleKeys);
     } catch (error) {
       return fail(400, { error: error instanceof Error ? error.message : 'Could not save notification matrix.' });
+    }
+
+    return { ok: true };
+  },
+
+  retryDelivery: async (event) => {
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin'],
+      action: 'retry project notification deliveries'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
+    const client = databaseClientForProjectAccess(event, access);
+    if (!client) return actionError('Supabase is not configured yet.');
+
+    const form = await event.request.formData();
+    const id = form.get('id');
+    if (typeof id !== 'string' || !id) return fail(400, { error: 'Delivery id is required.' });
+
+    const { data: delivery, error } = await client
+      .from('notification_deliveries')
+      .select('id')
+      .eq('id', id)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (error) return fail(400, { error: error.message });
+    if (!delivery) return fail(404, { error: 'Delivery not found.' });
+
+    try {
+      await retryNotificationDelivery(client, id);
+    } catch (retryError) {
+      return fail(400, { error: retryError instanceof Error ? retryError.message : 'Could not retry delivery.' });
     }
 
     return { ok: true };

@@ -8,6 +8,7 @@
     Copy,
     Download,
     FileText,
+    Link,
     Pencil,
     RefreshCw,
     Search,
@@ -467,6 +468,32 @@
     notice = 'Link copied.';
   }
 
+  async function createShareLink(file: (typeof data.files)[number]) {
+    if (fileIsStorageOnly(file)) {
+      notice = 'Storage-only files need to be registered before external sharing.';
+      return;
+    }
+    busy = true;
+    notice = '';
+    try {
+      const form = new FormData();
+      form.set('days', '7');
+      if (file.type === 'image') {
+        const emails = prompt('Email this photo share link to recipients (comma separated), or leave blank to only copy the link.');
+        if (emails) form.set('emails', emails);
+      }
+      const response = await fetch(`/api/files/${encodeURIComponent(file.id)}/share`, { method: 'POST', body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Share link failed.');
+      await navigator.clipboard?.writeText(result.url);
+      notice = `External share link copied for ${file.name}.`;
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Share link failed.';
+    } finally {
+      busy = false;
+    }
+  }
+
   async function downloadBlob(response: Response, fallbackName: string) {
     const blob = await response.blob();
     const disposition = response.headers.get('content-disposition') ?? '';
@@ -759,6 +786,11 @@
                                 <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${pageRow.name}`}>
                                   <Copy size={15} />
                                 </button>
+                                {#if canDeleteFiles && !fileIsStorageOnly(file)}
+                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${pageRow.name}`}>
+                                    <Link size={15} />
+                                  </button>
+                                {/if}
                               {/if}
                               {#if renamePageId !== pageRow.id && canModifyFiles && !fileIsStorageOnly(file)}
                                 <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`}>
@@ -804,6 +836,11 @@
                               <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
                                 <Copy size={15} />
                               </button>
+                              {#if canDeleteFiles && !fileIsStorageOnly(file)}
+                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`}>
+                                  <Link size={15} />
+                                </button>
+                              {/if}
                             {/if}
                             {#if renameId === file.id}
                               <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">
@@ -882,6 +919,11 @@
                             <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
                               <Copy size={15} />
                             </button>
+                            {#if canDeleteFiles && !fileIsStorageOnly(file)}
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`}>
+                                <Link size={15} />
+                              </button>
+                            {/if}
                           {/if}
                           {#if renameId === file.id}
                             <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">

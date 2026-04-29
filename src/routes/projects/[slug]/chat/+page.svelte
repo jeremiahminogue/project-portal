@@ -1,6 +1,8 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { MessageSquarePlus, Send, Trash2 } from '@lucide/svelte';
+  import { Check, MessageSquarePlus, Send, Trash2 } from '@lucide/svelte';
+  import AttachmentChips from '$lib/components/AttachmentChips.svelte';
+  import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import { initialsFor, relativeTime } from '$lib/utils';
 
@@ -32,9 +34,12 @@
           </button>
         </div>
         {#if newSubject}
-          <form class="mt-4 space-y-2" method="post" action="?/createSubject" use:enhance>
+          <form class="subject-create mt-4 space-y-2" method="post" action="?/createSubject" enctype="multipart/form-data" use:enhance>
             <input class="field" name="title" placeholder="Subject" required />
             <textarea class="field min-h-20" name="body" placeholder="First message"></textarea>
+            {#if data.chatAccess?.canAttach}
+              <AttachmentFields files={data.files} idPrefix="new-chat-subject" uploadLabel="Upload chat files" existingLabel="Attach existing files" />
+            {/if}
             <button class="btn btn-primary w-full" type="submit">Create</button>
           </form>
         {/if}
@@ -45,7 +50,7 @@
             <button class="subject" onclick={() => (active = subject.id)}>
               <span class="font-black">{subject.name}</span>
               <span class="line-clamp-1 text-xs text-pe-sub">{subject.description}</span>
-              <span class="text-xs font-bold text-pe-sub">{subject.messageCount} messages</span>
+              <span class="text-xs font-bold text-pe-sub">{subject.messageCount} messages{subject.unreadCount ? ` - ${subject.unreadCount} unread` : ''}</span>
             </button>
             {#if data.chatAccess?.canDelete}
               <form
@@ -75,6 +80,12 @@
         <div class="border-b border-black/8 bg-white/70 px-6 py-4">
           <h2 class="text-lg font-black text-pe-body">{selected.name}</h2>
           <p class="mt-1 text-sm text-pe-sub">{selected.participants.slice(0, 5).join(', ') || 'Project team'}</p>
+          {#if selected.unreadCount}
+            <form class="mt-3" method="post" action="?/markRead" use:enhance>
+              <input type="hidden" name="subjectId" value={selected.id} />
+              <button class="btn btn-secondary min-h-8 px-2 text-xs" type="submit"><Check size={14} />Mark read</button>
+            </form>
+          {/if}
         </div>
         <div class="flex-1 space-y-4 overflow-y-auto p-6">
           {#each selected.messages as message}
@@ -87,6 +98,11 @@
                   <span>{relativeTime(message.timestamp)}</span>
                 </div>
                 <div class="overflow-wrap-anywhere rounded-xl border border-black/8 bg-white px-4 py-3 text-sm leading-6 text-pe-body">{message.body}</div>
+                {#if message.attachments?.length}
+                  <div class="mt-2">
+                    <AttachmentChips attachments={message.attachments} />
+                  </div>
+                {/if}
               </div>
               {#if data.chatAccess?.canDelete}
                 <form
@@ -107,11 +123,14 @@
             </article>
           {/each}
         </div>
-        <form class="border-t border-black/8 bg-white/76 p-4" method="post" action="?/postMessage" use:enhance>
+        <form class="border-t border-black/8 bg-white/76 p-4" method="post" action="?/postMessage" enctype="multipart/form-data" use:enhance>
           <input type="hidden" name="subjectId" value={selected.id} />
-          <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <textarea class="field min-h-12 flex-1 resize-none" name="body" placeholder="Type a message" required></textarea>
-            <button class="btn btn-primary sm:w-auto" type="submit"><Send size={16} />Send</button>
+          <div class="grid gap-3">
+            <textarea class="field min-h-12 flex-1 resize-none" name="body" placeholder="Type a message"></textarea>
+            {#if data.chatAccess?.canAttach}
+              <AttachmentFields files={data.files} idPrefix={`chat-${selected.id}`} uploadLabel="Upload chat files" existingLabel="Attach existing files" />
+            {/if}
+            <button class="btn btn-primary sm:w-fit" type="submit"><Send size={16} />Send</button>
           </div>
         </form>
       {:else}
@@ -156,6 +175,10 @@
 
   .overflow-wrap-anywhere {
     overflow-wrap: anywhere;
+  }
+
+  :global(.subject-create .attachment-fields) {
+    grid-template-columns: 1fr;
   }
 
   .delete-chat-button,

@@ -200,7 +200,11 @@ export async function resolveNotificationRecipients(
     }
 
     if (rule.recipientKind === 'distribution') {
-      for (const member of members) {
+      const distributionUserIds = metadataStringArray(event.metadata, 'distributionUserIds');
+      const distributionMembers = distributionUserIds.length
+        ? distributionUserIds.flatMap((userId) => membersById.get(userId) ?? [])
+        : members;
+      for (const member of distributionMembers) {
         if (member.userId !== actorId) mergeRecipient(recipients, memberRecipient(member, rule), event);
       }
     }

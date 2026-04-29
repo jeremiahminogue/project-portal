@@ -24,6 +24,7 @@ import {
 } from './mock-data';
 import { bytesToSize, relativeTime } from '$lib/utils';
 import { isProductionRuntime } from './env';
+import { normalizeItemAttachments, type ItemAttachment } from './item-attachments';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
@@ -62,7 +63,6 @@ export type DrawingPage = {
 export type PortalSubmittal = Submittal & {
   id?: string;
   currentStep?: number;
-  notes?: string | null;
 };
 
 export type PortalRfi = RFI & {
@@ -74,31 +74,12 @@ export type PortalRfi = RFI & {
   createdById?: string | null;
   rfiManagerId?: string | null;
   rfiManager?: string;
-  answer?: string | null;
 };
 
 type UpdateAttachment = NonNullable<Update['attachments']>[number];
 
 function normalizeUpdateAttachments(value: unknown): UpdateAttachment[] {
-  const candidate = Array.isArray(value)
-    ? value
-    : Array.isArray((value as { attachments?: unknown[] } | null)?.attachments)
-      ? (value as { attachments: unknown[] }).attachments
-      : [];
-
-  return candidate
-    .map((item): UpdateAttachment | null => {
-      const attachment = item as Partial<UpdateAttachment> | null;
-      if (!attachment?.name) return null;
-      return {
-        name: String(attachment.name),
-        size: typeof attachment.size === 'string' ? attachment.size : '',
-        type: typeof attachment.type === 'string' ? attachment.type : 'file',
-        ...(typeof attachment.id === 'string' ? { id: attachment.id } : {}),
-        ...(typeof attachment.path === 'string' ? { path: attachment.path } : {})
-      };
-    })
-    .filter((item): item is UpdateAttachment => Boolean(item));
+  return normalizeItemAttachments(value) as UpdateAttachment[];
 }
 
 const phaseToStatus: Record<string, Project['status']> = {
@@ -130,6 +111,19 @@ function profileDisplayName(profile: ProfileLite | undefined | null, fallback = 
   return profile?.full_name ?? profile?.email ?? fallback;
 }
 
+async function currentUserId(event: EventLike) {
+  try {
+    const me = await event.locals.getCurrentUser?.();
+    return me?.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function arrayJson<T>(value: unknown): T[] {
+  return Array.isArray(value) ? (value as T[]) : [];
+}
+
 function rowToProject(row: any, stats?: { submittals?: number; rfis?: number; actions?: number; activity?: string }) {
   return {
     id: row.slug,
@@ -139,7 +133,7 @@ function rowToProject(row: any, stats?: { submittals?: number; rfis?: number; ac
     owner: row.customer,
     status: phaseToStatus[row.phase] ?? 'Pre-Con',
     completionPercent: row.percent_complete ?? 0,
-    targetComplete: '',
+    targetComplete: row.next_milestone_date ?? '',
     nextMilestone: row.next_milestone ?? '',
     nextMilestoneDate: row.next_milestone_date ?? '',
     openSubmittals: stats?.submittals ?? 0,
@@ -147,7 +141,7 @@ function rowToProject(row: any, stats?: { submittals?: number; rfis?: number; ac
     actionItems: stats?.actions ?? 0,
     lastActivity: stats?.activity ?? '',
     lastActivityTime: row.updated_at ? relativeTime(row.updated_at) : '',
-    lastActivityAuthor: 'PE'
+    lastActivityAuthor: stats?.activity ? 'Project team' : 'PE'
   } satisfies Project;
 }
 
@@ -211,7 +205,20 @@ export async function getProject(event: EventLike, slug: string): Promise<Projec
     .maybeSingle();
 
   if (error) throw new Error(`getProject failed: ${error.message}`);
-  return data ? rowToProject(data) : null;
+  if (!data) return null;
+  const [subs, rfis, updates] = await Promise.all([
+    client.from('submittals').select('status').eq('project_id', data.id),
+    client.from('rfis').select('status').eq('project_id', data.id),
+    client.from('updates').select('title, created_at').eq('project_id', data.id).order('created_at', { ascending: false }).limit(1)
+  ]);
+  const openSubmittals = (subs.data ?? []).filter((sub: any) => !['approved', 'rejected'].includes(sub.status)).length;
+  const openRfis = (rfis.data ?? []).filter((rfi: any) => rfi.status === 'open').length;
+  return rowToProject(data, {
+    submittals: openSubmittals,
+    rfis: openRfis,
+    actions: openSubmittals + openRfis,
+    activity: updates.data?.[0]?.title ?? data.next_milestone ?? ''
+  });
 }
 
 export async function getSchedule(event: EventLike, slug: string): Promise<ScheduleActivity[]> {
@@ -222,7 +229,7 @@ export async function getSchedule(event: EventLike, slug: string): Promise<Sched
 
   const { data, error } = await client
     .from('schedule_activities')
-    .select('id, phase, title, start_date, end_date, owner, status, is_blackout')
+    .select('id, phase, title, activity_type, start_date, end_date, owner, status, is_blackout, predecessor_id, percent_complete')
     .eq('project_id', projectId)
     .order('start_date', { ascending: true });
 
@@ -231,12 +238,14 @@ export async function getSchedule(event: EventLike, slug: string): Promise<Sched
     id: row.id,
     phase: row.phase,
     title: row.title,
-    type: 'internal',
+    type: row.activity_type ?? 'internal',
     startDate: row.start_date,
     endDate: row.end_date,
     owner: row.owner ?? '',
     status: row.status as StatusChip,
-    isBlackout: Boolean(row.is_blackout)
+    isBlackout: Boolean(row.is_blackout),
+    predecessorId: row.predecessor_id,
+    percentComplete: row.percent_complete ?? 0
   }));
 }
 
@@ -269,8 +278,9 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
     .from('submittals')
     .select(
       `id, number, title, spec_section, submitted_date, due_date, status, current_step, notes,
+      decision, attachments_json, revision, submit_by, received_from,
       owner,
-      submittal_routing_steps (step_order, role, assignee)`
+      submittal_routing_steps (id, step_order, role, assignee, status, due_date, response, required, signed_off_at)`
     )
     .eq('project_id', projectId)
     .order('submitted_date', { ascending: false });
@@ -279,12 +289,14 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
   const rows = data ?? [];
   const profileIds = rows.flatMap((row: any) => [
     row.owner,
+    row.received_from,
     ...(row.submittal_routing_steps ?? []).map((step: any) => step.assignee)
   ]);
   const profiles = await profilesByIds(client, profileIds);
 
   return rows.map((row: any) => {
     const owner = profiles.get(row.owner);
+    const receivedFrom = profiles.get(row.received_from);
     const steps = [...(row.submittal_routing_steps ?? [])].sort((a, b) => a.step_order - b.step_order);
     return {
       id: row.id,
@@ -294,12 +306,34 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
       submittedDate: row.submitted_date ?? '',
       dueDate: row.due_date ?? '',
       owner: profileDisplayName(owner),
+      ownerId: row.owner,
       status: submittalStatusLabel[row.status] ?? 'Draft',
       currentStep: row.current_step ?? 0,
       notes: row.notes,
+      decision: row.decision,
+      revision: row.revision ?? 0,
+      submitBy: row.submit_by,
+      receivedFrom: profileDisplayName(receivedFrom),
+      receivedFromId: row.received_from,
+      attachments: normalizeItemAttachments(row.attachments_json),
+      routingSteps: steps.map((step: any) => {
+        const profile = profiles.get(step.assignee);
+        return {
+          id: step.id,
+          order: step.step_order ?? 0,
+          assigneeId: step.assignee,
+          assignee: profileDisplayName(profile, step.role ?? 'Reviewer'),
+          role: profile?.company ?? step.role ?? 'Reviewer',
+          status: submittalStatusLabel[step.status] ?? 'Draft',
+          dueDate: step.due_date,
+          response: step.response,
+          required: step.required !== false,
+          completedAt: step.signed_off_at
+        };
+      }),
       routing: steps.map((step: any) => {
         const profile = profiles.get(step.assignee);
-        return profile?.company ?? profile?.full_name ?? step.role ?? 'Reviewer';
+        return profileDisplayName(profile, step.role ?? 'Reviewer');
       })
     };
   });
@@ -313,7 +347,7 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
 
   const { data, error } = await client
     .from('rfis')
-    .select('id, number, title, question, suggested_solution, reference, opened_date, due_date, assigned_to, assigned_org, created_by, rfi_manager_id, status, answer')
+    .select('id, number, title, question, suggested_solution, reference, opened_date, due_date, assigned_to, assigned_org, created_by, rfi_manager_id, status, answer, attachments_json, distribution_json, activity_json')
     .eq('project_id', projectId)
     .order('opened_date', { ascending: false });
 
@@ -321,12 +355,18 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
   const rows = data ?? [];
   const profiles = await profilesByIds(
     client,
-    rows.flatMap((row: any) => [row.assigned_to, row.rfi_manager_id])
+    rows.flatMap((row: any) => [
+      row.assigned_to,
+      row.rfi_manager_id,
+      row.created_by,
+      ...arrayJson<string>(row.distribution_json)
+    ])
   );
 
   return rows.map((row: any) => {
     const assigned = profiles.get(row.assigned_to);
     const manager = profiles.get(row.rfi_manager_id);
+    const distributionIds = arrayJson<string>(row.distribution_json);
     return {
       id: row.id,
       number: row.number,
@@ -343,7 +383,11 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
       rfiManagerId: row.rfi_manager_id,
       rfiManager: profileDisplayName(manager),
       status: rfiStatusLabel[row.status] ?? 'Open',
-      answer: row.answer
+      answer: row.answer,
+      distributionIds,
+      distribution: distributionIds.map((id) => profileDisplayName(profiles.get(id), id)),
+      activity: arrayJson(row.activity_json),
+      attachments: normalizeItemAttachments(row.attachments_json)
     };
   });
 }
@@ -550,6 +594,7 @@ export async function getUpdates(event: EventLike, slug: string): Promise<Update
   if (!client) return mockUpdates;
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
+  const viewerId = await currentUserId(event);
 
   const { data, error } = await client
     .from('updates')
@@ -559,21 +604,74 @@ export async function getUpdates(event: EventLike, slug: string): Promise<Update
 
   if (error) throw new Error(`getUpdates failed: ${error.message}`);
   const rows = data ?? [];
-  const profiles = await profilesByIds(client, rows.map((row: any) => row.author_id));
+  const updateIds = rows.map((row: any) => row.id);
+  const [{ data: commentRows, error: commentsError }, { data: likeRows, error: likesError }] = updateIds.length
+    ? await Promise.all([
+        client
+          .from('update_comments')
+          .select('id, update_id, author_id, body, created_at')
+          .in('update_id', updateIds)
+          .order('created_at', { ascending: true }),
+        client.from('update_likes').select('update_id, user_id').in('update_id', updateIds)
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null }
+      ];
+
+  if (commentsError && commentsError.code !== '42P01') throw new Error(`getUpdates comments failed: ${commentsError.message}`);
+  if (likesError && likesError.code !== '42P01') throw new Error(`getUpdates likes failed: ${likesError.message}`);
+
+  const profileIds = [
+    ...rows.map((row: any) => row.author_id),
+    ...((commentRows ?? []) as any[]).map((comment) => comment.author_id)
+  ];
+  const profiles = await profilesByIds(client, profileIds);
+  const commentsByUpdate = new Map<string, { id: string; author: string; body: string; createdAt: string }[]>();
+  for (const comment of (commentRows ?? []) as any[]) {
+    const list = commentsByUpdate.get(comment.update_id) ?? [];
+    list.push({
+      id: comment.id,
+      author: profileDisplayName(profiles.get(comment.author_id), 'Project member'),
+      body: comment.body ?? '',
+      createdAt: comment.created_at
+    });
+    commentsByUpdate.set(comment.update_id, list);
+  }
+  const likesByUpdate = new Map<string, { count: number; likedByMe: boolean }>();
+  for (const like of (likeRows ?? []) as any[]) {
+    const current = likesByUpdate.get(like.update_id) ?? { count: 0, likedByMe: false };
+    current.count += 1;
+    if (viewerId && like.user_id === viewerId) current.likedByMe = true;
+    likesByUpdate.set(like.update_id, current);
+  }
 
   return rows.map((row: any) => {
     const author = profiles.get(row.author_id);
     const posted = new Date(row.created_at);
+    const comments = commentsByUpdate.get(row.id) ?? [];
+    const likes = likesByUpdate.get(row.id) ?? { count: 0, likedByMe: false };
     return {
       id: row.id,
-      type: row.kind === 'phase_kickoff' ? 'Phase Kickoff' : row.kind === 'safety' ? 'Safety' : row.kind === 'weekly' ? 'Weekly' : 'OAC Recap',
+      type:
+        row.kind === 'oac_recap'
+          ? 'OAC Recap'
+          : row.kind === 'phase_kickoff'
+            ? 'Phase Kickoff'
+            : row.kind === 'safety'
+              ? 'Safety'
+              : row.kind === 'weekly'
+                ? 'Weekly'
+                : 'General',
       title: row.title,
       body: row.body ?? '',
       author: profileDisplayName(author, 'Pueblo Electric'),
       postedDate: posted.toISOString(),
       postedTime: relativeTime(row.created_at),
-      likes: 0,
-      commentCount: 0,
+      likes: likes.count,
+      likedByMe: likes.likedByMe,
+      commentCount: comments.length,
+      comments,
       attachments: normalizeUpdateAttachments(row.attachments_json)
     };
   });
@@ -585,27 +683,57 @@ export async function getDirectory(event: EventLike, slug: string): Promise<Dire
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
 
-  const { data, error } = await client
+  const [{ data, error }, { data: contacts, error: contactsError }] = await Promise.all([
+    client
     .from('project_members')
     .select('id, user_id, role')
-    .eq('project_id', projectId);
+      .eq('project_id', projectId),
+    client
+      .from('project_contacts')
+      .select('id, name, role, organization, email, phone, contact_type')
+      .eq('project_id', projectId)
+      .order('name')
+  ]);
 
   if (error) throw new Error(`getDirectory failed: ${error.message}`);
+  if (contactsError && contactsError.code !== '42P01') throw new Error(`getDirectory contacts failed: ${contactsError.message}`);
   const rows = data ?? [];
   const profiles = await profilesByIds(client, rows.map((row: any) => row.user_id));
 
-  return rows.map((row: any) => {
+  const portalEntries: DirectoryEntry[] = rows.map((row: any) => {
     const profile = profiles.get(row.user_id);
-    const roleLabel = row.role === 'readonly' ? 'Reviewer' : row.role === 'admin' ? 'Admin' : row.role === 'guest' ? 'Guest' : 'Member';
+    const roleLabel: DirectoryEntry['status'] =
+      row.role === 'readonly' ? 'Reviewer' : row.role === 'admin' ? 'Admin' : row.role === 'guest' ? 'Guest' : 'Member';
     return {
       id: profile?.id ?? row.user_id ?? row.id,
       name: profileDisplayName(profile, 'Project member'),
       role: profile?.title ?? roleLabel,
       organization: profile?.company ?? 'Pueblo Electric',
       email: profile?.email ?? undefined,
+      phone: null,
+      contactType: 'portal' as const,
       status: roleLabel
     };
   });
+  const contactEntries: DirectoryEntry[] = ((contacts ?? []) as any[]).map((contact) => ({
+    id: contact.id,
+    name: contact.name,
+    role: contact.role ?? 'Project contact',
+    organization: contact.organization ?? '',
+    email: contact.email ?? undefined,
+    phone: contact.phone ?? null,
+    contactType: 'external' as const,
+    status:
+      contact.contact_type === 'owner'
+        ? 'Owner'
+        : contact.contact_type === 'ahj'
+          ? 'AHJ'
+          : contact.contact_type === 'reviewer'
+            ? 'Reviewer'
+            : 'Guest'
+  }));
+
+  return [...portalEntries, ...contactEntries].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export async function getChatSubjects(event: EventLike, slug: string): Promise<ChatSubject[]> {
@@ -613,10 +741,11 @@ export async function getChatSubjects(event: EventLike, slug: string): Promise<C
   if (!client) return mockChatSubjects;
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
+  const viewerId = await currentUserId(event);
 
   const { data, error } = await client
     .from('chat_subjects')
-    .select('id, title, last_message_at, chat_messages (id, body, created_at, author_id)')
+    .select('id, title, last_message_at, chat_messages (id, body, attachments_json, created_at, author_id)')
     .eq('project_id', projectId)
     .order('last_message_at', { ascending: false, nullsFirst: false });
 
@@ -626,6 +755,13 @@ export async function getChatSubjects(event: EventLike, slug: string): Promise<C
     (row.chat_messages ?? []).map((message: any) => message.author_id)
   );
   const profiles = await profilesByIds(client, profileIds);
+  const subjectIds = (data ?? []).map((row: any) => row.id);
+  const { data: readRows, error: readsError } =
+    viewerId && subjectIds.length
+      ? await client.from('chat_message_reads').select('subject_id, last_read_at').eq('user_id', viewerId).in('subject_id', subjectIds)
+      : { data: [], error: null };
+  if (readsError && readsError.code !== '42P01') throw new Error(`getChatSubjects read state failed: ${readsError.message}`);
+  const readAtBySubject = new Map(((readRows ?? []) as any[]).map((row) => [row.subject_id, row.last_read_at]));
 
   return (data ?? []).map((row: any) => {
     const messages = [...(row.chat_messages ?? [])].sort((a, b) => a.created_at.localeCompare(b.created_at));
@@ -639,16 +775,20 @@ export async function getChatSubjects(event: EventLike, slug: string): Promise<C
         author,
         role: profile?.company ?? 'Project team',
         body: msg.body,
-        timestamp: msg.created_at
+        timestamp: msg.created_at,
+        attachments: normalizeItemAttachments(msg.attachments_json)
       };
     });
+    const lastReadAt = readAtBySubject.get(row.id);
+    const unreadCount =
+      viewerId && lastReadAt ? messages.filter((message: any) => message.author_id !== viewerId && message.created_at > lastReadAt).length : 0;
 
     return {
       id: row.id,
       name: row.title,
       description: messages.at(-1)?.body ?? 'Project conversation',
       messageCount: messages.length,
-      unreadCount: 0,
+      unreadCount,
       participants: [...participants],
       messages: mappedMessages
     };

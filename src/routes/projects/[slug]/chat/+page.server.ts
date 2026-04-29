@@ -1,7 +1,8 @@
 import { error, fail, type RequestEvent } from '@sveltejs/kit';
 import { formString } from '$lib/server/auth';
-import { isProjectAccessError, projectRoleCapabilities, requireProjectAccess } from '$lib/server/project-access';
-import { getChatSubjects, getProject } from '$lib/server/queries';
+import { existingFileAttachmentsFor, formHasItemAttachments, mergeItemAttachments, uploadedItemAttachmentsFor } from '$lib/server/item-attachments';
+import { isProjectAccessError, projectRoleCapabilities, requireProjectAccess, type ProjectAccess } from '$lib/server/project-access';
+import { getChatSubjects, getFiles, getProject } from '$lib/server/queries';
 import { createAdminClient, hasSupabaseAdminConfig } from '$lib/server/supabase-admin';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -9,16 +10,37 @@ function privilegedClient(event: RequestEvent) {
   return hasSupabaseAdminConfig() ? createAdminClient() : event.locals.supabase;
 }
 
+async function messageAttachments(event: RequestEvent, form: FormData, access: ProjectAccess) {
+  const client = privilegedClient(event);
+  if (!client) throw new Error('Supabase is not configured yet.');
+  const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
+  return mergeItemAttachments(
+    await existingFileAttachmentsFor(client, access.project.id, attachmentIds),
+    await uploadedItemAttachmentsFor({
+      event,
+      access,
+      form,
+      folderName: 'Chat Attachments'
+    })
+  );
+}
+
 export const load: PageServerLoad = async (event) => {
   const access = await requireProjectAccess(event, event.params.slug);
   if (isProjectAccessError(access)) throw error(access.status, access.message);
-  const [project, subjects] = await Promise.all([getProject(event, event.params.slug), getChatSubjects(event, event.params.slug)]);
+  const [project, subjects, files] = await Promise.all([
+    getProject(event, event.params.slug),
+    getChatSubjects(event, event.params.slug),
+    getFiles(event, event.params.slug)
+  ]);
   return {
     project,
     subjects,
+    files,
     chatAccess: {
       role: access.role,
       canCreate: projectRoleCapabilities[access.role].canCreateCommunication,
+      canAttach: projectRoleCapabilities[access.role].canUploadFiles,
       canDelete: projectRoleCapabilities[access.role].canDeleteChat
     }
   };
@@ -39,6 +61,11 @@ export const actions: Actions = {
     if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
 
     if (!title) return fail(400, { error: 'Subject title is required.' });
+    if (formHasItemAttachments(form) && !projectRoleCapabilities[access.role].canUploadFiles) {
+      return fail(403, { error: 'Not authorized to attach files to this project.' });
+    }
+    const attachments = await messageAttachments(event, form, access).catch((error) => error);
+    if (attachments instanceof Error) return fail(400, { error: attachments.message });
 
     const { data, error } = await client
       .from('chat_subjects')
@@ -47,8 +74,13 @@ export const actions: Actions = {
       .single();
     if (error) return fail(400, { error: error.message });
 
-    if (body) {
-      const { error: messageError } = await client.from('chat_messages').insert({ subject_id: data.id, author_id: access.user.id, body });
+    if (body || attachments.length) {
+      const { error: messageError } = await client.from('chat_messages').insert({
+        subject_id: data.id,
+        author_id: access.user.id,
+        body: body || 'Attached files.',
+        attachments_json: attachments
+      });
       if (messageError) return fail(400, { error: messageError.message });
     }
     return { ok: true };
@@ -62,13 +94,19 @@ export const actions: Actions = {
     const subjectId = formString(form, 'subjectId');
     const body = formString(form, 'body');
 
-    if (!subjectId || !body) return fail(400, { error: 'Message is required.' });
+    if (!subjectId) return fail(400, { error: 'Message is required.' });
 
     const access = await requireProjectAccess(event, event.params.slug, {
       roles: ['superadmin', 'admin', 'member', 'guest'],
       action: 'post messages for this project'
     });
     if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+    if (formHasItemAttachments(form) && !projectRoleCapabilities[access.role].canUploadFiles) {
+      return fail(403, { error: 'Not authorized to attach files to this project.' });
+    }
+    const attachments = await messageAttachments(event, form, access).catch((error) => error);
+    if (attachments instanceof Error) return fail(400, { error: attachments.message });
+    if (!body && !attachments.length) return fail(400, { error: 'Message or attachment is required.' });
 
     const { data: subject, error: subjectError } = await client
       .from('chat_subjects')
@@ -80,7 +118,12 @@ export const actions: Actions = {
     if (!subject) return fail(404, { error: 'Conversation not found.' });
 
     const now = new Date().toISOString();
-    const { error } = await client.from('chat_messages').insert({ subject_id: subjectId, author_id: access.user.id, body });
+    const { error } = await client.from('chat_messages').insert({
+      subject_id: subjectId,
+      author_id: access.user.id,
+      body: body || 'Attached files.',
+      attachments_json: attachments
+    });
     if (error) return fail(400, { error: error.message });
     const activityClient = privilegedClient(event);
     if (!activityClient) return fail(400, { error: 'Supabase is not configured yet.' });
@@ -90,6 +133,33 @@ export const actions: Actions = {
       .eq('id', subjectId)
       .eq('project_id', access.project.id);
     if (touchError) return fail(400, { error: touchError.message });
+    return { ok: true };
+  },
+
+  markRead: async (event) => {
+    const client = event.locals.supabase;
+    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
+    const form = await event.request.formData();
+    const subjectId = formString(form, 'subjectId');
+    if (!subjectId) return fail(400, { error: 'Choose a conversation.' });
+    const access = await requireProjectAccess(event, event.params.slug);
+    if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+
+    const { data: subject, error: subjectError } = await client
+      .from('chat_subjects')
+      .select('id')
+      .eq('id', subjectId)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (subjectError) return fail(400, { error: subjectError.message });
+    if (!subject) return fail(404, { error: 'Conversation not found.' });
+
+    const { error } = await client.from('chat_message_reads').upsert({
+      subject_id: subjectId,
+      user_id: access.user.id,
+      last_read_at: new Date().toISOString()
+    });
+    if (error) return fail(400, { error: error.message });
     return { ok: true };
   },
 

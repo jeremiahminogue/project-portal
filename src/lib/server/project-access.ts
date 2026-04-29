@@ -32,6 +32,10 @@ export const projectRoleCapabilities: Record<
     canCreateCommunication: boolean;
     canReviewCommunication: boolean;
     canDeleteChat: boolean;
+    canManageSchedule: boolean;
+    canDeleteSchedule: boolean;
+    canManageDirectory: boolean;
+    canDeleteDirectoryContacts: boolean;
     canManageProjectUsers: boolean;
   }
 > = {
@@ -45,6 +49,10 @@ export const projectRoleCapabilities: Record<
     canCreateCommunication: true,
     canReviewCommunication: true,
     canDeleteChat: true,
+    canManageSchedule: true,
+    canDeleteSchedule: true,
+    canManageDirectory: true,
+    canDeleteDirectoryContacts: true,
     canManageProjectUsers: true
   },
   admin: {
@@ -57,6 +65,10 @@ export const projectRoleCapabilities: Record<
     canCreateCommunication: true,
     canReviewCommunication: true,
     canDeleteChat: true,
+    canManageSchedule: true,
+    canDeleteSchedule: true,
+    canManageDirectory: true,
+    canDeleteDirectoryContacts: true,
     canManageProjectUsers: true
   },
   member: {
@@ -69,6 +81,10 @@ export const projectRoleCapabilities: Record<
     canCreateCommunication: true,
     canReviewCommunication: true,
     canDeleteChat: false,
+    canManageSchedule: true,
+    canDeleteSchedule: false,
+    canManageDirectory: true,
+    canDeleteDirectoryContacts: false,
     canManageProjectUsers: false
   },
   guest: {
@@ -78,9 +94,13 @@ export const projectRoleCapabilities: Record<
     canEditFiles: false,
     canDeleteFiles: false,
     canReindexFiles: false,
-    canCreateCommunication: true,
+    canCreateCommunication: false,
     canReviewCommunication: true,
     canDeleteChat: false,
+    canManageSchedule: false,
+    canDeleteSchedule: false,
+    canManageDirectory: false,
+    canDeleteDirectoryContacts: false,
     canManageProjectUsers: false
   },
   readonly: {
@@ -93,6 +113,10 @@ export const projectRoleCapabilities: Record<
     canCreateCommunication: false,
     canReviewCommunication: false,
     canDeleteChat: false,
+    canManageSchedule: false,
+    canDeleteSchedule: false,
+    canManageDirectory: false,
+    canDeleteDirectoryContacts: false,
     canManageProjectUsers: false
   }
 };

@@ -1,19 +1,74 @@
 import { fail } from '@sveltejs/kit';
 import { actionError, formOptional, formString } from '$lib/server/auth';
+import {
+  existingFileAttachmentsFor,
+  formHasItemAttachments,
+  mergeItemAttachments,
+  normalizeItemAttachments,
+  uploadedItemAttachmentsFor,
+  type ItemAttachment
+} from '$lib/server/item-attachments';
 import { notifyProjectEvent } from '$lib/server/notifications';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
-import { getDirectory, getProject, getSubmittals } from '$lib/server/queries';
+import {
+  databaseClientForProjectAccess,
+  isProjectAccessError,
+  projectRoleCapabilities,
+  requireProjectAccess
+} from '$lib/server/project-access';
+import { getDirectory, getFiles, getProject, getSubmittals } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
+
+function formStringArray(form: FormData, name: string) {
+  return [...new Set(form.getAll(name).filter((value): value is string => typeof value === 'string' && value.trim().length > 0))];
+}
+
+async function assertProjectMembers(
+  client: NonNullable<App.Locals['supabase']>,
+  projectId: string,
+  userIds: string[],
+  label: string
+) {
+  const uniqueIds = [...new Set(userIds.filter(Boolean))];
+  if (!uniqueIds.length) return null;
+
+  const { data, error } = await client
+    .from('project_members')
+    .select('user_id')
+    .eq('project_id', projectId)
+    .in('user_id', uniqueIds);
+  if (error) return error.message;
+
+  const found = new Set((data ?? []).map((row: { user_id: string }) => row.user_id));
+  return uniqueIds.every((id) => found.has(id)) ? null : `${label} must already belong to this project.`;
+}
+
+function nextStepStatus(index: number) {
+  return index === 0 ? 'submitted' : 'draft';
+}
 
 export const load: PageServerLoad = async (event) => {
   const slug = event.params.slug;
-  const [project, submittals, directory] = await Promise.all([
+  const [project, submittals, directory, files] = await Promise.all([
     getProject(event, slug),
     getSubmittals(event, slug),
-    getDirectory(event, slug)
+    getDirectory(event, slug),
+    getFiles(event, slug)
   ]);
+  const access = event.locals.supabase ? await requireProjectAccess(event, slug) : null;
+  const role = access && !isProjectAccessError(access) ? access.role : null;
 
-  return { project, submittals, directory };
+  return {
+    project,
+    submittals,
+    directory,
+    files,
+    communicationAccess: {
+      role,
+      canCreate: role ? projectRoleCapabilities[role].canCreateCommunication : !event.locals.supabase,
+      canReview: role ? projectRoleCapabilities[role].canReviewCommunication : !event.locals.supabase,
+      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase
+    }
+  };
 };
 
 export const actions: Actions = {
@@ -23,22 +78,32 @@ export const actions: Actions = {
 
     const form = await event.request.formData();
     const access = await requireProjectAccess(event, event.params.slug, {
-      writable: true,
+      roles: ['superadmin', 'admin', 'member'],
       action: 'create submittals for this project'
     });
     if (isProjectAccessError(access)) return actionError(access.message, access.status);
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return actionError('Supabase is not configured yet.');
+    if (formHasItemAttachments(form) && !projectRoleCapabilities[access.role].canUploadFiles) {
+      return actionError('Not authorized to attach files to this project.', 403);
+    }
 
     const number = formString(form, 'number');
     const title = formString(form, 'title');
     const specSection = formOptional(form, 'specSection');
     const dueDate = formOptional(form, 'dueDate');
+    const submitBy = formOptional(form, 'submitBy');
     const owner = formOptional(form, 'owner');
+    const receivedFrom = formOptional(form, 'receivedFrom');
+    const revision = Math.max(0, Number(formString(form, 'revision') || 0));
     const notes = formOptional(form, 'notes');
     const sendEmails = form.get('sendEmails') === 'on';
+    const routingAssigneeIds = formStringArray(form, 'routingAssigneeIds');
+    const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
 
     if (!number || !title) return fail(400, { error: 'Number and title are required.' });
     if (owner) {
-      const { data: ownerMember, error: ownerError } = await client
+      const { data: ownerMember, error: ownerError } = await projectClient
         .from('project_members')
         .select('id')
         .eq('project_id', access.project.id)
@@ -47,8 +112,30 @@ export const actions: Actions = {
       if (ownerError) return fail(400, { error: ownerError.message });
       if (!ownerMember) return fail(400, { error: 'Submittal owner must already belong to this project.' });
     }
+    const memberError = await assertProjectMembers(
+      projectClient,
+      access.project.id,
+      [receivedFrom, ...routingAssigneeIds].filter(Boolean) as string[],
+      'Routing recipients'
+    );
+    if (memberError) return fail(400, { error: memberError });
 
-    const { data: row, error } = await client
+    let attachments: ItemAttachment[] = [];
+    try {
+      attachments = mergeItemAttachments(
+        await existingFileAttachmentsFor(projectClient, access.project.id, attachmentIds),
+        await uploadedItemAttachmentsFor({
+          event,
+          access,
+          form,
+          folderName: `Submittal ${number} Attachments`
+        })
+      );
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : 'Could not attach selected files.' });
+    }
+
+    const { data: row, error } = await projectClient
       .from('submittals')
       .insert({
         project_id: access.project.id,
@@ -57,9 +144,13 @@ export const actions: Actions = {
         spec_section: specSection,
         submitted_date: new Date().toISOString().slice(0, 10),
         due_date: dueDate,
+        submit_by: submitBy,
+        received_from: receivedFrom,
+        revision,
         owner,
         status: 'submitted',
-        notes
+        notes,
+        attachments_json: attachments
       })
       .select('id')
       .single();
@@ -67,14 +158,19 @@ export const actions: Actions = {
     if (error) return fail(400, { error: error.message });
 
     if (row?.id) {
-      const routing = ['admin', 'member', 'guest', 'readonly'].map((role, index) => ({
+      const route = routingAssigneeIds.length ? routingAssigneeIds : owner ? [owner] : [];
+      const routing = route.map((assignee, index) => ({
         submittal_id: row.id,
         step_order: index,
-        role,
-        status: index === 0 ? 'submitted' : 'draft'
+        assignee,
+        role: 'member',
+        due_date: index === 0 ? dueDate : null,
+        status: nextStepStatus(index)
       }));
-      const { error: routingError } = await client.from('submittal_routing_steps').insert(routing);
-      if (routingError) return fail(400, { error: routingError.message });
+      if (routing.length) {
+        const { error: routingError } = await projectClient.from('submittal_routing_steps').insert(routing);
+        if (routingError) return fail(400, { error: routingError.message });
+      }
 
       if (sendEmails) {
         const metadata = {
@@ -86,10 +182,14 @@ export const actions: Actions = {
           specSection,
           dueDate,
           owner,
-          workflowAssigneeId: owner,
+          submitBy,
+          receivedFrom,
+          revision,
+          workflowAssigneeId: route[0] ?? owner,
           skipUserIds: owner ? [owner] : [],
           status: 'submitted',
-          notes
+          notes,
+          attachmentCount: attachments.length
         };
         await notifyProjectEvent(event, {
           projectId: access.project.id,
@@ -99,7 +199,7 @@ export const actions: Actions = {
           entityId: row.id,
           metadata
         }).catch((error) => console.error('[notifications] submittal created notification failed:', error));
-        if (owner) {
+        if (route[0] ?? owner) {
           await notifyProjectEvent(event, {
             projectId: access.project.id,
             actorId: access.user.id,
@@ -123,6 +223,8 @@ export const actions: Actions = {
     const id = formString(form, 'id');
     const status = formString(form, 'status');
     const decision = formOptional(form, 'decision');
+    const workflowAssigneeId = formOptional(form, 'workflowAssigneeId');
+    const stepDueDate = formOptional(form, 'stepDueDate');
     const sendEmails = form.get('sendEmails') === 'on';
 
     if (!id || !['draft', 'submitted', 'in_review', 'approved', 'revise_resubmit', 'rejected'].includes(status)) {
@@ -134,22 +236,85 @@ export const actions: Actions = {
       action: 'update submittals for this project'
     });
     if (isProjectAccessError(access)) return actionError(access.message, access.status);
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return actionError('Supabase is not configured yet.');
+    if (formHasItemAttachments(form) && !projectRoleCapabilities[access.role].canUploadFiles) {
+      return actionError('Not authorized to attach files to this project.', 403);
+    }
+    if (workflowAssigneeId) {
+      const assigneeError = await assertProjectMembers(projectClient, access.project.id, [workflowAssigneeId], 'Workflow assignee');
+      if (assigneeError) return fail(400, { error: assigneeError });
+    }
 
-    const { data: existing, error: existingError } = await client
+    const { data: existing, error: existingError } = await projectClient
       .from('submittals')
-      .select('id, number, title, spec_section, due_date, owner, status, decision, notes')
+      .select('id, number, title, spec_section, due_date, owner, status, decision, notes, attachments_json, current_step, revision')
       .eq('id', id)
       .eq('project_id', access.project.id)
       .maybeSingle();
     if (existingError) return fail(400, { error: existingError.message });
     if (!existing) return fail(404, { error: 'Submittal not found.' });
 
-    const { error } = await client
+    const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
+    const removeAttachmentIds = new Set(formStringArray(form, 'removeAttachmentIds'));
+    const originalAttachments = normalizeItemAttachments(existing.attachments_json);
+    const currentAttachments = originalAttachments.filter(
+      (attachment) => !attachment.id || !removeAttachmentIds.has(attachment.id)
+    );
+    let attachments = currentAttachments;
+    try {
+      attachments = mergeItemAttachments(
+        currentAttachments,
+        await existingFileAttachmentsFor(projectClient, access.project.id, attachmentIds),
+        await uploadedItemAttachmentsFor({
+          event,
+          access,
+          form,
+          folderName: `Submittal ${existing.number} Attachments`
+        })
+      );
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : 'Could not attach selected files.' });
+    }
+
+    const attachmentCountChanged = attachments.length !== originalAttachments.length;
+    const { error } = await projectClient
       .from('submittals')
-      .update({ status, decision })
+      .update({
+        status,
+        decision,
+        attachments_json: attachments,
+        owner: workflowAssigneeId ?? existing.owner,
+        current_step: workflowAssigneeId && workflowAssigneeId !== existing.owner ? (existing.current_step ?? 0) + 1 : existing.current_step
+      })
       .eq('id', id)
       .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
+
+    if (workflowAssigneeId && workflowAssigneeId !== existing.owner) {
+      const { error: routeError } = await projectClient.from('submittal_routing_steps').insert({
+        submittal_id: id,
+        step_order: (existing.current_step ?? 0) + 1,
+        assignee: workflowAssigneeId,
+        role: 'member',
+        due_date: stepDueDate,
+        status: 'submitted'
+      });
+      if (routeError) return fail(400, { error: routeError.message });
+    } else {
+      const { error: routeUpdateError } = await projectClient
+        .from('submittal_routing_steps')
+        .update({
+          status,
+          response: decision,
+          due_date: stepDueDate,
+          completed_by: access.user.id,
+          signed_off_at: ['approved', 'revise_resubmit', 'rejected'].includes(status) ? new Date().toISOString() : null
+        })
+        .eq('submittal_id', id)
+        .eq('step_order', existing.current_step ?? 0);
+      if (routeUpdateError && routeUpdateError.code !== '42501') return fail(400, { error: routeUpdateError.message });
+    }
 
     const metadata = {
       projectSlug: access.project.slug,
@@ -159,12 +324,14 @@ export const actions: Actions = {
       title: existing.title,
       specSection: existing.spec_section,
       dueDate: existing.due_date,
-      owner: existing.owner,
-      workflowAssigneeId: existing.owner,
+      owner: workflowAssigneeId ?? existing.owner,
+      workflowAssigneeId: workflowAssigneeId ?? existing.owner,
+      revision: existing.revision ?? 0,
       previousStatus: existing.status,
       status,
       decision,
-      notes: existing.notes
+      notes: existing.notes,
+      attachmentCount: attachments.length
     };
 
     if (sendEmails && existing.status !== status) {
@@ -204,7 +371,7 @@ export const actions: Actions = {
           metadata
         }).catch((error) => console.error('[notifications] submittal action-required notification failed:', error));
       }
-    } else if (sendEmails && decision && decision !== (existing.decision ?? '')) {
+    } else if (sendEmails && ((decision && decision !== (existing.decision ?? '')) || attachmentCountChanged)) {
       await notifyProjectEvent(event, {
         projectId: access.project.id,
         actorId: access.user.id,

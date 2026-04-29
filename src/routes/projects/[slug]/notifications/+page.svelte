@@ -1,14 +1,12 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Bell, Check, Clock3, Lock, Send } from '@lucide/svelte';
+  import { Bell, Check, Clock3, Lock, RefreshCw, Send } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import { relativeTime } from '$lib/utils';
 
   let { data, form } = $props();
   let activeSection = $state('my-notifications');
-  const implementedEventDefinitions = $derived(
-    data.eventDefinitions.filter((definition) => !['photo.shared', 'photo.comment_mentioned'].includes(definition.type))
-  );
+  const implementedEventDefinitions = $derived(data.eventDefinitions);
   const preferenceEventDefinitions = $derived(
     implementedEventDefinitions.filter((definition) => definition.type !== 'photo.uploaded')
   );
@@ -168,6 +166,7 @@
             <th>Recipient</th>
             <th>Subject</th>
             <th>Status</th>
+            {#if data.access.canManageRules}<th>Action</th>{/if}
           </tr>
         </thead>
         <tbody>
@@ -181,10 +180,22 @@
                 {#if delivery.error}<span class="delivery-error">{delivery.error}</span>{/if}
               </td>
               <td><span class={`status-badge ${delivery.status}`}>{delivery.status}</span></td>
+              {#if data.access.canManageRules}
+                <td>
+                  {#if delivery.status === 'failed' || delivery.status === 'skipped'}
+                    <form method="post" action="?/retryDelivery" use:enhance>
+                      <input type="hidden" name="id" value={delivery.id} />
+                      <button class="mini-button" type="submit"><RefreshCw size={14} />Retry</button>
+                    </form>
+                  {:else}
+                    -
+                  {/if}
+                </td>
+              {/if}
             </tr>
           {:else}
             <tr>
-              <td colspan="5">
+              <td colspan={data.access.canManageRules ? 6 : 5}>
                 <div class="empty-log">
                   <Bell size={20} />
                   <strong>No notification deliveries yet.</strong>

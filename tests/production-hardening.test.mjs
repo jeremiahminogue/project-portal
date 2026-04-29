@@ -256,6 +256,8 @@ test('project roles have explicit production capabilities', () => {
   assert.match(access, /projectRoleCapabilities/);
   assert.match(access, /canUploadFiles/);
   assert.match(access, /canDeleteChat/);
+  assert.match(access, /canManageSchedule/);
+  assert.match(access, /canManageDirectory/);
   assert.match(access, /guest:\s*\{[\s\S]*canUploadFiles: false/);
   assert.match(access, /readonly:\s*\{[\s\S]*canCreateCommunication: false/);
   assert.match(filesPage, /projectRoleCapabilities\[role\]\.canUploadFiles/);
@@ -345,12 +347,39 @@ test('updates can attach project files and files include a documents view', () =
   const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
   const nav = file('src/lib/components/ProjectNav.svelte');
   const queries = file('src/lib/server/queries.ts');
-  assert.match(updatesServer, /updateAttachmentsFor/);
+  assert.match(updatesServer, /existingFileAttachmentsFor/);
   assert.match(updatesServer, /attachments_json: attachments/);
+  assert.match(updatesServer, /updateAccess/);
   assert.match(updatesUi, /name="attachmentIds"/);
-  assert.match(updatesUi, /attachment-chip/);
+  assert.match(updatesUi, /AttachmentChips/);
+  assert.match(updatesUi, /\{#if compose && canPost\}/);
   assert.match(queries, /normalizeUpdateAttachments/);
+  assert.match(queries, /: 'General'/);
   assert.match(filesPage, /isGeneralDocument/);
   assert.match(filesPage, /tool'\) === 'documents'/);
   assert.match(nav, /label: 'Documents'/);
+});
+
+test('cross-app completion surfaces stay coherently wired', () => {
+  const queries = file('src/lib/server/queries.ts');
+  const submittalsUi = file('src/routes/projects/[slug]/submittals/+page.svelte');
+  const chatServer = file('src/routes/projects/[slug]/chat/+page.server.ts');
+  const chatUi = file('src/routes/projects/[slug]/chat/+page.svelte');
+  const shareRoute = file('src/routes/api/files/[id]/share/+server.ts');
+
+  assert.match(queries, /ownerId: row\.owner/);
+  assert.match(submittalsUi, /selectedSubmittal\.ownerId/);
+  assert.match(submittalsUi, /\{sub\.revision \?\? 0\}/);
+  assert.match(submittalsUi, /formatDate\(sub\.submitBy\)/);
+  assert.match(submittalsUi, /\{sub\.receivedFrom \|\| '-'\}/);
+  assert.match(chatServer, /Message or attachment is required/);
+  assert.match(chatServer, /body: body \|\| 'Attached files\.'/);
+  assert.doesNotMatch(chatUi, /name="body" placeholder="Type a message" required/);
+  assert.match(shareRoute, /External share links require Supabase service configuration/);
+  assert.match(shareRoute, /const expiresAt = daysFromNow\(days\)/);
+  assert.match(shareRoute, /parseSharedEmails/);
+  assert.match(shareRoute, /Share with up to 25 email recipients/);
+  assert.match(file('src/routes/projects/[slug]/schedule/+page.server.ts'), /canManageSchedule/);
+  assert.match(file('src/routes/projects/[slug]/directory/+page.server.ts'), /canManageDirectory/);
+  assert.match(file('src/routes/projects/[slug]/directory/+page.svelte'), /contactTypeValue/);
 });

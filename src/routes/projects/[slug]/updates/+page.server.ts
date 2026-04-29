@@ -1,9 +1,15 @@
 import { fail } from '@sveltejs/kit';
 import { formString } from '$lib/server/auth';
 import { sendPortalEmail, textToHtml } from '$lib/server/email';
-import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import {
+  existingFileAttachmentsFor,
+  formHasItemAttachments,
+  mergeItemAttachments,
+  uploadedItemAttachmentsFor,
+  type ItemAttachment
+} from '$lib/server/item-attachments';
+import { databaseClientForProjectAccess, isProjectAccessError, projectRoleCapabilities, requireProjectAccess } from '$lib/server/project-access';
 import { getDirectory, getFiles, getProject, getUpdates } from '$lib/server/queries';
-import { bytesToSize } from '$lib/utils';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
@@ -13,53 +19,19 @@ export const load: PageServerLoad = async (event) => {
     getDirectory(event, event.params.slug),
     getFiles(event, event.params.slug)
   ]);
-  return { project, updates, directory, files };
+  const access = event.locals.supabase ? await requireProjectAccess(event, event.params.slug) : null;
+  const role = access && !isProjectAccessError(access) ? access.role : null;
+  return {
+    project,
+    updates,
+    directory,
+    files,
+    updateAccess: {
+      canPost: role ? projectRoleCapabilities[role].canCreateCommunication : !event.locals.supabase,
+      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase
+    }
+  };
 };
-
-function fileTypeFor(name: string, mime?: string | null) {
-  if (mime?.startsWith('image/')) return 'image';
-  if (mime?.includes('spreadsheet') || /\.(xlsx|xls|csv)$/i.test(name)) return 'xlsx';
-  if (mime?.includes('word') || /\.(docx|doc)$/i.test(name)) return 'docx';
-  if (mime?.includes('pdf') || /\.pdf$/i.test(name)) return 'pdf';
-  return 'file';
-}
-
-async function updateAttachmentsFor(client: NonNullable<App.Locals['supabase']>, projectId: string, ids: string[]) {
-  const attachmentIds = [...new Set(ids)].filter(Boolean).slice(0, 10);
-  if (!attachmentIds.length) return [];
-
-  const { data, error } = await client
-    .from('files')
-    .select('id, name, size_bytes, mime_type, parent_folder_id')
-    .eq('project_id', projectId)
-    .eq('is_folder', false)
-    .in('id', attachmentIds);
-
-  if (error) throw new Error(error.message);
-
-  const rows = data ?? [];
-  const folderIds = [...new Set(rows.map((row: any) => row.parent_folder_id).filter(Boolean) as string[])];
-  const folderById = new Map<string, string>();
-  if (folderIds.length) {
-    const { data: folders, error: folderError } = await client.from('files').select('id, name').in('id', folderIds);
-    if (folderError) throw new Error(folderError.message);
-    for (const folder of folders ?? []) folderById.set(folder.id, folder.name);
-  }
-
-  const byId = new Map(rows.map((row: any) => [row.id, row]));
-  return attachmentIds.flatMap((id) => {
-    const row = byId.get(id);
-    if (!row) return [];
-    const folder = row.parent_folder_id ? folderById.get(row.parent_folder_id) : null;
-    return {
-      id: row.id,
-      name: row.name,
-      size: bytesToSize(row.size_bytes),
-      type: fileTypeFor(row.name, row.mime_type),
-      path: folder ? `${folder}/${row.name}` : row.name
-    };
-  });
-}
 
 export const actions: Actions = {
   postUpdate: async (event) => {
@@ -72,6 +44,11 @@ export const actions: Actions = {
       action: 'post updates for this project'
     });
     if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return fail(400, { error: 'Supabase is not configured yet.' });
+    if (formHasItemAttachments(form) && !projectRoleCapabilities[access.role].canUploadFiles) {
+      return fail(403, { error: 'Not authorized to attach files to this project.' });
+    }
 
     const title = formString(form, 'title');
     const body = formString(form, 'body');
@@ -81,14 +58,22 @@ export const actions: Actions = {
 
     if (!title || !body) return fail(400, { error: 'Title and body are required.' });
 
-    let attachments: Awaited<ReturnType<typeof updateAttachmentsFor>> = [];
+    let attachments: ItemAttachment[] = [];
     try {
-      attachments = await updateAttachmentsFor(client, access.project.id, attachmentIds);
+      attachments = mergeItemAttachments(
+        await existingFileAttachmentsFor(projectClient, access.project.id, attachmentIds),
+        await uploadedItemAttachmentsFor({
+          event,
+          access,
+          form,
+          folderName: 'Update Attachments'
+        })
+      );
     } catch (error) {
       return fail(400, { error: error instanceof Error ? error.message : 'Could not attach selected files.' });
     }
 
-    const { error } = await client.from('updates').insert({
+    const { error } = await projectClient.from('updates').insert({
       project_id: access.project.id,
       title,
       body,
@@ -105,6 +90,79 @@ export const actions: Actions = {
         subject: `Project update: ${title}`,
         html: textToHtml(body)
       });
+    }
+
+    return { ok: true };
+  },
+
+  addComment: async (event) => {
+    const client = event.locals.supabase;
+    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
+    const form = await event.request.formData();
+    const updateId = formString(form, 'updateId');
+    const body = formString(form, 'body');
+    if (!updateId || !body) return fail(400, { error: 'Comment is required.' });
+
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin', 'member', 'guest'],
+      action: 'comment on updates for this project'
+    });
+    if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return fail(400, { error: 'Supabase is not configured yet.' });
+
+    const { data: update, error: updateError } = await projectClient
+      .from('updates')
+      .select('id')
+      .eq('id', updateId)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (updateError) return fail(400, { error: updateError.message });
+    if (!update) return fail(404, { error: 'Update not found.' });
+
+    const { error } = await projectClient.from('update_comments').insert({
+      update_id: updateId,
+      author_id: access.user.id,
+      body
+    });
+    if (error) return fail(400, { error: error.message });
+    return { ok: true };
+  },
+
+  toggleLike: async (event) => {
+    const client = event.locals.supabase;
+    if (!client) return fail(400, { error: 'Supabase is not configured yet.' });
+    const form = await event.request.formData();
+    const updateId = formString(form, 'updateId');
+    if (!updateId) return fail(400, { error: 'Update is required.' });
+
+    const access = await requireProjectAccess(event, event.params.slug);
+    if (isProjectAccessError(access)) return fail(access.status, { error: access.message });
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return fail(400, { error: 'Supabase is not configured yet.' });
+    const { data: update, error: updateError } = await projectClient
+      .from('updates')
+      .select('id')
+      .eq('id', updateId)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (updateError) return fail(400, { error: updateError.message });
+    if (!update) return fail(404, { error: 'Update not found.' });
+
+    const { data: existing, error: existingError } = await projectClient
+      .from('update_likes')
+      .select('update_id')
+      .eq('update_id', updateId)
+      .eq('user_id', access.user.id)
+      .maybeSingle();
+    if (existingError) return fail(400, { error: existingError.message });
+
+    if (existing) {
+      const { error } = await projectClient.from('update_likes').delete().eq('update_id', updateId).eq('user_id', access.user.id);
+      if (error) return fail(400, { error: error.message });
+    } else {
+      const { error } = await projectClient.from('update_likes').insert({ update_id: updateId, user_id: access.user.id });
+      if (error) return fail(400, { error: error.message });
     }
 
     return { ok: true };
