@@ -53,6 +53,9 @@ test('password reset flow uses callback session before updateUser', () => {
   assert.match(reset, /searchParams\.get\('error'\)/);
   assert.match(reset, /updateUser\(\{ password \}\)/);
   assert.match(callback, /next === '\/reset-password'/);
+  assert.match(callback, /verifyOtp\(\{ token_hash: tokenHash, type \}\)/);
+  assert.match(callback, /setSession\(\{/);
+  assert.match(callback, /window\.location\.hash/);
   assert.match(login, /href="\/forgot-password"/);
 });
 
@@ -102,6 +105,9 @@ test('admin access email does not include plaintext temporary passwords', () => 
   assert.doesNotMatch(users, /tempPassword/);
   assert.doesNotMatch(usersUi, /name="password"/);
   assert.match(users, /escapeHtml/);
+  assert.match(users, /hashed_token/);
+  assert.match(users, /token_hash/);
+  assert.match(users, /'\/reset-password'/);
 });
 
 test('admin page loads enforce superadmin access directly', () => {

@@ -20,18 +20,45 @@ function fullNameMetadata(fullName: string | null) {
   return fullName ? { full_name: fullName } : undefined;
 }
 
+function safeNext(next: string) {
+  if (!next.startsWith('/') || next.startsWith('//')) return '/';
+  if (next.startsWith('/auth/callback')) return '/';
+  return next;
+}
+
+function authCallbackUrl(origin: string, next: string) {
+  return `${origin}/auth/callback?next=${encodeURIComponent(safeNext(next))}`;
+}
+
+function portalActionLink(origin: string, next: string, tokenHash: string | undefined, type: 'invite' | 'magiclink') {
+  if (!tokenHash) return undefined;
+  const params = new URLSearchParams({
+    token_hash: tokenHash,
+    type,
+    next: safeNext(next)
+  });
+  return `${origin}/auth/callback?${params.toString()}`;
+}
+
 async function findAuthUserByEmail(admin: ReturnType<typeof createAdminClient>, email: string) {
   const users = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
   if (users.error) throw new Error(users.error.message);
   return users.data.users.find((user) => user.email?.toLowerCase() === email.toLowerCase()) ?? null;
 }
 
-async function generateAuthLink(admin: ReturnType<typeof createAdminClient>, type: 'invite' | 'magiclink', email: string, redirectTo: string, fullName?: string | null) {
+async function generateAuthLink(
+  admin: ReturnType<typeof createAdminClient>,
+  type: 'invite' | 'magiclink',
+  email: string,
+  origin: string,
+  next: string,
+  fullName?: string | null
+) {
   const result = await admin.auth.admin.generateLink({
     type,
     email,
     options: {
-      redirectTo,
+      redirectTo: authCallbackUrl(origin, next),
       data: fullNameMetadata(fullName ?? null)
     }
   } as never);
@@ -39,7 +66,9 @@ async function generateAuthLink(admin: ReturnType<typeof createAdminClient>, typ
   if (result.error) throw new Error(result.error.message);
   return {
     user: result.data.user,
-    actionLink: result.data.properties?.action_link as string | undefined
+    actionLink:
+      portalActionLink(origin, next, result.data.properties?.hashed_token as string | undefined, type) ??
+      (result.data.properties?.action_link as string | undefined)
   };
 }
 
@@ -107,7 +136,7 @@ export const actions: Actions = {
     if (!email) return fail(400, { error: 'Email is required.' });
 
     const admin = createAdminClient();
-    const redirectTo = `${event.url.origin}/auth/callback?next=${encodeURIComponent(projectId ? `/projects` : '/')}`;
+    const next = projectId ? '/projects' : '/';
     const loginUrl = `${event.url.origin}/login`;
     const existing = await findAuthUserByEmail(admin, email);
     let userId = existing?.id;
@@ -115,7 +144,7 @@ export const actions: Actions = {
 
     if (!existing) {
       try {
-        const generated = await generateAuthLink(admin, 'invite', email, redirectTo, fullName);
+        const generated = await generateAuthLink(admin, 'invite', email, event.url.origin, '/reset-password', fullName);
         userId = generated.user.id;
         actionLink = generated.actionLink;
       } catch (error) {
@@ -123,7 +152,7 @@ export const actions: Actions = {
       }
     } else if (sendEmail) {
       try {
-        const generated = await generateAuthLink(admin, 'magiclink', email, redirectTo, fullName);
+        const generated = await generateAuthLink(admin, 'magiclink', email, event.url.origin, next, fullName);
         actionLink = generated.actionLink;
       } catch {
         actionLink = undefined;
@@ -213,7 +242,8 @@ export const actions: Actions = {
             admin,
             'magiclink',
             email,
-            `${event.url.origin}/auth/callback?next=/projects`,
+            event.url.origin,
+            '/projects',
             (authUser.user_metadata?.full_name as string | undefined) ?? null
           );
           actionLink = generated.actionLink;
@@ -256,7 +286,7 @@ export const actions: Actions = {
     if (!email) return fail(400, { error: 'User email not found.' });
     let actionLink: string | undefined;
     try {
-      const generated = await generateAuthLink(admin, 'magiclink', email, `${event.url.origin}/auth/callback?next=/`, null);
+      const generated = await generateAuthLink(admin, 'magiclink', email, event.url.origin, '/', null);
       actionLink = generated.actionLink;
     } catch {
       actionLink = undefined;
