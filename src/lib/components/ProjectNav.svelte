@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     CalendarDays,
+    Bell,
     FileText,
     FolderOpen,
     Home,
@@ -37,6 +38,7 @@
     { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare },
     { href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays },
     { href: `/projects/${slug}/updates`, label: 'Updates', icon: Newspaper },
+    { href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell },
     { href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare },
     { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }
   ]);

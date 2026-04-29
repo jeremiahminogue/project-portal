@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/notifications/photo-digest",
+      "schedule": "0 * * * *"
+    }
+  ]
+}

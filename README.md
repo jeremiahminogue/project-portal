@@ -13,6 +13,7 @@ Production URL: `https://portal.puebloelectrics.com`
 - Tigris or Cloudflare R2 S3-compatible object storage for uploads/downloads
 - Same-origin browser PDF preview
 - Resend email API via direct HTTPS calls
+- Procore-style notification outbox for RFIs, submittals, and uploaded-photo digests
 - Vercel adapter in Vercel, Node adapter for local Windows builds
 
 ## Run
@@ -58,6 +59,7 @@ Existing `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` env vars a
 - `R2_REGION`
 - `RESEND_API_KEY`
 - `RESEND_FROM`
+- `NOTIFICATION_CRON_SECRET` or `CRON_SECRET` for `/api/notifications/photo-digest`
 - `PUBLIC_SITE_URL` (`https://portal.puebloelectrics.com` in production)
 - `PORTAL_MOCK_AUTH` (local-only; defaults on outside production)
 - `PORTAL_FORCE_MOCK_AUTH` (local-only override for screenshots/testing)
@@ -74,13 +76,22 @@ With no Supabase env vars outside production, pages fall back to typed mock data
 - `/` project dashboard
 - `/projects/[slug]` project overview
 - `/projects/[slug]/files` searchable files, direct S3-compatible upload, streamed download, PDF preview
-- `/projects/[slug]/submittals` submittal and RFI creation, assignment, status, decision/answer tracking
+- `/projects/[slug]/submittals` submittal creation, routing, status, and decision tracking
+- `/projects/[slug]/rfis` RFI creation, RFI manager, ball-in-court, due-date, response, and close/reopen tracking
 - `/projects/[slug]/schedule`
 - `/projects/[slug]/updates` update publishing with optional team email
+- `/projects/[slug]/notifications` notification preferences, project matrix, and delivery log
 - `/projects/[slug]/chat`
 - `/projects/[slug]/directory`
 - `/admin`, `/admin/projects`, `/admin/users` for superadmins
 - `/api/health` deployment smoke check
+- `/api/notifications/photo-digest` hourly uploaded-photo digest endpoint, scheduled by `vercel.json`
+
+## Notification Model
+
+- RFIs follow a Procore-style matrix: Ball in Court shifts always notify the new responsible user, while created/reassigned/response/closed/reopened/due-date events route through configurable creator, RFI manager, assignee, and distribution-list rules.
+- Submittals preserve Procore's Create/Update & Send behavior: optional configured emails only send when requested, but action-required workflow emails stay required.
+- Uploaded photos use a Procore-style subscription model: users subscribe to the hourly digest, and digest rows include project links plus per-photo download links.
 
 ## Notes
 

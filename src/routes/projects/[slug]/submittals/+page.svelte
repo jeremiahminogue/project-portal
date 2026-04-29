@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Check, FilePlus2, ListFilter, PencilLine, Search } from '@lucide/svelte';
+  import { Bell, Check, FilePlus2, PencilLine, Search, X } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate } from '$lib/utils';
@@ -48,6 +48,11 @@
     };
     return statuses[label] ?? 'in_review';
   }
+
+  function clearFilters() {
+    query = '';
+    savedView = 'all';
+  }
 </script>
 
 <svelte:head>
@@ -60,10 +65,10 @@
       <h1>Submittals</h1>
       <p>Create, assign, review, and track submittal packages without mixing them into the drawing log.</p>
       <div class="tool-tabs" aria-label="Submittal sections">
-        <button class="active" type="button">Items</button>
-        <button type="button">Packages</button>
-        <button type="button">Spec Sections</button>
-        <button type="button">Ball In Court</button>
+        <button class:active={savedView === 'all'} type="button" onclick={() => (savedView = 'all')}>Items</button>
+        <button class:active={savedView === 'ball'} type="button" onclick={() => (savedView = 'ball')}>Ball In Court</button>
+        <button class:active={savedView === 'open'} type="button" onclick={() => (savedView = 'open')}>Open</button>
+        <button class:active={savedView === 'closed'} type="button" onclick={() => (savedView = 'closed')}>Closed</button>
       </div>
     </div>
     <div class="tool-actions">
@@ -89,6 +94,11 @@
       <div><label class="label" for="sub-due">Due</label><input id="sub-due" class="field" name="dueDate" type="date" /></div>
       <div class="md:col-span-2"><label class="label" for="sub-owner">Assign to</label><select id="sub-owner" class="field" name="owner"><option value="">Unassigned</option>{#each data.directory as person}<option value={person.id}>{person.name} - {person.organization}</option>{/each}</select></div>
       <div class="md:col-span-2 xl:col-span-3"><label class="label" for="sub-notes">Notes</label><input id="sub-notes" class="field" name="notes" placeholder="Routing notes, upload reference, or decision context" /></div>
+      <label class="notify-check md:col-span-2 xl:col-span-4" for="sub-send-emails">
+        <input id="sub-send-emails" name="sendEmails" type="checkbox" checked />
+        <Bell size={15} />
+        <span>Create and send workflow emails</span>
+      </label>
       <div class="flex items-end"><button class="btn btn-primary w-full" type="submit"><Check size={16} />Create</button></div>
     </form>
   {/if}
@@ -107,14 +117,25 @@
       {#if selectedSubmittal.id}
         <form class="tracking-form" method="post" action="?/updateSubmittal" use:enhance>
           <input type="hidden" name="id" value={selectedSubmittal.id} />
-          <select class="field compact" name="status" bind:value={decisionStatus} aria-label="Submittal decision">
-            <option value="submitted">Submitted</option>
-            <option value="in_review">In Review</option>
-            <option value="approved">Approved</option>
-            <option value="revise_resubmit">Revise & Resubmit</option>
-            <option value="rejected">Rejected</option>
-          </select>
-          <input class="field" name="decision" placeholder="Decision note or routing update" />
+          <label class="tracking-field">
+            <span>Status</span>
+            <select class="field compact" name="status" bind:value={decisionStatus} aria-label="Submittal decision">
+              <option value="submitted">Submitted</option>
+              <option value="in_review">In Review</option>
+              <option value="approved">Approved</option>
+              <option value="revise_resubmit">Revise & Resubmit</option>
+              <option value="rejected">Rejected</option>
+            </select>
+          </label>
+          <label class="tracking-field decision-field">
+            <span>Decision note</span>
+            <input class="field" name="decision" placeholder="Decision note or routing update" />
+          </label>
+          <label class="notify-check compact-notify" for="sub-update-send-emails">
+            <input id="sub-update-send-emails" name="sendEmails" type="checkbox" checked />
+            <Bell size={15} />
+            <span>Update and send workflow emails</span>
+          </label>
           <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save tracking</button>
         </form>
       {/if}
@@ -148,9 +169,9 @@
           <Search size={16} />
           <input bind:value={query} placeholder="Search" />
         </div>
-        <button class="filter-button" type="button">
-          <ListFilter size={14} />
-          All Filters
+        <button class="filter-button" type="button" onclick={clearFilters} disabled={!query && savedView === 'all'} title="Clear filters">
+          <X size={14} />
+          Clear
         </button>
         <select class="field compact" aria-label="Status filter" bind:value={savedView}>
           <option value="all">All statuses</option>
@@ -220,16 +241,80 @@
     display: block;
     max-width: 18rem;
     overflow: hidden;
-    color: #1d5fb8;
+    color: #164f9e;
     font-weight: 750;
     text-overflow: ellipsis;
     text-decoration: underline;
     white-space: nowrap;
   }
 
+  .tracking-form {
+    grid-template-columns: minmax(11rem, 14rem) minmax(16rem, 1fr) auto auto;
+    align-items: end;
+  }
+
+  .tracking-form .btn {
+    white-space: nowrap;
+  }
+
+  .tracking-field {
+    display: grid;
+    gap: 0.28rem;
+    min-width: 0;
+  }
+
+  .tracking-field span {
+    color: #4f594f;
+    font-size: 0.68rem;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .tracking-field .field {
+    width: 100%;
+  }
+
+  .notify-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    color: #303630;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .notify-check input {
+    width: 1rem;
+    height: 1rem;
+    accent-color: #191b19;
+  }
+
+  .compact-notify {
+    white-space: nowrap;
+    align-self: end;
+    min-height: 2.35rem;
+  }
+
+  .filter-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
   @media (max-width: 900px) {
     .workflow-workbench {
       grid-template-columns: 1fr;
+    }
+
+    .tracking-form {
+      grid-template-columns: 1fr;
+    }
+
+    .tracking-form .btn {
+      width: 100%;
+    }
+
+    .compact-notify {
+      white-space: normal;
     }
   }
 </style>

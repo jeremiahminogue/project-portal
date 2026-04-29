@@ -1,6 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { buildStorageKey, encodeStorageId, putObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { registerUploadedFile } from '$lib/server/file-ingest';
+import { isPhotoUpload, notifyProjectEvent } from '$lib/server/notifications';
+import { isProductionRuntime } from '$lib/server/env';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
@@ -51,11 +53,11 @@ export const POST: RequestHandler = async (event) => {
   }
   if (rawFile.size > MAX_BYTES) return json({ error: 'File is too large.' }, { status: 413 });
 
-  const contentType = contentTypeFor(rawFile.name, rawFile.type);
-  const storageKey = buildStorageKey(projectSlug, rawFile.name);
-  const bytes = new Uint8Array(await rawFile.arrayBuffer());
-
   if (!event.locals.supabase) {
+    if (isProductionRuntime()) return json({ error: 'Portal authentication is not configured.' }, { status: 503 });
+    const contentType = contentTypeFor(rawFile.name, rawFile.type);
+    const storageKey = buildStorageKey(projectSlug, rawFile.name);
+    const bytes = new Uint8Array(await rawFile.arrayBuffer());
     try {
       await putObject(storageKey, bytes, contentType);
     } catch (error) {
@@ -67,6 +69,10 @@ export const POST: RequestHandler = async (event) => {
 
   const access = await requireProjectAccess(event, projectSlug, { writable: true });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+
+  const contentType = contentTypeFor(rawFile.name, rawFile.type);
+  const storageKey = buildStorageKey(projectSlug, rawFile.name);
+  const bytes = new Uint8Array(await rawFile.arrayBuffer());
 
   try {
     await putObject(storageKey, bytes, contentType);
@@ -86,6 +92,26 @@ export const POST: RequestHandler = async (event) => {
       documentKind,
       bytes
     });
+    if (isPhotoUpload(rawFile.name, contentType, folderName)) {
+      await notifyProjectEvent(event, {
+        projectId: access.project.id,
+        actorId: access.user.id,
+        type: 'photo.uploaded',
+        entityType: 'photo',
+        entityId: result.id,
+        metadata: {
+          projectSlug: access.project.slug,
+          projectName: access.project.name,
+          actorEmail: access.user.email,
+          fileName: rawFile.name,
+          folderName,
+          mimeType: contentType,
+          sizeBytes: rawFile.size,
+          documentKind,
+          storageKey: result.storageKey
+        }
+      }).catch((error) => console.error('[notifications] photo upload notification failed:', error));
+    }
     return json(result, { status: result.ocrDeferred ? 202 : 201 });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Could not save file record.' }, { status: 500 });

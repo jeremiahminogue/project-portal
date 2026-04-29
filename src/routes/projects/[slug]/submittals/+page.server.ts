@@ -1,6 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { actionError, formOptional, formString } from '$lib/server/auth';
-import { escapeHtml, sendPortalEmail } from '$lib/server/email';
+import { notifyProjectEvent } from '$lib/server/notifications';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { getDirectory, getProject, getSubmittals } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
@@ -34,6 +34,7 @@ export const actions: Actions = {
     const dueDate = formOptional(form, 'dueDate');
     const owner = formOptional(form, 'owner');
     const notes = formOptional(form, 'notes');
+    const sendEmails = form.get('sendEmails') === 'on';
 
     if (!number || !title) return fail(400, { error: 'Number and title are required.' });
     if (owner) {
@@ -74,9 +75,43 @@ export const actions: Actions = {
       }));
       const { error: routingError } = await client.from('submittal_routing_steps').insert(routing);
       if (routingError) return fail(400, { error: routingError.message });
+
+      if (sendEmails) {
+        const metadata = {
+          projectSlug: access.project.slug,
+          projectName: access.project.name,
+          actorEmail: access.user.email,
+          number,
+          title,
+          specSection,
+          dueDate,
+          owner,
+          workflowAssigneeId: owner,
+          skipUserIds: owner ? [owner] : [],
+          status: 'submitted',
+          notes
+        };
+        await notifyProjectEvent(event, {
+          projectId: access.project.id,
+          actorId: access.user.id,
+          type: 'submittal.created',
+          entityType: 'submittal',
+          entityId: row.id,
+          metadata
+        }).catch((error) => console.error('[notifications] submittal created notification failed:', error));
+        if (owner) {
+          await notifyProjectEvent(event, {
+            projectId: access.project.id,
+            actorId: access.user.id,
+            type: 'submittal.action_required',
+            entityType: 'submittal',
+            entityId: row.id,
+            metadata
+          }).catch((error) => console.error('[notifications] submittal action-required notification failed:', error));
+        }
+      }
     }
 
-    await maybeNotifyAssignee(event, owner, `New submittal ${number}: ${title}`, access.user.email ?? 'Pueblo Electric');
     return { ok: true };
   },
 
@@ -88,6 +123,7 @@ export const actions: Actions = {
     const id = formString(form, 'id');
     const status = formString(form, 'status');
     const decision = formOptional(form, 'decision');
+    const sendEmails = form.get('sendEmails') === 'on';
 
     if (!id || !['draft', 'submitted', 'in_review', 'approved', 'revise_resubmit', 'rejected'].includes(status)) {
       return fail(400, { error: 'Valid submittal status is required.' });
@@ -99,22 +135,85 @@ export const actions: Actions = {
     });
     if (isProjectAccessError(access)) return actionError(access.message, access.status);
 
+    const { data: existing, error: existingError } = await client
+      .from('submittals')
+      .select('id, number, title, spec_section, due_date, owner, status, decision, notes')
+      .eq('id', id)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (existingError) return fail(400, { error: existingError.message });
+    if (!existing) return fail(404, { error: 'Submittal not found.' });
+
     const { error } = await client
       .from('submittals')
       .update({ status, decision })
       .eq('id', id)
       .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
+
+    const metadata = {
+      projectSlug: access.project.slug,
+      projectName: access.project.name,
+      actorEmail: access.user.email,
+      number: existing.number,
+      title: existing.title,
+      specSection: existing.spec_section,
+      dueDate: existing.due_date,
+      owner: existing.owner,
+      workflowAssigneeId: existing.owner,
+      previousStatus: existing.status,
+      status,
+      decision,
+      notes: existing.notes
+    };
+
+    if (sendEmails && existing.status !== status) {
+      await notifyProjectEvent(event, {
+        projectId: access.project.id,
+        actorId: access.user.id,
+        type: 'submittal.workflow_step_completed',
+        entityType: 'submittal',
+        entityId: id,
+        metadata
+      }).catch((error) => console.error('[notifications] submittal workflow notification failed:', error));
+
+      const decisionEvent =
+        status === 'approved'
+          ? 'submittal.approved'
+          : status === 'revise_resubmit'
+            ? 'submittal.revise_resubmit'
+            : status === 'rejected'
+              ? 'submittal.rejected'
+              : null;
+      if (decisionEvent) {
+        await notifyProjectEvent(event, {
+          projectId: access.project.id,
+          actorId: access.user.id,
+          type: decisionEvent,
+          entityType: 'submittal',
+          entityId: id,
+          metadata
+        }).catch((error) => console.error('[notifications] submittal decision notification failed:', error));
+      } else if (existing.owner && ['submitted', 'in_review'].includes(status)) {
+        await notifyProjectEvent(event, {
+          projectId: access.project.id,
+          actorId: access.user.id,
+          type: 'submittal.action_required',
+          entityType: 'submittal',
+          entityId: id,
+          metadata
+        }).catch((error) => console.error('[notifications] submittal action-required notification failed:', error));
+      }
+    } else if (sendEmails && decision && decision !== (existing.decision ?? '')) {
+      await notifyProjectEvent(event, {
+        projectId: access.project.id,
+        actorId: access.user.id,
+        type: 'submittal.updated',
+        entityType: 'submittal',
+        entityId: id,
+        metadata
+      }).catch((error) => console.error('[notifications] submittal update notification failed:', error));
+    }
     return { ok: true };
   }
 };
-
-async function maybeNotifyAssignee(event: Parameters<typeof requireProjectAccess>[0], userId: string | null, subject: string, sender: string) {
-  if (!userId || !event.locals.supabase) return;
-  const { data: profile } = await event.locals.supabase.from('profiles').select('email, full_name').eq('id', userId).maybeSingle();
-  await sendPortalEmail({
-    to: profile?.email,
-    subject,
-    html: `<p>${escapeHtml(sender)} assigned you a portal item.</p><p><strong>${escapeHtml(subject)}</strong></p>`
-  });
-}

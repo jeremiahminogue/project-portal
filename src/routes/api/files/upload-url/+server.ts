@@ -3,6 +3,7 @@ import { buildStorageKey, createPresignedUploadUrl, storageErrorMessage, storage
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { issueUploadSession } from '$lib/server/upload-session';
 import { normalizeDocumentKind } from '$lib/server/drawing-ocr';
+import { isProductionRuntime } from '$lib/server/env';
 import type { RequestHandler } from './$types';
 
 const MAX_BYTES = 100 * 1024 * 1024;
@@ -36,6 +37,7 @@ export const POST: RequestHandler = async (event) => {
   const documentKind = normalizeDocumentKind(body?.documentKind) ?? 'file';
 
   if (!locals.supabase) {
+    if (isProductionRuntime()) return json({ error: 'Portal authentication is not configured.' }, { status: 503 });
     const key = buildStorageKey(projectSlug, filename);
     return json(await createPresignedUploadUrl(key, contentType));
   }

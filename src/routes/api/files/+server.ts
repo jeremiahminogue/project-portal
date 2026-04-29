@@ -2,6 +2,8 @@ import { json } from '@sveltejs/kit';
 import { deleteObject, encodeStorageId, headObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { registerUploadedFile } from '$lib/server/file-ingest';
 import { normalizeDocumentKind } from '$lib/server/drawing-ocr';
+import { isPhotoUpload, notifyProjectEvent } from '$lib/server/notifications';
+import { isProductionRuntime } from '$lib/server/env';
 import { isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import { isProjectStorageKey, verifyUploadSession } from '$lib/server/upload-session';
 import type { RequestHandler } from './$types';
@@ -30,6 +32,7 @@ export const POST: RequestHandler = async (event) => {
   }
 
   if (!locals.supabase) {
+    if (isProductionRuntime()) return json({ error: 'Portal authentication is not configured.' }, { status: 503 });
     return json({ id: encodeStorageId(key), name, storageKey: key }, { status: 201 });
   }
 
@@ -70,6 +73,7 @@ export const POST: RequestHandler = async (event) => {
   }
 
   try {
+    const safeFolderName = typeof folderName === 'string' ? folderName : '';
     const result = await registerUploadedFile({
       event,
       access,
@@ -77,10 +81,30 @@ export const POST: RequestHandler = async (event) => {
       name,
       sizeBytes,
       mimeType,
-      folderName: typeof folderName === 'string' ? folderName : '',
+      folderName: safeFolderName,
       documentKind: requestedDocumentKind,
       tags
     });
+    if (isPhotoUpload(name, mimeType, safeFolderName)) {
+      await notifyProjectEvent(event, {
+        projectId: access.project.id,
+        actorId: access.user.id,
+        type: 'photo.uploaded',
+        entityType: 'photo',
+        entityId: result.id,
+        metadata: {
+          projectSlug: access.project.slug,
+          projectName: access.project.name,
+          actorEmail: access.user.email,
+          fileName: name,
+          folderName: safeFolderName,
+          mimeType,
+          sizeBytes,
+          documentKind: requestedDocumentKind,
+          storageKey: result.storageKey
+        }
+      }).catch((error) => console.error('[notifications] photo upload notification failed:', error));
+    }
     return json(result, { status: result.ocrDeferred ? 202 : 201 });
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Could not save file record.' }, { status: 500 });

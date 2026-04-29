@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -17,6 +17,27 @@ test('production auth fails closed and protects file APIs', () => {
   assert.doesNotMatch(protectedPathBody, /pathname === '\/login'/);
   assert.doesNotMatch(protectedPathBody, /pathname === '\/reset-password'/);
   assert.match(hooks, /pathname\.startsWith\('\/api\/files'\)/);
+});
+
+test('diagnostic and upload APIs avoid auth bypass and token leakage', () => {
+  const directUpload = file('src/routes/api/files/upload/+server.ts');
+  const notificationDispatch = file('src/lib/server/notifications/dispatch.ts');
+  const security = file('src/lib/server/security.ts');
+  const registerUpload = file('src/routes/api/files/+server.ts');
+  const directUploadUrl = file('src/routes/api/files/upload-url/+server.ts');
+  const accessIndex = directUpload.indexOf('const access = await requireProjectAccess');
+  const bytesIndex = directUpload.indexOf('const bytes = new Uint8Array(await rawFile.arrayBuffer())', accessIndex);
+
+  assert.ok(accessIndex > -1);
+  assert.ok(bytesIndex > accessIndex);
+  assert.match(security, /timingSafeEqual/);
+  for (const route of [directUpload, directUploadUrl, registerUpload]) {
+    assert.match(route, /isProductionRuntime\(\)/);
+    assert.match(route, /Portal authentication is not configured/);
+  }
+  assert.equal(existsSync(new URL('../src/routes/api/health/storage-put/+server.ts', import.meta.url)), false);
+  assert.match(notificationDispatch, /requestHasSecret/);
+  assert.doesNotMatch(notificationDispatch, /searchParams\.get\('secret'\)/);
 });
 
 test('password reset flow uses callback session before updateUser', () => {

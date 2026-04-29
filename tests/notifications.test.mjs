@@ -1,0 +1,148 @@
+import { readFileSync } from 'node:fs';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+function file(path) {
+  return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
+}
+
+test('notification outbox migration creates durable events, deliveries, preferences, rules, and photo subscriptions', () => {
+  const migration = file('supabase/migrations/0010_notification_outbox.sql');
+  assert.match(migration, /create table if not exists notification_events/);
+  assert.match(migration, /dedupe_key text not null unique/);
+  assert.match(migration, /create table if not exists notification_deliveries/);
+  assert.match(migration, /unique\(event_id, recipient_email, channel\)/);
+  assert.match(migration, /create table if not exists notification_preferences/);
+  assert.match(migration, /create table if not exists notification_rules/);
+  assert.match(migration, /create table if not exists photo_subscriptions/);
+  assert.match(migration, /add column if not exists created_by uuid/);
+  assert.match(migration, /add column if not exists rfi_manager_id uuid/);
+  assert.match(migration, /set rfi_manager_id = \(/);
+  assert.match(migration, /'submittal.action_required', 'workflow_assignee', true, true, 'immediate'/);
+  assert.match(migration, /'rfi.ball_in_court_shift', 'assignee', true, true, 'immediate'/);
+  assert.match(migration, /'rfi.created', 'rfi_manager', true, false, 'immediate'/);
+  assert.match(migration, /'rfi.closed', 'creator', true, false, 'immediate'/);
+  assert.match(migration, /'rfi.assigned', 'assignee', true, false, 'immediate'/);
+  assert.match(migration, /'rfi.created', 'distribution', true, false, 'immediate'/);
+  assert.match(migration, /'rfi.due_date_changed', 'rfi_manager', true, false, 'immediate'/);
+  assert.match(migration, /'photo.uploaded', 'photo_subscribers', true, false, 'hourly'/);
+  assert.match(migration, /Project admins can view notification events/);
+  assert.match(migration, /public\.project_role\(notification_events\.project_id, auth\.uid\(\)\) = 'admin'/);
+  assert.match(migration, /Users can view their notification deliveries/);
+  assert.match(migration, /recipient_user_id = auth\.uid\(\)/);
+  assert.match(migration, /Project admins can manage notification rules/);
+  assert.match(migration, /Users can manage their notification preferences/);
+});
+
+test('notification engine uses outbox processing, required action emails, preferences, and hourly photo digests', () => {
+  const dispatch = file('src/lib/server/notifications/dispatch.ts');
+  const recipients = file('src/lib/server/notifications/recipients.ts');
+  const rules = file('src/lib/server/notifications/rules.ts');
+  const renderers = file('src/lib/server/notifications/renderers.ts');
+
+  assert.match(dispatch, /notifyProjectEvent/);
+  assert.match(dispatch, /processNotificationEvent/);
+  assert.match(dispatch, /dedupeKeyFor/);
+  assert.match(dispatch, /\.from\('notification_events'\)/);
+  assert.match(dispatch, /\.from\('notification_deliveries'\)/);
+  assert.match(dispatch, /no_service_role/);
+  assert.match(dispatch, /Email provider request failed/);
+  assert.match(dispatch, /flushPhotoDigestNotifications/);
+  assert.match(dispatch, /fileId: notificationEvent\.entityId/);
+  assert.match(dispatch, /serverEnv\('NOTIFICATION_CRON_SECRET', 'CRON_SECRET'\)/);
+  assert.match(dispatch, /recipient\.digestFrequency === 'hourly' \? 'queued' : 'pending'/);
+  assert.match(recipients, /photo_subscribers/);
+  assert.match(recipients, /mentioned_users/);
+  assert.match(recipients, /shared_users/);
+  assert.match(recipients, /recipientKind === 'creator'/);
+  assert.match(recipients, /recipientKind === 'rfi_manager'/);
+  assert.match(recipients, /eventImpliesActionRequired/);
+  assert.match(recipients, /rfi\.ball_in_court_shift/);
+  assert.match(recipients, /skipUserIds/);
+  assert.match(rules, /preferenceAllows/);
+  assert.match(rules, /eventType === 'photo.uploaded'/);
+  assert.match(rules, /definition\.type !== 'photo\.uploaded'/);
+  assert.match(rules, /required \|\| !recipientUserId/);
+  assert.match(renderers, /Mandatory action-required emails/);
+  assert.match(renderers, /renderPhotoDigestEmail/);
+  assert.match(renderers, /\/api\/files\/\$\{encodeURIComponent\(photo\.fileId\)\}\/download/);
+});
+
+test('RFI and submittal workflows emit Procore-style notification events instead of one-off emails', () => {
+  const rfiServer = file('src/routes/projects/[slug]/rfis/+page.server.ts');
+  const rfiUi = file('src/routes/projects/[slug]/rfis/+page.svelte');
+  const queries = file('src/lib/server/queries.ts');
+  const submittalServer = file('src/routes/projects/[slug]/submittals/+page.server.ts');
+  const submittalUi = file('src/routes/projects/[slug]/submittals/+page.svelte');
+
+  assert.match(rfiServer, /notifyProjectEvent/);
+  assert.match(rfiServer, /type: 'rfi.created'/);
+  assert.match(rfiServer, /type: 'rfi.ball_in_court_shift'/);
+  assert.match(rfiServer, /type: 'rfi.assigned'/);
+  assert.match(rfiServer, /ballInCourtChanged \|\| managerChanged/);
+  assert.match(rfiServer, /type: 'rfi.response_added'/);
+  assert.match(rfiServer, /type: 'rfi.closed'/);
+  assert.match(rfiServer, /type: 'rfi.reopened'/);
+  assert.match(rfiServer, /type: 'rfi.due_date_changed'/);
+  assert.match(rfiServer, /created_by: access\.user\.id/);
+  assert.match(rfiServer, /defaultRfiManagerId/);
+  assert.match(rfiServer, /RFI manager is required/);
+  assert.match(rfiServer, /rfi_manager_id: rfiManagerId/);
+  assert.match(rfiServer, /creatorId: existing\.created_by/);
+  assert.match(rfiServer, /previousRfiManagerId: existing\.rfi_manager_id/);
+  assert.match(rfiUi, /name="assignedTo"/);
+  assert.match(rfiUi, /name="rfiManagerId"/);
+  assert.match(rfiUi, /RFI manager/);
+  assert.match(rfiUi, /name="dueDate"/);
+  assert.match(rfiUi, /savedView === 'answered'/);
+  assert.match(rfiUi, /Clear/);
+  assert.match(queries, /assignedToId: row\.assigned_to/);
+  assert.match(queries, /rfiManagerId: row\.rfi_manager_id/);
+  assert.doesNotMatch(rfiServer, /maybeNotifyAssignee/);
+  assert.match(submittalServer, /type: 'submittal.created'/);
+  assert.match(submittalServer, /type: 'submittal.action_required'/);
+  assert.match(submittalServer, /type: 'submittal.workflow_step_completed'/);
+  assert.match(submittalServer, /submittal\.approved/);
+  assert.match(submittalServer, /submittal\.revise_resubmit/);
+  assert.match(submittalServer, /submittal\.rejected/);
+  assert.match(submittalServer, /sendEmails && existing\.status !== status/);
+  assert.match(submittalServer, /skipUserIds: owner \? \[owner\] : \[\]/);
+  assert.doesNotMatch(submittalServer, /maybeNotifyAssignee/);
+  assert.match(submittalUi, /name="sendEmails"/);
+  assert.match(submittalUi, /Create and send workflow emails/);
+  assert.match(submittalUi, /Update and send workflow emails/);
+  assert.match(submittalUi, /Clear/);
+  assert.doesNotMatch(submittalUi, />Packages</);
+});
+
+test('photo uploads queue digest notifications and the project has a notification settings surface', () => {
+  const registerRoute = file('src/routes/api/files/+server.ts');
+  const uploadRoute = file('src/routes/api/files/upload/+server.ts');
+  const photoHelper = file('src/lib/server/notifications/photos.ts');
+  const nav = file('src/lib/components/ProjectNav.svelte');
+  const header = file('src/lib/components/AppHeader.svelte');
+  const pageServer = file('src/routes/projects/[slug]/notifications/+page.server.ts');
+  const pageUi = file('src/routes/projects/[slug]/notifications/+page.svelte');
+  const cronRoute = file('src/routes/api/notifications/photo-digest/+server.ts');
+  const vercel = file('vercel.json');
+
+  assert.match(registerRoute, /isPhotoUpload/);
+  assert.match(registerRoute, /type: 'photo.uploaded'/);
+  assert.match(uploadRoute, /type: 'photo.uploaded'/);
+  assert.match(photoHelper, /image\//);
+  assert.match(photoHelper, /photo\|photos\|picture\|pictures/);
+  assert.match(nav, /Notifications/);
+  assert.match(header, /Notifications/);
+  assert.match(pageServer, /saveUserNotificationPreferences/);
+  assert.match(pageServer, /saveProjectNotificationRules/);
+  assert.match(pageServer, /notification_deliveries/);
+  assert.match(pageUi, /Project matrix/);
+  assert.match(pageUi, /Delivery log/);
+  assert.match(pageUi, /My recent deliveries/);
+  assert.match(pageUi, /activeSection/);
+  assert.match(pageUi, /definition\.type !== 'photo\.uploaded'/);
+  assert.match(pageUi, /photoDigest/);
+  assert.match(cronRoute, /flushPhotoDigestNotifications/);
+  assert.match(vercel, /"path": "\/api\/notifications\/photo-digest"/);
+  assert.match(vercel, /"schedule": "0 \* \* \* \*"/);
+});

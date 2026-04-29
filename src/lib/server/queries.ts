@@ -70,6 +70,10 @@ export type PortalRfi = RFI & {
   title?: string;
   suggestedSolution?: string | null;
   reference?: string | null;
+  assignedToId?: string | null;
+  createdById?: string | null;
+  rfiManagerId?: string | null;
+  rfiManager?: string;
   answer?: string | null;
 };
 
@@ -309,16 +313,20 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
 
   const { data, error } = await client
     .from('rfis')
-    .select('id, number, title, question, suggested_solution, reference, opened_date, due_date, assigned_to, assigned_org, status, answer')
+    .select('id, number, title, question, suggested_solution, reference, opened_date, due_date, assigned_to, assigned_org, created_by, rfi_manager_id, status, answer')
     .eq('project_id', projectId)
     .order('opened_date', { ascending: false });
 
   if (error) throw new Error(`getRfis failed: ${error.message}`);
   const rows = data ?? [];
-  const profiles = await profilesByIds(client, rows.map((row: any) => row.assigned_to));
+  const profiles = await profilesByIds(
+    client,
+    rows.flatMap((row: any) => [row.assigned_to, row.rfi_manager_id])
+  );
 
   return rows.map((row: any) => {
     const assigned = profiles.get(row.assigned_to);
+    const manager = profiles.get(row.rfi_manager_id);
     return {
       id: row.id,
       number: row.number,
@@ -328,8 +336,12 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
       reference: row.reference ?? '',
       openedDate: row.opened_date ?? '',
       dueDate: row.due_date ?? '',
+      assignedToId: row.assigned_to,
       assignedTo: profileDisplayName(assigned),
       assignedOrg: row.assigned_org ?? '',
+      createdById: row.created_by,
+      rfiManagerId: row.rfi_manager_id,
+      rfiManager: profileDisplayName(manager),
       status: rfiStatusLabel[row.status] ?? 'Open',
       answer: row.answer
     };

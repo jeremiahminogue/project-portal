@@ -2,6 +2,7 @@
   import { page } from '$app/stores';
   import { onMount } from 'svelte';
   import {
+    Bell,
     CalendarDays,
     ChevronDown,
     FileText,
@@ -66,6 +67,7 @@
           { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare },
           { href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays },
           { href: `/projects/${slug}/updates`, label: 'Updates', icon: Newspaper },
+          { href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell },
           { href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare },
           { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }
         ]

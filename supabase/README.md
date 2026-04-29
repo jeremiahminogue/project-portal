@@ -47,12 +47,17 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 - `schedule_activities` — MS Project import: phase, dates, owner, status
 - `submittals` — classic routing workflow (Submitted → In Review → Approved / R&R / Rejected)
 - `submittal_routing_steps` — handoff chain with reviewer sign-offs
-- `rfis` — RFI workflow (Open → Answered → Closed)
+- `rfis` — RFI workflow (Open → Answered → Closed) with creator, RFI manager, assignee, due-date, and answer fields
 - `chat_subjects` — discussion threads per project
 - `chat_messages` — belong to a subject
 - `updates` — PM-authored posts (OAC recap, weekly, phase kickoff, safety)
 - `share_tokens` — public links (file, update preview) with expiry
 - `admin_audit_log` — superadmin action audit trail
+- `notification_events` — durable outbox rows for RFI, submittal, and photo notification events
+- `notification_deliveries` — per-recipient email delivery attempts, statuses, and provider ids
+- `notification_preferences` — per-user optional email preferences by project and event type
+- `notification_rules` — project notification matrix overriding Procore-style defaults
+- `photo_subscriptions` — hourly uploaded-photo digest subscriptions
 
 **Enums:**
 - `project_phase` — pre_con, design, construction, closeout
@@ -65,6 +70,7 @@ This inserts test data for one project (CSF #1646), schedule activities, submitt
 - All tables enforce per-project access via `project_members`.
 - Admins can do everything; members can insert/update/read; guests can read and insert chat/comments; readonly can only SELECT.
 - RFIs/submittals are hardened with helper policies: admins/members can create; admins/members/guests can review/update; readonly users stay read-only.
+- Notification preferences are self-service; project notification matrix rows are admin-managed; server-side notification processing uses service-role access.
 - Share tokens bypass RLS (served via service-role-backed API routes with token validation).
 
 ---

@@ -1,7 +1,6 @@
 import type { DirectoryEntry } from "./types";
 
 export const directory: DirectoryEntry[] = [
-  // Pueblo Electric (host)
   {
     id: "pe-001",
     name: "Jeremiah Minogue",
@@ -34,7 +33,6 @@ export const directory: DirectoryEntry[] = [
     email: "wes@puebloelectrics.com",
     status: "Member",
   },
-  // Wember Inc. (owner's rep)
   {
     id: "wmb-001",
     name: "Michelle Gutierrez",
@@ -51,7 +49,6 @@ export const directory: DirectoryEntry[] = [
     email: "npalaski@wemberinc.com",
     status: "Guest",
   },
-  // BCER (engineer)
   {
     id: "bcer-001",
     name: "Claire Mestler",
@@ -76,7 +73,6 @@ export const directory: DirectoryEntry[] = [
     email: "mhoxsie@bcer.com",
     status: "Reviewer",
   },
-  // JCI
   {
     id: "jci-001",
     name: "Taylor Boggio",
@@ -91,7 +87,6 @@ export const directory: DirectoryEntry[] = [
     organization: "JCI",
     status: "Guest",
   },
-  // CO Dept. of Agriculture (Owner)
   {
     id: "coda-001",
     name: "Michelle Hines",
@@ -99,7 +94,6 @@ export const directory: DirectoryEntry[] = [
     organization: "CO Dept. of Agriculture",
     status: "Owner",
   },
-  // Pueblo Fire Dept. (AHJ)
   {
     id: "pfd-001",
     name: "Paul Haley",
