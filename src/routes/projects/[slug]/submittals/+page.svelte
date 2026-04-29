@@ -59,17 +59,10 @@
     })
   );
 
-  const selectedSubmittal = $derived(filteredSubmittals.find((item) => (item.id ?? item.number) === activeSubmittal) ?? filteredSubmittals[0] ?? data.submittals[0]);
+  const selectedSubmittal = $derived(data.submittals.find((item) => (item.id ?? item.number) === activeSubmittal));
 
   $effect(() => {
-    if (!selectedSubmittal) {
-      activeSubmittal = '';
-      return;
-    }
-
-    const id = selectedSubmittal.id ?? selectedSubmittal.number;
-    if (activeSubmittal !== id) activeSubmittal = id;
-    decisionStatus = statusValue(selectedSubmittal.status);
+    if (selectedSubmittal) decisionStatus = statusValue(selectedSubmittal.status);
   });
 
   function statusValue(label: string) {
@@ -97,13 +90,25 @@
     return submittal.id ?? submittal.number;
   }
 
-  function selectSubmittal(submittal: PortalSubmittal) {
+  function openSubmittalModal(submittal: PortalSubmittal) {
     activeSubmittal = submittalKey(submittal);
   }
 
-  function selectSubmittalButton(event: MouseEvent, submittal: PortalSubmittal) {
+  function closeSubmittalModal() {
+    activeSubmittal = '';
+  }
+
+  function stopModalClick(event: MouseEvent) {
     event.stopPropagation();
-    selectSubmittal(submittal);
+  }
+
+  function openSubmittalButton(event: MouseEvent, submittal: PortalSubmittal) {
+    event.stopPropagation();
+    openSubmittalModal(submittal);
+  }
+
+  function handleModalKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && selectedSubmittal) closeSubmittalModal();
   }
 
   function routeSummary(submittal: PortalSubmittal) {
@@ -127,6 +132,8 @@
 <svelte:head>
   <title>Submittals | {data.project?.title}</title>
 </svelte:head>
+
+<svelte:window onkeydown={handleModalKeydown} />
 
 <PageShell wide>
   <section class="tool-heading">
@@ -189,158 +196,6 @@
     </form>
   {/if}
 
-  {#if selectedSubmittal}
-    <section class="tracking-panel submittal-detail-panel">
-      <div class="submittal-detail-header">
-        <div>
-          <span class="eyebrow">Selected submittal</span>
-          <h2>{selectedSubmittal.number} {selectedSubmittal.title}</h2>
-        </div>
-        <div class="submittal-status-stack">
-          <StatusPill label={selectedSubmittal.status} />
-          <span class="readonly-chip">Rev. {selectedSubmittal.revision ?? 0}</span>
-        </div>
-      </div>
-
-      <div class="submittal-detail-grid">
-        <div class="submittal-facts" aria-label="Submittal details">
-          <div>
-            <span>Spec section</span>
-            <strong>{selectedSubmittal.specSection || '-'}</strong>
-          </div>
-          <div>
-            <span>Ball in court</span>
-            <strong>{selectedSubmittal.owner || 'Unassigned'}</strong>
-          </div>
-          <div>
-            <span>Submit by</span>
-            <strong>{formatDate(selectedSubmittal.submitBy)}</strong>
-          </div>
-          <div>
-            <span>Final due</span>
-            <strong>{formatDate(selectedSubmittal.dueDate)}</strong>
-          </div>
-          <div>
-            <span>Received from</span>
-            <strong>{selectedSubmittal.receivedFrom || '-'}</strong>
-          </div>
-          <div>
-            <span>Route</span>
-            <strong>{routeSummary(selectedSubmittal)}</strong>
-          </div>
-        </div>
-
-        <div class="workflow-strip" aria-label="Submittal workflow">
-          <div class="workflow-strip-title">
-            <span class="eyebrow">Workflow</span>
-            <span>{routedCount(selectedSubmittal)} routed</span>
-          </div>
-          {#if selectedSubmittal.routingSteps?.length}
-            <ol class="workflow-stepper">
-              {#each selectedSubmittal.routingSteps as step}
-                <li class={`workflow-step ${stepState(step, selectedSubmittal)}`}>
-                  <span class="step-marker">
-                    {#if step.status === 'Approved'}<Check size={13} />{:else}{step.order + 1}{/if}
-                  </span>
-                  <div>
-                    <strong>{step.assignee}</strong>
-                    <span>{step.role} - {step.status} - Due {formatDate(step.dueDate)}</span>
-                    {#if step.response}<p>{step.response}</p>{/if}
-                  </div>
-                </li>
-              {/each}
-            </ol>
-          {:else if selectedSubmittal.routing.length}
-            <ol class="workflow-stepper">
-              {#each selectedSubmittal.routing as route, index}
-                <li class="workflow-step waiting">
-                  <span class="step-marker">{index + 1}</span>
-                  <div>
-                    <strong>{route}</strong>
-                    <span>Route sequence</span>
-                  </div>
-                </li>
-              {/each}
-            </ol>
-          {:else}
-            <div class="workflow-empty">No reviewers routed yet.</div>
-          {/if}
-        </div>
-      </div>
-
-      <div class="item-attachments">
-        <span class="eyebrow">Attachments</span>
-        <AttachmentChips
-          attachments={selectedSubmittal.attachments ?? []}
-          emptyLabel="No files attached to this submittal yet."
-          downloadAllHref={selectedSubmittal.id
-            ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(selectedSubmittal.id)}/download`
-            : ''}
-        />
-      </div>
-      {#if selectedSubmittal.id && canReviewCommunication}
-        <form class="tracking-form" method="post" action="?/updateSubmittal" enctype="multipart/form-data" use:enhance>
-          <input type="hidden" name="id" value={selectedSubmittal.id} />
-          <label class="tracking-field">
-            <span>Status</span>
-            <select class="field compact" name="status" bind:value={decisionStatus} aria-label="Submittal decision">
-              <option value="submitted">Submitted</option>
-              <option value="in_review">In Review</option>
-              <option value="approved">Approved</option>
-              <option value="revise_resubmit">Revise & Resubmit</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          </label>
-          <label class="tracking-field decision-field">
-            <span>Decision note</span>
-            <input class="field" name="decision" placeholder="Decision note or routing update" />
-          </label>
-          <label class="tracking-field">
-            <span>Next ball in court</span>
-            <select class="field compact" name="workflowAssigneeId" aria-label="Next workflow assignee">
-              <option value="">Keep current</option>
-              {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label class="tracking-field">
-            <span>Step due</span>
-            <input class="field compact" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
-          </label>
-          <label class="notify-check compact-notify" for="sub-update-send-emails">
-            <input id="sub-update-send-emails" name="sendEmails" type="checkbox" checked />
-            <Bell size={15} />
-            <span>Update and send workflow emails</span>
-          </label>
-          {#if canAttachFiles}
-            <details class="tracking-attachment-fields attachment-details">
-              <summary>Manage tracking files</summary>
-              {#if selectedSubmittal.attachments?.some((attachment) => attachment.id)}
-                <fieldset class="remove-attachments">
-                  <legend>Remove existing files</legend>
-                  {#each selectedSubmittal.attachments.filter((attachment) => attachment.id) as attachment}
-                    <label>
-                      <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
-                      <span>{attachment.name}</span>
-                    </label>
-                  {/each}
-                </fieldset>
-              {/if}
-              <AttachmentFields
-                files={data.files}
-                idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
-                uploadLabel="Upload tracking files"
-                existingLabel="Attach existing files"
-              />
-            </details>
-          {/if}
-          <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save update</button>
-        </form>
-      {/if}
-    </section>
-  {/if}
-
   <section class="workbench workflow-workbench">
     <div class="log-area">
       <div class="log-toolbar">
@@ -379,9 +234,9 @@
           </thead>
           <tbody>
             {#each filteredSubmittals as sub}
-              <tr class:active-row={(selectedSubmittal?.id ?? selectedSubmittal?.number) === (sub.id ?? sub.number)} onclick={() => selectSubmittal(sub)}>
+              <tr class:active-row={(selectedSubmittal?.id ?? selectedSubmittal?.number) === (sub.id ?? sub.number)} onclick={() => openSubmittalModal(sub)}>
                 <td>
-                  <button class="submittal-record-button" type="button" onclick={(event) => selectSubmittalButton(event, sub)} aria-label={`Open ${sub.number}`}>
+                  <button class="submittal-record-button" type="button" onclick={(event) => openSubmittalButton(event, sub)} aria-label={`Open ${sub.number}`}>
                     <span>{sub.number}</span>
                     <strong>{sub.title}</strong>
                   </button>
@@ -395,7 +250,7 @@
                 <td>{formatDate(sub.submitBy)}</td>
                 <td>{formatDate(sub.dueDate)}</td>
                 <td>
-                  <button class="mini-button row-open-button" type="button" onclick={(event) => selectSubmittalButton(event, sub)}>
+                  <button class="mini-button row-open-button" type="button" onclick={(event) => openSubmittalButton(event, sub)}>
                     Open
                     <ArrowRight size={13} />
                   </button>
@@ -410,6 +265,168 @@
     </div>
   </section>
 </PageShell>
+
+{#if selectedSubmittal}
+  <div class="modal-backdrop" role="presentation" onclick={closeSubmittalModal}>
+      <div class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="submittal-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
+        <header class="modal-header">
+          <div>
+            <span class="eyebrow">Submittal review</span>
+            <h2 id="submittal-modal-title">{selectedSubmittal.number} {selectedSubmittal.title}</h2>
+          </div>
+          <div class="modal-header-actions">
+            <StatusPill label={selectedSubmittal.status} />
+            <button class="icon-row-button" type="button" aria-label="Close submittal" onclick={closeSubmittalModal}>
+              <X size={17} />
+            </button>
+          </div>
+        </header>
+
+        <div class="modal-body">
+          <div class="submittal-detail-grid">
+            <div class="submittal-facts" aria-label="Submittal details">
+              <div>
+                <span>Spec section</span>
+                <strong>{selectedSubmittal.specSection || '-'}</strong>
+              </div>
+              <div>
+                <span>Ball in court</span>
+                <strong>{selectedSubmittal.owner || 'Unassigned'}</strong>
+              </div>
+              <div>
+                <span>Revision</span>
+                <strong>{selectedSubmittal.revision ?? 0}</strong>
+              </div>
+              <div>
+                <span>Submit by</span>
+                <strong>{formatDate(selectedSubmittal.submitBy)}</strong>
+              </div>
+              <div>
+                <span>Received from</span>
+                <strong>{selectedSubmittal.receivedFrom || '-'}</strong>
+              </div>
+              <div>
+                <span>Final due</span>
+                <strong>{formatDate(selectedSubmittal.dueDate)}</strong>
+              </div>
+            </div>
+
+            <div class="workflow-strip" aria-label="Submittal workflow">
+              <div class="workflow-strip-title">
+                <span class="eyebrow">Workflow</span>
+                <span>{routedCount(selectedSubmittal)} routed</span>
+              </div>
+              {#if selectedSubmittal.routingSteps?.length}
+                <ol class="workflow-stepper">
+                  {#each selectedSubmittal.routingSteps as step}
+                    <li class={`workflow-step ${stepState(step, selectedSubmittal)}`}>
+                      <span class="step-marker">
+                        {#if step.status === 'Approved'}<Check size={13} />{:else}{step.order + 1}{/if}
+                      </span>
+                      <div>
+                        <strong>{step.assignee}</strong>
+                        <span>{step.role} - {step.status} - Due {formatDate(step.dueDate)}</span>
+                        {#if step.response}<p>{step.response}</p>{/if}
+                      </div>
+                    </li>
+                  {/each}
+                </ol>
+              {:else if selectedSubmittal.routing.length}
+                <ol class="workflow-stepper">
+                  {#each selectedSubmittal.routing as route, index}
+                    <li class="workflow-step waiting">
+                      <span class="step-marker">{index + 1}</span>
+                      <div>
+                        <strong>{route}</strong>
+                        <span>Route sequence</span>
+                      </div>
+                    </li>
+                  {/each}
+                </ol>
+              {:else}
+                <div class="workflow-empty">No reviewers routed yet.</div>
+              {/if}
+            </div>
+          </div>
+
+          <div class="item-attachments">
+            <span class="eyebrow">Current attachments</span>
+            <AttachmentChips
+              attachments={selectedSubmittal.attachments ?? []}
+              emptyLabel="No files attached to this submittal yet."
+              downloadAllHref={selectedSubmittal.id
+                ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(selectedSubmittal.id)}/download`
+                : ''}
+            />
+          </div>
+
+          {#if selectedSubmittal.id && canReviewCommunication}
+            <form class="modal-form" method="post" action="?/updateSubmittal" enctype="multipart/form-data" use:enhance>
+              <input type="hidden" name="id" value={selectedSubmittal.id} />
+              <label class="tracking-field">
+                <span>Status</span>
+                <select class="field" name="status" bind:value={decisionStatus} aria-label="Submittal decision">
+                  <option value="submitted">Submitted</option>
+                  <option value="in_review">In Review</option>
+                  <option value="approved">Approved</option>
+                  <option value="revise_resubmit">Revise & Resubmit</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </label>
+              <label class="tracking-field response-field">
+                <span>Response</span>
+                <textarea class="field min-h-28" name="decision" placeholder="Record the review response, decision notes, or routing update"></textarea>
+              </label>
+              <label class="tracking-field">
+                <span>Next ball in court</span>
+                <select class="field" name="workflowAssigneeId" aria-label="Next workflow assignee">
+                  <option value="">Keep current</option>
+                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                    <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
+                  {/each}
+                </select>
+              </label>
+              <label class="tracking-field">
+                <span>Step due</span>
+                <input class="field" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
+              </label>
+              <label class="notify-check modal-notify" for="sub-update-send-emails">
+                <input id="sub-update-send-emails" name="sendEmails" type="checkbox" checked />
+                <Bell size={15} />
+                <span>Update and send workflow emails</span>
+              </label>
+              {#if canAttachFiles}
+                <details class="modal-attachment-fields">
+                  <summary>Attach or remove files</summary>
+                  {#if selectedSubmittal.attachments?.some((attachment) => attachment.id)}
+                    <fieldset class="remove-attachments">
+                      <legend>Remove existing files</legend>
+                      {#each selectedSubmittal.attachments.filter((attachment) => attachment.id) as attachment}
+                        <label>
+                          <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
+                          <span>{attachment.name}</span>
+                        </label>
+                      {/each}
+                    </fieldset>
+                  {/if}
+                  <AttachmentFields
+                    files={data.files}
+                    idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
+                    uploadLabel="Upload response files"
+                    existingLabel="Attach existing files"
+                  />
+                </details>
+              {/if}
+              <div class="modal-footer">
+                <button class="btn btn-secondary" type="button" onclick={closeSubmittalModal}>Cancel</button>
+                <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save update</button>
+              </div>
+            </form>
+          {/if}
+        </div>
+      </div>
+  </div>
+{/if}
 
 <style>
   .workflow-workbench {
@@ -509,51 +526,6 @@
   .tracking-attachment-fields {
     grid-column: 1 / -1;
     min-width: 0;
-  }
-
-  .attachment-details {
-    border-top: 1px solid rgba(25, 27, 25, 0.08);
-    padding-top: 0.4rem;
-  }
-
-  .attachment-details summary {
-    width: fit-content;
-    color: #191b19;
-    font-size: 0.78rem;
-    font-weight: 850;
-  }
-
-  .attachment-details[open] summary {
-    margin-bottom: 0.55rem;
-  }
-
-  .submittal-detail-panel {
-    display: grid;
-    gap: 0.75rem;
-    padding: 0.75rem;
-  }
-
-  .submittal-detail-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 0.75rem;
-  }
-
-  .submittal-detail-header h2 {
-    margin: 0.16rem 0 0;
-    color: #191b19;
-    font-size: 1rem;
-    font-weight: 850;
-    line-height: 1.25;
-    overflow-wrap: anywhere;
-  }
-
-  .submittal-status-stack {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.45rem;
   }
 
   .submittal-detail-grid {
@@ -742,10 +714,6 @@
     font-weight: 800;
   }
 
-  .tracking-form .btn {
-    white-space: nowrap;
-  }
-
   .tracking-field {
     display: grid;
     gap: 0.28rem;
@@ -789,6 +757,101 @@
     white-space: nowrap;
   }
 
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: rgba(15, 17, 15, 0.38);
+    padding: 1.25rem;
+    backdrop-filter: blur(10px);
+  }
+
+  .workflow-modal {
+    display: grid;
+    width: min(980px, 100%);
+    max-height: min(92vh, 980px);
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.16);
+    border-radius: 0.45rem;
+    background: #fff;
+    box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid rgba(25, 27, 25, 0.1);
+    padding: 0.9rem 1rem;
+  }
+
+  .modal-header h2 {
+    margin: 0.16rem 0 0;
+    color: #191b19;
+    font-size: 1.05rem;
+    font-weight: 850;
+    line-height: 1.25;
+  }
+
+  .modal-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .modal-body {
+    display: grid;
+    gap: 0.9rem;
+    overflow: auto;
+    padding: 1rem;
+  }
+
+  .modal-form {
+    display: grid;
+    grid-template-columns: minmax(10rem, 13rem) minmax(12rem, 1fr) minmax(12rem, 15rem) minmax(9rem, 11rem);
+    gap: 0.65rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.1);
+    padding-top: 0.85rem;
+  }
+
+  .response-field,
+  .modal-attachment-fields,
+  .modal-footer {
+    grid-column: 1 / -1;
+  }
+
+  .modal-notify {
+    grid-column: 1 / -1;
+  }
+
+  .modal-attachment-fields {
+    min-width: 0;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.45rem;
+  }
+
+  .modal-attachment-fields summary {
+    width: fit-content;
+    color: #191b19;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .modal-attachment-fields[open] summary {
+    margin-bottom: 0.6rem;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.8rem;
+  }
+
   .filter-button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
@@ -818,24 +881,16 @@
       grid-column: auto;
     }
 
-    .tracking-form .btn {
-      width: 100%;
-    }
-
     .compact-notify {
       white-space: normal;
+    }
+
+    .modal-form {
+      grid-template-columns: 1fr;
     }
   }
 
   @media (max-width: 640px) {
-    .submittal-detail-header {
-      display: grid;
-    }
-
-    .submittal-status-stack {
-      justify-content: flex-start;
-    }
-
     .submittal-facts {
       grid-template-columns: 1fr;
     }
@@ -849,6 +904,30 @@
 
     .submittal-facts > div:last-child {
       border-bottom: 0;
+    }
+
+    .modal-backdrop {
+      align-items: end;
+      padding: 0;
+    }
+
+    .workflow-modal {
+      width: 100%;
+      max-height: 92vh;
+      border-radius: 0.45rem 0.45rem 0 0;
+    }
+
+    .modal-header {
+      align-items: flex-start;
+      padding: 0.8rem;
+    }
+
+    .modal-body {
+      padding: 0.8rem;
+    }
+
+    .modal-footer {
+      display: grid;
     }
   }
 </style>

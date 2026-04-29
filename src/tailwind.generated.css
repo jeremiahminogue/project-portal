@@ -529,6 +529,9 @@
   .min-h-24 {
     min-height: calc(var(--spacing) * 24);
   }
+  .min-h-28 {
+    min-height: calc(var(--spacing) * 28);
+  }
   .min-h-36 {
     min-height: calc(var(--spacing) * 36);
   }

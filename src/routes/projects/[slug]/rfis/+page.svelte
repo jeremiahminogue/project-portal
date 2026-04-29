@@ -1,11 +1,32 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Check, MessageSquarePlus, PencilLine, Search, X } from '@lucide/svelte';
+  import { ArrowRight, Check, MessageSquarePlus, PencilLine, Search, X } from '@lucide/svelte';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate } from '$lib/utils';
+
+  type PortalRfi = {
+    id?: string;
+    number: string;
+    title?: string | null;
+    question: string;
+    suggestedSolution?: string | null;
+    reference?: string | null;
+    dueDate?: string | null;
+    assignedTo?: string | null;
+    assignedToId?: string | null;
+    assignedOrg?: string | null;
+    rfiManager?: string | null;
+    rfiManagerId?: string | null;
+    status: string;
+    answer?: string | null;
+    distribution?: string[];
+    distributionIds?: string[];
+    activity?: { at: string; by: string; type: string; note: string }[];
+    attachments?: { id?: string; name: string; size: string; type: string; path?: string }[];
+  };
 
   let { data, form } = $props();
   let showRfiForm = $state(false);
@@ -16,6 +37,10 @@
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
+  const openCount = $derived(data.rfis.filter((item) => item.status === 'Open').length);
+  const answeredCount = $derived(data.rfis.filter((item) => item.status === 'Answered').length);
+  const closedCount = $derived(data.rfis.filter((item) => item.status === 'Closed').length);
+  const ballCount = $derived(data.rfis.filter((item) => item.assignedTo).length);
 
   const filteredRfis = $derived(
     data.rfis.filter((item) => {
@@ -34,28 +59,48 @@
     })
   );
 
-  const selectedRfi = $derived(filteredRfis.find((item) => (item.id ?? item.number) === activeRfi) ?? filteredRfis[0] ?? data.rfis[0]);
+  const selectedRfi = $derived(data.rfis.find((item) => (item.id ?? item.number) === activeRfi));
 
   $effect(() => {
-    if (!selectedRfi) {
-      activeRfi = '';
-      return;
-    }
-
-    const id = selectedRfi.id ?? selectedRfi.number;
-    if (activeRfi !== id) activeRfi = id;
-    responseStatus = selectedRfi.status === 'Closed' ? 'closed' : selectedRfi.status === 'Answered' ? 'answered' : 'open';
+    if (selectedRfi) responseStatus = selectedRfi.status === 'Closed' ? 'closed' : selectedRfi.status === 'Answered' ? 'answered' : 'open';
   });
 
   function clearFilters() {
     query = '';
     savedView = 'all';
   }
+
+  function rfiKey(rfi: PortalRfi) {
+    return rfi.id ?? rfi.number;
+  }
+
+  function openRfiModal(rfi: PortalRfi) {
+    activeRfi = rfiKey(rfi);
+  }
+
+  function openRfiButton(event: MouseEvent, rfi: PortalRfi) {
+    event.stopPropagation();
+    openRfiModal(rfi);
+  }
+
+  function closeRfiModal() {
+    activeRfi = '';
+  }
+
+  function stopModalClick(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
+  function handleModalKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape' && selectedRfi) closeRfiModal();
+  }
 </script>
 
 <svelte:head>
   <title>RFIs | {data.project?.title}</title>
 </svelte:head>
+
+<svelte:window onkeydown={handleModalKeydown} />
 
 <PageShell wide>
   <section class="tool-heading">
@@ -65,6 +110,7 @@
       <div class="tool-tabs" aria-label="RFI sections">
         <button class:active={savedView === 'all'} type="button" onclick={() => (savedView = 'all')}>Items</button>
         <button class:active={savedView === 'ball'} type="button" onclick={() => (savedView = 'ball')}>Ball In Court</button>
+        <button class:active={savedView === 'open'} type="button" onclick={() => (savedView = 'open')}>Open</button>
         <button class:active={savedView === 'answered'} type="button" onclick={() => (savedView = 'answered')}>Answered</button>
         <button class:active={savedView === 'closed'} type="button" onclick={() => (savedView = 'closed')}>Closed</button>
       </div>
@@ -72,8 +118,7 @@
     {#if canCreateCommunication}
       <div class="tool-actions">
         <button class="btn btn-primary" type="button" onclick={() => (showRfiForm = !showRfiForm)}>
-          <MessageSquarePlus size={16} />
-          New RFI
+          {#if showRfiForm}<X size={16} />Close form{:else}<MessageSquarePlus size={16} />New RFI{/if}
         </button>
       </div>
     {/if}
@@ -115,161 +160,7 @@
     </form>
   {/if}
 
-  {#if selectedRfi}
-    <section class="tracking-panel">
-      <div class="tracking-summary">
-        <div>
-          <span class="eyebrow">Tracking</span>
-          <h2>{selectedRfi.number} {selectedRfi.title || selectedRfi.question}</h2>
-        </div>
-        <StatusPill label={selectedRfi.status} />
-        <span class="readonly-chip">Ball in court: {selectedRfi.assignedTo || 'Unassigned'}</span>
-        <span class="readonly-chip">Manager: {selectedRfi.rfiManager || 'Unassigned'}</span>
-        <span class="readonly-chip">Due {formatDate(selectedRfi.dueDate)}</span>
-        <span class="readonly-chip">Distribution: {selectedRfi.distribution?.length ? selectedRfi.distribution.join(', ') : 'None'}</span>
-      </div>
-      <div class="rfi-detail-grid">
-        <div>
-          <span class="eyebrow">Question</span>
-          <p class="tracking-question">{selectedRfi.question}</p>
-        </div>
-        {#if selectedRfi.suggestedSolution}
-          <div>
-            <span class="eyebrow">Suggested Solution</span>
-            <p class="tracking-question">{selectedRfi.suggestedSolution}</p>
-          </div>
-        {/if}
-        {#if selectedRfi.reference}
-          <div>
-            <span class="eyebrow">Reference</span>
-            <p class="tracking-question">{selectedRfi.reference}</p>
-          </div>
-        {/if}
-      </div>
-      <div class="item-attachments">
-        <span class="eyebrow">Attachments</span>
-        <AttachmentChips
-          attachments={selectedRfi.attachments ?? []}
-          emptyLabel="No files attached to this RFI yet."
-          downloadAllHref={selectedRfi.id
-            ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/rfi/${encodeURIComponent(selectedRfi.id)}/download`
-            : ''}
-        />
-      </div>
-      {#if selectedRfi.id && canReviewCommunication}
-        <form class="tracking-form" method="post" action="?/answerRfi" enctype="multipart/form-data" use:enhance>
-          <input type="hidden" name="id" value={selectedRfi.id} />
-          <label class="tracking-field">
-            <span>Status</span>
-            <select class="field compact" name="status" bind:value={responseStatus} aria-label="RFI status">
-              <option value="open">Open</option>
-              <option value="answered">Answered</option>
-              <option value="closed">Closed</option>
-            </select>
-          </label>
-          <label class="tracking-field">
-            <span>RFI manager</span>
-            <select class="field compact" name="rfiManagerId" aria-label="RFI manager">
-              <option value="" disabled selected={!selectedRfi.rfiManagerId}>Select manager</option>
-              {#each data.directory as person}
-                <option value={person.id} selected={person.id === selectedRfi.rfiManagerId}>{person.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label class="tracking-field">
-            <span>Ball in court</span>
-            <select class="field compact" name="assignedTo" aria-label="Ball in Court">
-              <option value="">Unassigned</option>
-              {#each data.directory as person}
-                <option value={person.id} selected={person.id === selectedRfi.assignedToId}>{person.name}</option>
-              {/each}
-            </select>
-          </label>
-          <label class="tracking-field">
-            <span>Due</span>
-            <input class="field compact" name="dueDate" type="date" value={selectedRfi.dueDate ?? ''} aria-label="Due date" />
-          </label>
-          <label class="tracking-field">
-            <span>Org</span>
-            <input class="field compact" name="assignedOrg" value={selectedRfi.assignedOrg ?? ''} placeholder="Org" aria-label="Assigned organization" />
-          </label>
-          <label class="tracking-field rfi-answer-field">
-            <span>Response</span>
-            <input class="field rfi-answer" name="answer" value={selectedRfi.answer ?? ''} placeholder="Answer, response, or status note" />
-          </label>
-          {#if canAttachFiles}
-            <div class="tracking-attachment-fields">
-              {#if selectedRfi.attachments?.some((attachment) => attachment.id)}
-                <fieldset class="remove-attachments">
-                  <legend>Remove existing files</legend>
-                  {#each selectedRfi.attachments.filter((attachment) => attachment.id) as attachment}
-                    <label>
-                      <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
-                      <span>{attachment.name}</span>
-                    </label>
-                  {/each}
-                </fieldset>
-              {/if}
-              <AttachmentFields
-                files={data.files}
-                idPrefix={`rfi-${selectedRfi.id}-attachments`}
-                uploadLabel="Upload response files"
-                existingLabel="Attach existing files"
-              />
-            </div>
-          {/if}
-          <label class="tracking-field distribution-field">
-            <span>Distribution</span>
-            <input type="hidden" name="distributionIds" value="" />
-            <select class="field compact multi-select" name="distributionIds" multiple size={Math.min(5, Math.max(3, data.directory.length))} aria-label="RFI distribution list">
-              {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                <option value={person.id} selected={selectedRfi.distributionIds?.includes(person.id)}>{person.name}</option>
-              {/each}
-            </select>
-          </label>
-          <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save response</button>
-        </form>
-      {/if}
-      {#if selectedRfi.activity?.length}
-        <div class="activity-log">
-          <span class="eyebrow">History</span>
-          {#each selectedRfi.activity.slice().reverse() as item}
-            <div>
-              <strong>{item.type}</strong>
-              <span>{formatDate(item.at)} by {item.by}</span>
-              <p>{item.note}</p>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
-  {/if}
-
   <section class="workbench workflow-workbench">
-    <aside class="saved-views">
-      <div class="views-title">Views</div>
-      <button class={`view-row ${savedView === 'all' ? 'active' : ''}`} type="button" onclick={() => (savedView = 'all')}>
-        <span>All RFIs</span>
-        <strong>{data.rfis.length}</strong>
-      </button>
-      <button class={`view-row ${savedView === 'open' ? 'active' : ''}`} type="button" onclick={() => (savedView = 'open')}>
-        <span>Open</span>
-        <strong>{data.rfis.filter((item) => item.status === 'Open').length}</strong>
-      </button>
-      <button class={`view-row ${savedView === 'closed' ? 'active' : ''}`} type="button" onclick={() => (savedView = 'closed')}>
-        <span>Closed</span>
-        <strong>{data.rfis.filter((item) => item.status === 'Closed').length}</strong>
-      </button>
-      <button class={`view-row ${savedView === 'answered' ? 'active' : ''}`} type="button" onclick={() => (savedView = 'answered')}>
-        <span>Answered</span>
-        <strong>{data.rfis.filter((item) => item.status === 'Answered').length}</strong>
-      </button>
-      <button class={`view-row ${savedView === 'ball' ? 'active' : ''}`} type="button" onclick={() => (savedView = 'ball')}>
-        <span>Ball in Court</span>
-        <strong>{data.rfis.filter((item) => item.assignedTo).length}</strong>
-      </button>
-    </aside>
-
     <div class="log-area">
       <div class="log-toolbar">
         <div class="searchbox">
@@ -282,10 +173,10 @@
         </button>
         <select class="field compact" aria-label="Status filter" bind:value={savedView}>
           <option value="all">All statuses</option>
-          <option value="open">Open</option>
-          <option value="answered">Answered</option>
-          <option value="closed">Closed</option>
-          <option value="ball">Ball in Court</option>
+          <option value="open">Open ({openCount})</option>
+          <option value="answered">Answered ({answeredCount})</option>
+          <option value="closed">Closed ({closedCount})</option>
+          <option value="ball">Ball in Court ({ballCount})</option>
         </select>
         <span class="result-count">{filteredRfis.length} shown</span>
       </div>
@@ -294,29 +185,39 @@
         <table class="dense-table workflow-table">
           <thead>
             <tr>
-              <th>Track</th>
-              <th>Number</th>
-              <th>Subject</th>
+              <th>RFI</th>
               <th>Status</th>
-              <th>Reference</th>
-              <th>RFI Manager</th>
               <th>Ball In Court</th>
+              <th>RFI Manager</th>
+              <th>Reference</th>
               <th>Files</th>
               <th>Due Date</th>
+              <th>Response</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {#each filteredRfis as rfi}
-              <tr class:active-row={(selectedRfi?.id ?? selectedRfi?.number) === (rfi.id ?? rfi.number)} onclick={() => (activeRfi = rfi.id ?? rfi.number)}>
-                <td><button class="mini-button" type="button">Track</button></td>
-                <td><span class="record-link">{rfi.number}</span></td>
-                <td><span class="subject-link">{rfi.title || rfi.question}</span></td>
+              <tr class:active-row={(selectedRfi?.id ?? selectedRfi?.number) === (rfi.id ?? rfi.number)} onclick={() => openRfiModal(rfi)}>
+                <td>
+                  <button class="record-button" type="button" onclick={(event) => openRfiButton(event, rfi)} aria-label={`Open ${rfi.number}`}>
+                    <span>{rfi.number}</span>
+                    <strong>{rfi.title || rfi.question}</strong>
+                  </button>
+                </td>
                 <td><StatusPill label={rfi.status} /></td>
-                <td>{rfi.reference || '-'}</td>
-                <td>{rfi.rfiManager || 'Unassigned'}</td>
                 <td>{rfi.assignedTo || 'Unassigned'}</td>
+                <td>{rfi.rfiManager || 'Unassigned'}</td>
+                <td>{rfi.reference || '-'}</td>
                 <td>{rfi.attachments?.length ?? 0}</td>
                 <td>{formatDate(rfi.dueDate)}</td>
+                <td>{rfi.answer || '-'}</td>
+                <td>
+                  <button class="mini-button row-open-button" type="button" onclick={(event) => openRfiButton(event, rfi)}>
+                    Open
+                    <ArrowRight size={13} />
+                  </button>
+                </td>
               </tr>
             {:else}
               <tr><td colspan="9"><div class="empty-log"><strong>No RFIs match this view.</strong><span>Create an RFI or adjust the filters.</span></div></td></tr>
@@ -328,9 +229,179 @@
   </section>
 </PageShell>
 
+{#if selectedRfi}
+  <div class="modal-backdrop" role="presentation" onclick={closeRfiModal}>
+      <div class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="rfi-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
+        <header class="modal-header">
+          <div>
+            <span class="eyebrow">RFI response</span>
+            <h2 id="rfi-modal-title">{selectedRfi.number} {selectedRfi.title || selectedRfi.question}</h2>
+          </div>
+          <div class="modal-header-actions">
+            <StatusPill label={selectedRfi.status} />
+            <button class="icon-row-button" type="button" aria-label="Close RFI" onclick={closeRfiModal}>
+              <X size={17} />
+            </button>
+          </div>
+        </header>
+
+        <div class="modal-body">
+          <div class="rfi-facts">
+            <div>
+              <span>Ball in court</span>
+              <strong>{selectedRfi.assignedTo || 'Unassigned'}</strong>
+            </div>
+            <div>
+              <span>Manager</span>
+              <strong>{selectedRfi.rfiManager || 'Unassigned'}</strong>
+            </div>
+            <div>
+              <span>Due date</span>
+              <strong>{formatDate(selectedRfi.dueDate)}</strong>
+            </div>
+            <div>
+              <span>Reference</span>
+              <strong>{selectedRfi.reference || '-'}</strong>
+            </div>
+            <div>
+              <span>Org</span>
+              <strong>{selectedRfi.assignedOrg || '-'}</strong>
+            </div>
+            <div>
+              <span>Distribution</span>
+              <strong>{selectedRfi.distribution?.length ? selectedRfi.distribution.join(', ') : 'None'}</strong>
+            </div>
+          </div>
+
+          <div class="rfi-prompt-grid">
+            <div>
+              <span class="eyebrow">Question</span>
+              <p class="tracking-question">{selectedRfi.question}</p>
+            </div>
+            {#if selectedRfi.suggestedSolution}
+              <div>
+                <span class="eyebrow">Suggested solution</span>
+                <p class="tracking-question">{selectedRfi.suggestedSolution}</p>
+              </div>
+            {/if}
+            {#if selectedRfi.answer}
+              <div>
+                <span class="eyebrow">Current response</span>
+                <p class="tracking-question">{selectedRfi.answer}</p>
+              </div>
+            {/if}
+          </div>
+
+          <div class="item-attachments">
+            <span class="eyebrow">Current attachments</span>
+            <AttachmentChips
+              attachments={selectedRfi.attachments ?? []}
+              emptyLabel="No files attached to this RFI yet."
+              downloadAllHref={selectedRfi.id
+                ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/rfi/${encodeURIComponent(selectedRfi.id)}/download`
+                : ''}
+            />
+          </div>
+
+          {#if selectedRfi.id && canReviewCommunication}
+            <form class="modal-form rfi-modal-form" method="post" action="?/answerRfi" enctype="multipart/form-data" use:enhance>
+              <input type="hidden" name="id" value={selectedRfi.id} />
+              <label class="tracking-field">
+                <span>Status</span>
+                <select class="field" name="status" bind:value={responseStatus} aria-label="RFI status">
+                  <option value="open">Open</option>
+                  <option value="answered">Answered</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </label>
+              <label class="tracking-field">
+                <span>RFI manager</span>
+                <select class="field" name="rfiManagerId" aria-label="RFI manager">
+                  <option value="" disabled selected={!selectedRfi.rfiManagerId}>Select manager</option>
+                  {#each data.directory as person}
+                    <option value={person.id} selected={person.id === selectedRfi.rfiManagerId}>{person.name}</option>
+                  {/each}
+                </select>
+              </label>
+              <label class="tracking-field">
+                <span>Ball in court</span>
+                <select class="field" name="assignedTo" aria-label="Ball in Court">
+                  <option value="">Unassigned</option>
+                  {#each data.directory as person}
+                    <option value={person.id} selected={person.id === selectedRfi.assignedToId}>{person.name}</option>
+                  {/each}
+                </select>
+              </label>
+              <label class="tracking-field">
+                <span>Due</span>
+                <input class="field" name="dueDate" type="date" value={selectedRfi.dueDate ?? ''} aria-label="Due date" />
+              </label>
+              <label class="tracking-field">
+                <span>Org</span>
+                <input class="field" name="assignedOrg" value={selectedRfi.assignedOrg ?? ''} placeholder="Org" aria-label="Assigned organization" />
+              </label>
+              <label class="tracking-field response-field">
+                <span>Response</span>
+                <textarea class="field min-h-28" name="answer" placeholder="Enter the RFI response, clarification, or status note">{selectedRfi.answer ?? ''}</textarea>
+              </label>
+              <label class="tracking-field distribution-field">
+                <span>Distribution</span>
+                <input type="hidden" name="distributionIds" value="" />
+                <select class="field multi-select" name="distributionIds" multiple size={Math.min(5, Math.max(3, data.directory.length))} aria-label="RFI distribution list">
+                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                    <option value={person.id} selected={selectedRfi.distributionIds?.includes(person.id)}>{person.name}</option>
+                  {/each}
+                </select>
+              </label>
+              {#if canAttachFiles}
+                <details class="modal-attachment-fields">
+                  <summary>Attach or remove files</summary>
+                  {#if selectedRfi.attachments?.some((attachment) => attachment.id)}
+                    <fieldset class="remove-attachments">
+                      <legend>Remove existing files</legend>
+                      {#each selectedRfi.attachments.filter((attachment) => attachment.id) as attachment}
+                        <label>
+                          <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
+                          <span>{attachment.name}</span>
+                        </label>
+                      {/each}
+                    </fieldset>
+                  {/if}
+                  <AttachmentFields
+                    files={data.files}
+                    idPrefix={`rfi-${selectedRfi.id}-attachments`}
+                    uploadLabel="Upload response files"
+                    existingLabel="Attach existing files"
+                  />
+                </details>
+              {/if}
+              <div class="modal-footer">
+                <button class="btn btn-secondary" type="button" onclick={closeRfiModal}>Cancel</button>
+                <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save response</button>
+              </div>
+            </form>
+          {/if}
+
+          {#if selectedRfi.activity?.length}
+            <div class="activity-log">
+              <span class="eyebrow">History</span>
+              {#each selectedRfi.activity.slice().reverse() as item}
+                <div>
+                  <strong>{item.type}</strong>
+                  <span>{formatDate(item.at)} by {item.by}</span>
+                  <p>{item.note}</p>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      </div>
+  </div>
+{/if}
+
 <style>
   .workflow-workbench {
-    grid-template-columns: 230px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .workflow-table {
@@ -340,35 +411,81 @@
 
   .workflow-table th:nth-child(1),
   .workflow-table td:nth-child(1) {
-    width: 4.5rem;
+    width: 25%;
   }
 
   .workflow-table th:nth-child(2),
   .workflow-table td:nth-child(2) {
-    width: 6.5rem;
+    width: 9%;
   }
 
+  .workflow-table th:nth-child(3),
+  .workflow-table td:nth-child(3),
   .workflow-table th:nth-child(4),
   .workflow-table td:nth-child(4) {
-    width: 7.5rem;
+    width: 12%;
+  }
+
+  .workflow-table th:nth-child(5),
+  .workflow-table td:nth-child(5) {
+    width: 13%;
+  }
+
+  .workflow-table th:nth-child(6),
+  .workflow-table td:nth-child(6) {
+    width: 5%;
   }
 
   .workflow-table th:nth-child(7),
-  .workflow-table td:nth-child(7),
-  .workflow-table th:nth-child(8),
-  .workflow-table td:nth-child(8) {
-    width: 8rem;
+  .workflow-table td:nth-child(7) {
+    width: 8%;
   }
 
-  .subject-link {
-    display: block;
-    max-width: 18rem;
+  .workflow-table th:nth-child(8),
+  .workflow-table td:nth-child(8) {
+    width: 10%;
+  }
+
+  .workflow-table th:nth-child(9),
+  .workflow-table td:nth-child(9) {
+    width: 6%;
+  }
+
+  .workflow-table td {
     overflow: hidden;
-    color: #164f9e;
-    font-weight: 750;
     text-overflow: ellipsis;
-    text-decoration: underline;
     white-space: nowrap;
+  }
+
+  .record-button {
+    display: grid;
+    width: 100%;
+    gap: 0.14rem;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: inherit;
+    text-align: left;
+  }
+
+  .record-button span {
+    color: #1d5fb8;
+    font-size: 0.78rem;
+    font-weight: 850;
+    text-decoration: underline;
+  }
+
+  .record-button strong {
+    overflow: hidden;
+    color: #191b19;
+    font-size: 0.82rem;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .record-button:hover strong {
+    color: #164f9e;
   }
 
   .tracking-question {
@@ -382,16 +499,6 @@
     display: grid;
     gap: 0.45rem;
     margin-top: 0.85rem;
-  }
-
-  .tracking-form {
-    grid-template-columns: minmax(8rem, 10rem) minmax(10rem, 14rem) minmax(12rem, 16rem) minmax(9rem, 11rem) minmax(8rem, 12rem) minmax(16rem, 1fr) auto;
-    align-items: end;
-  }
-
-  .tracking-attachment-fields {
-    grid-column: 1 / -2;
-    min-width: 0;
   }
 
   .distribution-field {
@@ -465,10 +572,6 @@
     line-height: 1.35;
   }
 
-  .tracking-form .btn {
-    white-space: nowrap;
-  }
-
   .tracking-field {
     display: grid;
     gap: 0.28rem;
@@ -491,10 +594,149 @@
     opacity: 0.45;
   }
 
-  .rfi-detail-grid {
+  .row-open-button {
+    gap: 0.25rem;
+    white-space: nowrap;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: rgba(15, 17, 15, 0.38);
+    padding: 1.25rem;
+    backdrop-filter: blur(10px);
+  }
+
+  .workflow-modal {
+    display: grid;
+    width: min(1040px, 100%);
+    max-height: min(92vh, 980px);
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.16);
+    border-radius: 0.45rem;
+    background: #fff;
+    box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    border-bottom: 1px solid rgba(25, 27, 25, 0.1);
+    padding: 0.9rem 1rem;
+  }
+
+  .modal-header h2 {
+    margin: 0.16rem 0 0;
+    color: #191b19;
+    font-size: 1.05rem;
+    font-weight: 850;
+    line-height: 1.25;
+  }
+
+  .modal-header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .modal-body {
+    display: grid;
+    gap: 0.9rem;
+    overflow: auto;
+    padding: 1rem;
+  }
+
+  .rfi-facts {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.35rem;
+    background: #fff;
+  }
+
+  .rfi-facts > div {
+    display: grid;
+    gap: 0.2rem;
+    min-height: 3.25rem;
+    border-right: 1px solid rgba(25, 27, 25, 0.08);
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+    padding: 0.52rem 0.6rem;
+  }
+
+  .rfi-facts > div:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .rfi-facts > div:nth-last-child(-n + 3) {
+    border-bottom: 0;
+  }
+
+  .rfi-facts span {
+    color: #5c665d;
+    font-size: 0.68rem;
+    font-weight: 850;
+    text-transform: uppercase;
+  }
+
+  .rfi-facts strong {
+    overflow: hidden;
+    color: #202520;
+    font-size: 0.82rem;
+    font-weight: 800;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rfi-prompt-grid {
     display: grid;
     gap: 0.75rem;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .modal-form {
+    display: grid;
+    grid-template-columns: minmax(9rem, 11rem) minmax(12rem, 1fr) minmax(12rem, 1fr) minmax(9rem, 11rem) minmax(8rem, 10rem);
+    gap: 0.65rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.1);
+    padding-top: 0.85rem;
+  }
+
+  .response-field,
+  .distribution-field,
+  .modal-attachment-fields,
+  .modal-footer {
+    grid-column: 1 / -1;
+  }
+
+  .modal-attachment-fields {
+    min-width: 0;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.45rem;
+  }
+
+  .modal-attachment-fields summary {
+    width: fit-content;
+    color: #191b19;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .modal-attachment-fields[open] summary {
+    margin-bottom: 0.6rem;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.55rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.8rem;
   }
 
   @media (max-width: 900px) {
@@ -502,38 +744,54 @@
       grid-template-columns: 1fr;
     }
 
-    .rfi-detail-grid {
+    .workflow-table {
+      min-width: 920px;
+    }
+
+    .rfi-prompt-grid,
+    .modal-form {
       grid-template-columns: 1fr;
-    }
-
-    .tracking-form {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .tracking-form .rfi-answer-field,
-    .tracking-form .tracking-attachment-fields,
-    .tracking-form .btn {
-      grid-column: span 2;
     }
   }
 
   @media (max-width: 640px) {
-    .tracking-form {
+    .modal-backdrop {
+      align-items: end;
+      padding: 0;
+    }
+
+    .workflow-modal {
+      width: 100%;
+      max-height: 92vh;
+      border-radius: 0.45rem 0.45rem 0 0;
+    }
+
+    .modal-header {
+      align-items: flex-start;
+      padding: 0.8rem;
+    }
+
+    .modal-body {
+      padding: 0.8rem;
+    }
+
+    .modal-footer {
+      display: grid;
+    }
+
+    .rfi-facts {
       grid-template-columns: 1fr;
     }
 
-    .tracking-form .rfi-answer-field,
-    .tracking-form .tracking-attachment-fields,
-    .tracking-form .btn {
-      grid-column: auto;
-      width: 100%;
+    .rfi-facts > div,
+    .rfi-facts > div:nth-child(3n),
+    .rfi-facts > div:nth-last-child(-n + 3) {
+      border-right: 0;
+      border-bottom: 1px solid rgba(25, 27, 25, 0.08);
     }
-  }
 
-  @media (max-width: 760px) {
-    .workflow-table th:nth-child(4),
-    .workflow-table td:nth-child(4) {
-      display: none;
+    .rfi-facts > div:last-child {
+      border-bottom: 0;
     }
   }
 </style>
