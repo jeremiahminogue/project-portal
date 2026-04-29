@@ -24,7 +24,7 @@ import {
 } from './mock-data';
 import { bytesToSize, relativeTime } from '$lib/utils';
 import { isProductionRuntime } from './env';
-import { normalizeItemAttachments, type ItemAttachment } from './item-attachments';
+import { loadItemAttachmentLinks, normalizeItemAttachments } from './item-attachments';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
 
@@ -309,7 +309,10 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
     row.received_from,
     ...(row.submittal_routing_steps ?? []).map((step: any) => step.assignee)
   ]);
-  const profiles = await profilesByIds(client, profileIds);
+  const [profiles, attachmentLinks] = await Promise.all([
+    profilesByIds(client, profileIds),
+    loadItemAttachmentLinks(client, 'submittal', rows.map((row: any) => row.id))
+  ]);
 
   return rows.map((row: any) => {
     const owner = profiles.get(row.owner);
@@ -332,7 +335,7 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
       submitBy: row.submit_by,
       receivedFrom: profileDisplayName(receivedFrom),
       receivedFromId: row.received_from,
-      attachments: normalizeItemAttachments(row.attachments_json),
+      attachments: attachmentLinks?.get(row.id) ?? normalizeItemAttachments(row.attachments_json),
       routingSteps: steps.map((step: any) => {
         const profile = profiles.get(step.assignee);
         return {
@@ -370,15 +373,18 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
 
   if (error) throw new Error(`getRfis failed: ${error.message}`);
   const rows = data ?? [];
-  const profiles = await profilesByIds(
-    client,
-    rows.flatMap((row: any) => [
-      row.assigned_to,
-      row.rfi_manager_id,
-      row.created_by,
-      ...arrayJson<string>(row.distribution_json)
-    ])
-  );
+  const [profiles, attachmentLinks] = await Promise.all([
+    profilesByIds(
+      client,
+      rows.flatMap((row: any) => [
+        row.assigned_to,
+        row.rfi_manager_id,
+        row.created_by,
+        ...arrayJson<string>(row.distribution_json)
+      ])
+    ),
+    loadItemAttachmentLinks(client, 'rfi', rows.map((row: any) => row.id))
+  ]);
 
   return rows.map((row: any) => {
     const assigned = profiles.get(row.assigned_to);
@@ -404,7 +410,7 @@ export async function getRfis(event: EventLike, slug: string): Promise<PortalRfi
       distributionIds,
       distribution: distributionIds.map((id) => profileDisplayName(profiles.get(id), id)),
       activity: arrayJson(row.activity_json),
-      attachments: normalizeItemAttachments(row.attachments_json)
+      attachments: attachmentLinks?.get(row.id) ?? normalizeItemAttachments(row.attachments_json)
     };
   });
 }

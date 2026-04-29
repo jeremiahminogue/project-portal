@@ -5,6 +5,7 @@ import {
   formHasItemAttachments,
   mergeItemAttachments,
   normalizeItemAttachments,
+  syncItemAttachmentLinks,
   uploadedItemAttachmentsFor,
   type ItemAttachment
 } from '$lib/server/item-attachments';
@@ -231,6 +232,19 @@ export const actions: Actions = {
 
     if (error) return fail(400, { error: error.message });
     if (row?.id) {
+      try {
+        await syncItemAttachmentLinks({
+          client: projectClient,
+          kind: 'rfi',
+          projectId: access.project.id,
+          itemId: row.id,
+          attachments,
+          userId: access.user.id
+        });
+      } catch (error) {
+        return fail(400, { error: error instanceof Error ? error.message : 'Could not save RFI file attachments.' });
+      }
+
       await notifyProjectEvent(event, {
         projectId: access.project.id,
         actorId: access.user.id,
@@ -372,6 +386,19 @@ export const actions: Actions = {
       .eq('id', id)
       .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
+
+    try {
+      await syncItemAttachmentLinks({
+        client: projectClient,
+        kind: 'rfi',
+        projectId: access.project.id,
+        itemId: id,
+        attachments,
+        userId: access.user.id
+      });
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : 'Could not save RFI file attachments.' });
+    }
 
     const assignedTo = hasAssignmentFields ? submittedAssignedTo : existing.assigned_to;
     const assignedOrg = hasAssignmentFields ? submittedAssignedOrg : existing.assigned_org;

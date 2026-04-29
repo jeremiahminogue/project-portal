@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import JSZip from 'jszip';
-import { normalizeItemAttachments } from '$lib/server/item-attachments';
+import { loadItemAttachmentLinks, normalizeItemAttachments } from '$lib/server/item-attachments';
 import { contentDisposition, getObject, responseBody, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
@@ -89,7 +89,10 @@ export const GET: RequestHandler = async (event) => {
   if (itemError) return json({ error: itemError.message }, { status: 500 });
   if (!item) return json({ error: `${definition.label} not found.` }, { status: 404 });
 
-  const attachments = normalizeItemAttachments(item.attachments_json).filter((attachment) => attachment.id);
+  const attachmentLinks = await loadItemAttachmentLinks(client, kind, [event.params.id]);
+  const attachments = (attachmentLinks?.get(event.params.id) ?? normalizeItemAttachments(item.attachments_json)).filter(
+    (attachment) => attachment.id
+  );
   if (!attachments.length) return json({ error: 'This item does not have downloadable attachments.' }, { status: 404 });
   if (attachments.length > MAX_ARCHIVE_ATTACHMENTS) {
     return json({ error: `Download up to ${MAX_ARCHIVE_ATTACHMENTS} attachments at a time.` }, { status: 400 });

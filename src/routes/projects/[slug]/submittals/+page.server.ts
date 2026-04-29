@@ -5,6 +5,7 @@ import {
   formHasItemAttachments,
   mergeItemAttachments,
   normalizeItemAttachments,
+  syncItemAttachmentLinks,
   uploadedItemAttachmentsFor,
   type ItemAttachment
 } from '$lib/server/item-attachments';
@@ -158,6 +159,19 @@ export const actions: Actions = {
     if (error) return fail(400, { error: error.message });
 
     if (row?.id) {
+      try {
+        await syncItemAttachmentLinks({
+          client: projectClient,
+          kind: 'submittal',
+          projectId: access.project.id,
+          itemId: row.id,
+          attachments,
+          userId: access.user.id
+        });
+      } catch (error) {
+        return fail(400, { error: error instanceof Error ? error.message : 'Could not save submittal file attachments.' });
+      }
+
       const route = routingAssigneeIds.length ? routingAssigneeIds : owner ? [owner] : [];
       const routing = route.map((assignee, index) => ({
         submittal_id: row.id,
@@ -290,6 +304,19 @@ export const actions: Actions = {
       .eq('id', id)
       .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });
+
+    try {
+      await syncItemAttachmentLinks({
+        client: projectClient,
+        kind: 'submittal',
+        projectId: access.project.id,
+        itemId: id,
+        attachments,
+        userId: access.user.id
+      });
+    } catch (error) {
+      return fail(400, { error: error instanceof Error ? error.message : 'Could not save submittal file attachments.' });
+    }
 
     if (workflowAssigneeId && workflowAssigneeId !== existing.owner) {
       const { error: routeError } = await projectClient.from('submittal_routing_steps').insert({

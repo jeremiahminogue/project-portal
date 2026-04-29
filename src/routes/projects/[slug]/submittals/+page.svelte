@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { ArrowRight, Bell, Check, FilePlus2, PencilLine, Search, X } from '@lucide/svelte';
+  import { ArrowRight, Bell, Check, Download, FilePlus2, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
@@ -105,6 +105,31 @@
   function openSubmittalButton(event: MouseEvent, submittal: PortalSubmittal) {
     event.stopPropagation();
     openSubmittalModal(submittal);
+  }
+
+  function stopRowAction(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
+  function submittalDownloadHref(submittal: PortalSubmittal) {
+    const downloadable = (submittal.attachments ?? []).filter((attachment) => attachment.id);
+    if (downloadable.length === 1) {
+      return `/api/files/${encodeURIComponent(downloadable[0].id ?? '')}/download?download=1`;
+    }
+    if (downloadable.length > 1 && submittal.id) {
+      return `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(submittal.id)}/download`;
+    }
+    return '';
+  }
+
+  function attachmentLabel(submittal: PortalSubmittal) {
+    const count = submittal.attachments?.length ?? 0;
+    if (count === 0) return 'None';
+    return `${count} file${count === 1 ? '' : 's'}`;
+  }
+
+  function attachmentTitle(submittal: PortalSubmittal) {
+    return submittal.attachments?.map((attachment) => attachment.path ?? attachment.name).join('\n') || 'No files attached';
   }
 
   function handleModalKeydown(event: KeyboardEvent) {
@@ -246,7 +271,24 @@
                 <td>{sub.revision ?? 0}</td>
                 <td>{sub.owner || 'Unassigned'}</td>
                 <td>{sub.receivedFrom || '-'}</td>
-                <td>{sub.attachments?.length ?? 0}</td>
+                <td>
+                  {#if sub.attachments?.length}
+                    {#if submittalDownloadHref(sub)}
+                      <a class="file-count-link" href={submittalDownloadHref(sub)} title={attachmentTitle(sub)} onclick={stopRowAction}>
+                        <Paperclip size={13} />
+                        <span>{attachmentLabel(sub)}</span>
+                        <Download size={12} />
+                      </a>
+                    {:else}
+                      <span class="file-count-static" title={attachmentTitle(sub)}>
+                        <Paperclip size={13} />
+                        <span>{attachmentLabel(sub)}</span>
+                      </span>
+                    {/if}
+                  {:else}
+                    <span class="file-empty">None</span>
+                  {/if}
+                </td>
                 <td>{formatDate(sub.submitBy)}</td>
                 <td>{formatDate(sub.dueDate)}</td>
                 <td>
@@ -454,10 +496,13 @@
   }
 
   .workflow-table th:nth-child(4),
-  .workflow-table td:nth-child(4),
+  .workflow-table td:nth-child(4) {
+    width: 5%;
+  }
+
   .workflow-table th:nth-child(7),
   .workflow-table td:nth-child(7) {
-    width: 5%;
+    width: 7%;
   }
 
   .workflow-table th:nth-child(5),
@@ -755,6 +800,44 @@
   .row-open-button {
     gap: 0.25rem;
     white-space: nowrap;
+  }
+
+  .file-count-link,
+  .file-count-static {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    max-width: 100%;
+    border-radius: 0.35rem;
+    color: #22532b;
+    font-size: 0.74rem;
+    font-weight: 850;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .file-count-link {
+    border: 1px solid rgba(55, 95, 56, 0.18);
+    background: rgba(55, 95, 56, 0.08);
+    padding: 0.32rem 0.42rem;
+    text-decoration: none;
+  }
+
+  .file-count-link:hover {
+    border-color: rgba(55, 95, 56, 0.34);
+    background: rgba(55, 95, 56, 0.14);
+  }
+
+  .file-count-link span,
+  .file-count-static span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-empty {
+    color: #727a72;
+    font-size: 0.74rem;
+    font-weight: 750;
   }
 
   .modal-backdrop {

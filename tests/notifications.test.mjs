@@ -117,6 +117,7 @@ test('RFI and submittal workflows emit Procore-style notification events instead
 
 test('RFIs and submittals support production item-level file attachments', () => {
   const migration = file('supabase/migrations/0011_rfi_submittal_attachments.sql');
+  const linkMigration = file('supabase/migrations/0013_communication_attachment_links.sql');
   const helper = file('src/lib/server/item-attachments.ts');
   const queries = file('src/lib/server/queries.ts');
   const rfiServer = file('src/routes/projects/[slug]/rfis/+page.server.ts');
@@ -130,8 +131,15 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(migration, /alter table rfis/);
   assert.match(migration, /add column if not exists attachments_json jsonb/);
   assert.match(migration, /alter table submittals/);
+  assert.match(linkMigration, /create table if not exists rfi_attachments/);
+  assert.match(linkMigration, /create table if not exists submittal_attachments/);
+  assert.match(linkMigration, /unique\(rfi_id, file_id\)/);
+  assert.match(linkMigration, /unique\(submittal_id, file_id\)/);
+  assert.match(linkMigration, /jsonb_array_elements/);
   assert.match(helper, /uploadedItemAttachmentsFor/);
   assert.match(helper, /existingFileAttachmentsFor/);
+  assert.match(helper, /syncItemAttachmentLinks/);
+  assert.match(helper, /loadItemAttachmentLinks/);
   assert.match(helper, /formHasItemAttachments/);
   assert.match(helper, /putObject/);
   assert.match(helper, /registerUploadedFile/);
@@ -139,8 +147,11 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(helper, /Upload up to \$\{MAX_ATTACHMENTS_PER_SAVE\} files at a time/);
   assert.match(helper, /Attach up to \$\{MAX_ATTACHMENTS_PER_SAVE\} existing project files at a time/);
   assert.match(helper, /One or more selected project files could not be attached/);
-  assert.match(queries, /attachments: normalizeItemAttachments\(row\.attachments_json\)/);
+  assert.match(queries, /loadItemAttachmentLinks\(client, 'submittal'/);
+  assert.match(queries, /loadItemAttachmentLinks\(client, 'rfi'/);
+  assert.match(queries, /attachments: attachmentLinks\?\.get\(row\.id\) \?\? normalizeItemAttachments\(row\.attachments_json\)/);
   assert.match(rfiServer, /attachments_json: attachments/);
+  assert.match(rfiServer, /syncItemAttachmentLinks/);
   assert.match(rfiServer, /uploadedItemAttachmentsFor/);
   assert.match(rfiServer, /existingFileAttachmentsFor/);
   assert.match(rfiServer, /formHasItemAttachments\(form\) && !projectRoleCapabilities\[access\.role\]\.canUploadFiles/);
@@ -148,6 +159,7 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(rfiServer, /canAttachFiles/);
   assert.doesNotMatch(rfiServer, /RFI attachment notification failed/);
   assert.match(submittalServer, /attachments_json: attachments/);
+  assert.match(submittalServer, /syncItemAttachmentLinks/);
   assert.match(submittalServer, /uploadedItemAttachmentsFor/);
   assert.match(submittalServer, /existingFileAttachmentsFor/);
   assert.match(submittalServer, /formHasItemAttachments\(form\) && !projectRoleCapabilities\[access\.role\]\.canUploadFiles/);
@@ -158,12 +170,15 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(rfiUi, /\{#if canAttachFiles\}/);
   assert.match(rfiUi, /attachments\/rfi\/\$\{encodeURIComponent\(selectedRfi\.id\)\}\/download/);
   assert.match(rfiUi, /AttachmentChips/);
+  assert.match(rfiUi, /file-count-link/);
   assert.match(submittalUi, /enctype="multipart\/form-data"/);
   assert.match(submittalUi, /Upload submittal files/);
   assert.match(submittalUi, /\{#if canAttachFiles\}/);
   assert.match(submittalUi, /attachments\/submittal\/\$\{encodeURIComponent\(selectedSubmittal\.id\)\}\/download/);
   assert.match(submittalUi, /AttachmentChips/);
+  assert.match(submittalUi, /file-count-link/);
   assert.match(fields, /Drag files here or browse/);
+  assert.match(fields, /selected-file-list/);
   assert.match(fields, /DataTransfer/);
   assert.match(fields, /My computer/);
   assert.match(fields, /Project files/);

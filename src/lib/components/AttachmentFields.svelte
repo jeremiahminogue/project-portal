@@ -86,10 +86,12 @@
     {#if selectedFileNames.length}
       <em class:warning={tooManyFiles}>
         {selectedCountLabel}{tooManyFiles ? ` - limit ${maxFiles}` : ''}
-        {#if selectedFileNames.length <= 3}
-          : {selectedFileNames.join(', ')}
-        {/if}
       </em>
+      <ul class="selected-file-list" aria-label="Selected files">
+        {#each selectedFileNames as name}
+          <li>{name}</li>
+        {/each}
+      </ul>
     {/if}
   </div>
 
@@ -148,6 +150,29 @@
 
   .attachment-field em.warning {
     color: #9a3412;
+  }
+
+  .selected-file-list {
+    display: grid;
+    gap: 0.18rem;
+    max-height: 7.5rem;
+    margin: 0.1rem 0 0;
+    overflow: auto;
+    padding: 0;
+    list-style: none;
+  }
+
+  .selected-file-list li {
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.08);
+    border-radius: 0.32rem;
+    background: rgba(255, 255, 255, 0.64);
+    padding: 0.26rem 0.38rem;
+    color: #303830;
+    font-size: 0.72rem;
+    font-weight: 780;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .upload-drop {

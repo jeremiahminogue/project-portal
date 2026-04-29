@@ -24,6 +24,19 @@ export type ItemAttachment = {
   path?: string;
 };
 
+export type AttachmentItemKind = 'rfi' | 'submittal';
+
+const attachmentLinkTables = {
+  rfi: {
+    table: 'rfi_attachments',
+    itemColumn: 'rfi_id'
+  },
+  submittal: {
+    table: 'submittal_attachments',
+    itemColumn: 'submittal_id'
+  }
+} as const;
+
 function isUploadedFile(value: unknown): value is UploadedFile {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<UploadedFile>;
@@ -62,6 +75,28 @@ function normalizeAttachment(value: unknown): ItemAttachment | null {
     type: typeof attachment.type === 'string' ? attachment.type : 'file',
     ...(typeof attachment.id === 'string' ? { id: attachment.id } : {}),
     ...(typeof attachment.path === 'string' ? { path: attachment.path } : {})
+  };
+}
+
+function isMissingAttachmentLinkTable(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  const message = (error as { message?: string } | null)?.message ?? '';
+  return code === '42P01' || code === '42703' || /relation .*_attachments.* does not exist/i.test(message);
+}
+
+function linkableAttachmentId(attachment: ItemAttachment) {
+  const id = attachment.id?.trim();
+  if (!id || id.startsWith('storage:')) return null;
+  return id;
+}
+
+function attachmentLinkPayload(attachment: ItemAttachment) {
+  return {
+    file_id: linkableAttachmentId(attachment),
+    name: attachment.name,
+    size_label: attachment.size,
+    file_type: attachment.type || 'file',
+    path: attachment.path ?? attachment.name
   };
 }
 
@@ -133,6 +168,89 @@ export async function existingFileAttachmentsFor(client: Client, projectId: stri
       path: folder ? `${folder}/${row.name}` : row.name
     };
   });
+}
+
+export async function loadItemAttachmentLinks(
+  client: Client,
+  kind: AttachmentItemKind,
+  itemIds: string[]
+): Promise<Map<string, ItemAttachment[]> | null> {
+  const definition = attachmentLinkTables[kind];
+  const ids = [...new Set(itemIds.filter(Boolean))];
+  if (!ids.length) return new Map();
+
+  const { data, error } = await client
+    .from(definition.table)
+    .select(`${definition.itemColumn}, file_id, name, size_label, file_type, path, created_at`)
+    .in(definition.itemColumn, ids)
+    .order('created_at', { ascending: true });
+
+  if (error) {
+    if (isMissingAttachmentLinkTable(error)) return null;
+    throw new Error(error.message);
+  }
+
+  const byItem = new Map<string, ItemAttachment[]>();
+  for (const rawRow of data ?? []) {
+    const row = rawRow as Record<string, string | null>;
+    const itemId = row[definition.itemColumn] as string;
+    const list = byItem.get(itemId) ?? [];
+    list.push({
+      id: row.file_id ?? undefined,
+      name: row.name ?? 'Attachment',
+      size: row.size_label ?? '',
+      type: row.file_type ?? 'file',
+      ...(row.path ? { path: row.path } : {})
+    });
+    byItem.set(itemId, list);
+  }
+  return byItem;
+}
+
+export async function syncItemAttachmentLinks({
+  client,
+  kind,
+  projectId,
+  itemId,
+  attachments,
+  userId
+}: {
+  client: Client;
+  kind: AttachmentItemKind;
+  projectId: string;
+  itemId: string;
+  attachments: ItemAttachment[];
+  userId: string;
+}) {
+  const definition = attachmentLinkTables[kind];
+  const linkableAttachments = attachments.filter((attachment) => linkableAttachmentId(attachment));
+
+  const deleteResult = await client
+    .from(definition.table)
+    .delete()
+    .eq('project_id', projectId)
+    .eq(definition.itemColumn, itemId);
+
+  if (deleteResult.error) {
+    if (isMissingAttachmentLinkTable(deleteResult.error)) return false;
+    throw new Error(deleteResult.error.message);
+  }
+
+  if (!linkableAttachments.length) return true;
+
+  const rows = linkableAttachments.map((attachment) => ({
+    project_id: projectId,
+    [definition.itemColumn]: itemId,
+    created_by: userId,
+    ...attachmentLinkPayload(attachment)
+  }));
+
+  const { error } = await client.from(definition.table).insert(rows);
+  if (error) {
+    if (isMissingAttachmentLinkTable(error)) return false;
+    throw new Error(error.message);
+  }
+  return true;
 }
 
 export async function uploadedItemAttachmentsFor({

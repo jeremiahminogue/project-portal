@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { ArrowRight, Check, MessageSquarePlus, PencilLine, Search, X } from '@lucide/svelte';
+  import { ArrowRight, Check, Download, MessageSquarePlus, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
@@ -81,6 +81,31 @@
   function openRfiButton(event: MouseEvent, rfi: PortalRfi) {
     event.stopPropagation();
     openRfiModal(rfi);
+  }
+
+  function stopRowAction(event: MouseEvent) {
+    event.stopPropagation();
+  }
+
+  function rfiDownloadHref(rfi: PortalRfi) {
+    const downloadable = (rfi.attachments ?? []).filter((attachment) => attachment.id);
+    if (downloadable.length === 1) {
+      return `/api/files/${encodeURIComponent(downloadable[0].id ?? '')}/download?download=1`;
+    }
+    if (downloadable.length > 1 && rfi.id) {
+      return `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/rfi/${encodeURIComponent(rfi.id)}/download`;
+    }
+    return '';
+  }
+
+  function attachmentLabel(rfi: PortalRfi) {
+    const count = rfi.attachments?.length ?? 0;
+    if (count === 0) return 'None';
+    return `${count} file${count === 1 ? '' : 's'}`;
+  }
+
+  function attachmentTitle(rfi: PortalRfi) {
+    return rfi.attachments?.map((attachment) => attachment.path ?? attachment.name).join('\n') || 'No files attached';
   }
 
   function closeRfiModal() {
@@ -209,7 +234,24 @@
                 <td>{rfi.assignedTo || 'Unassigned'}</td>
                 <td>{rfi.rfiManager || 'Unassigned'}</td>
                 <td>{rfi.reference || '-'}</td>
-                <td>{rfi.attachments?.length ?? 0}</td>
+                <td>
+                  {#if rfi.attachments?.length}
+                    {#if rfiDownloadHref(rfi)}
+                      <a class="file-count-link" href={rfiDownloadHref(rfi)} title={attachmentTitle(rfi)} onclick={stopRowAction}>
+                        <Paperclip size={13} />
+                        <span>{attachmentLabel(rfi)}</span>
+                        <Download size={12} />
+                      </a>
+                    {:else}
+                      <span class="file-count-static" title={attachmentTitle(rfi)}>
+                        <Paperclip size={13} />
+                        <span>{attachmentLabel(rfi)}</span>
+                      </span>
+                    {/if}
+                  {:else}
+                    <span class="file-empty">None</span>
+                  {/if}
+                </td>
                 <td>{formatDate(rfi.dueDate)}</td>
                 <td>{rfi.answer || '-'}</td>
                 <td>
@@ -433,7 +475,7 @@
 
   .workflow-table th:nth-child(6),
   .workflow-table td:nth-child(6) {
-    width: 5%;
+    width: 7%;
   }
 
   .workflow-table th:nth-child(7),
@@ -443,7 +485,7 @@
 
   .workflow-table th:nth-child(8),
   .workflow-table td:nth-child(8) {
-    width: 10%;
+    width: 8%;
   }
 
   .workflow-table th:nth-child(9),
@@ -597,6 +639,44 @@
   .row-open-button {
     gap: 0.25rem;
     white-space: nowrap;
+  }
+
+  .file-count-link,
+  .file-count-static {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.28rem;
+    max-width: 100%;
+    border-radius: 0.35rem;
+    color: #22532b;
+    font-size: 0.74rem;
+    font-weight: 850;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .file-count-link {
+    border: 1px solid rgba(55, 95, 56, 0.18);
+    background: rgba(55, 95, 56, 0.08);
+    padding: 0.32rem 0.42rem;
+    text-decoration: none;
+  }
+
+  .file-count-link:hover {
+    border-color: rgba(55, 95, 56, 0.34);
+    background: rgba(55, 95, 56, 0.14);
+  }
+
+  .file-count-link span,
+  .file-count-static span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .file-empty {
+    color: #727a72;
+    font-size: 0.74rem;
+    font-weight: 750;
   }
 
   .modal-backdrop {
