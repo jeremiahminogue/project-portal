@@ -1,4 +1,5 @@
 import { XMLParser } from 'fast-xml-parser';
+import * as pdfjsWorker from 'pdfjs-dist/legacy/build/pdf.worker.mjs';
 
 export type ImportedScheduleActivity = {
   phase: string;
@@ -137,6 +138,8 @@ function parsePdfTextItems(items: string[]) {
 
 async function parsePdf(bytes: Uint8Array) {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  const workerGlobal = globalThis as typeof globalThis & { pdfjsWorker?: unknown };
+  workerGlobal.pdfjsWorker ??= pdfjsWorker;
   const pdf = await pdfjs.getDocument({ data: new Uint8Array(bytes) }).promise;
   const items: string[] = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {

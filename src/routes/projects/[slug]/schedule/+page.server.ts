@@ -24,6 +24,21 @@ function validStatus(value: string) {
   return ['green', 'amber', 'red', 'blue', 'gray', 'purple'].includes(value) ? value : 'blue';
 }
 
+function missingScheduleMetadataColumn(error: { code?: string; message?: string } | null | undefined) {
+  return (
+    error?.code === '42703' ||
+    /column .*predecessor_refs|column .*source_order|column .*source_wbs/i.test(error?.message ?? '')
+  );
+}
+
+function withoutScheduleMetadata<T extends Record<string, unknown>>(values: T) {
+  const { predecessor_refs, source_order, source_wbs, ...legacyValues } = values;
+  void predecessor_refs;
+  void source_order;
+  void source_wbs;
+  return legacyValues;
+}
+
 export const actions: Actions = {
   saveActivity: async (event) => {
     const form = await event.request.formData();
@@ -60,9 +75,15 @@ export const actions: Actions = {
       predecessor_refs: formOptional(form, 'predecessorRefs')
     };
 
-    const result = id
+    let result = id
       ? await client.from('schedule_activities').update(values).eq('id', id).eq('project_id', access.project.id)
       : await client.from('schedule_activities').insert(values);
+    if (missingScheduleMetadataColumn(result.error)) {
+      const legacyValues = withoutScheduleMetadata(values);
+      result = id
+        ? await client.from('schedule_activities').update(legacyValues).eq('id', id).eq('project_id', access.project.id)
+        : await client.from('schedule_activities').insert(legacyValues);
+    }
     if (result.error) return fail(400, { error: result.error.message });
     return { ok: true };
   },
@@ -114,8 +135,7 @@ export const actions: Actions = {
       if (deleted.error) return fail(400, { error: deleted.error.message });
     }
 
-    const { error } = await client.from('schedule_activities').insert(
-      activities.map((activity) => ({
+    const rows = activities.map((activity) => ({
         project_id: access.project.id,
         phase: activity.phase,
         title: activity.title,
@@ -129,9 +149,13 @@ export const actions: Actions = {
         source_order: activity.sourceOrder,
         source_wbs: activity.sourceWbs,
         predecessor_refs: activity.predecessorRefs
-      }))
-    );
-    if (error) return fail(400, { error: error.message });
+      }));
+
+    let inserted = await client.from('schedule_activities').insert(rows);
+    if (missingScheduleMetadataColumn(inserted.error)) {
+      inserted = await client.from('schedule_activities').insert(rows.map((row) => withoutScheduleMetadata(row)));
+    }
+    if (inserted.error) return fail(400, { error: inserted.error.message });
     return { ok: true, imported: activities.length };
   }
 };

@@ -17,12 +17,15 @@ test('schedule supports MS Project import metadata and clean look-ahead views', 
   assert.match(migration, /source_wbs/);
   assert.match(migration, /predecessor_refs/);
   assert.match(parser, /pdfjs-dist\/legacy\/build\/pdf\.mjs/);
+  assert.match(parser, /pdfjs-dist\/legacy\/build\/pdf\.worker\.mjs/);
+  assert.match(parser, /pdfjsWorker/);
   assert.match(parser, /parseMsProjectXml/);
   assert.match(parser, /parseCsv/);
   assert.match(route, /importSchedule/);
   assert.match(route, /parseScheduleImport/);
   assert.match(route, /replaceSchedule/);
   assert.match(route, /canDeleteSchedule/);
+  assert.match(route, /missingScheduleMetadataColumn/);
   assert.match(page, /Import schedule/);
   assert.match(page, /disabled=\{!data\.scheduleAccess\?\.canDelete\}/);
   assert.match(page, /Full/);
