@@ -13,7 +13,8 @@
     uploadLabel = 'Upload attachments',
     existingLabel = 'Attach existing project files',
     maxFiles = 10,
-    maxFileMb = 100
+    maxFileMb = 100,
+    existingCollapsed = false
   }: {
     files?: { id: string; path: string; size: string }[];
     projectSlug?: string;
@@ -25,6 +26,12 @@
     existingLabel?: string;
     maxFiles?: number;
     maxFileMb?: number;
+    /**
+     * When true, the "Attach existing project files" picker is hidden behind a
+     * collapsed <details> toggle. The submittal/RFI flows opt in so the modal
+     * doesn't visually dump every file in the project.
+     */
+    existingCollapsed?: boolean;
   } = $props();
 
   let root: HTMLDivElement | undefined = $state();
@@ -236,16 +243,31 @@
   </div>
 
   {#if attachableFiles.length}
-    <label class="attachment-field existing-files" for={`${idPrefix}-existing`}>
-      <span><Link size={14} />{existingLabel}</span>
-      <strong>Project files</strong>
-      <small>Select one or more files already stored in this project.</small>
-      <select id={`${idPrefix}-existing`} class="field project-file-picker" name="attachmentIds" multiple size={existingPickerSize}>
-        {#each attachableFiles as file}
-          <option value={file.id}>{file.path} ({file.size})</option>
-        {/each}
-      </select>
-    </label>
+    {#if existingCollapsed}
+      <details class="attachment-field existing-files existing-files-collapsed">
+        <summary>
+          <Link size={14} />
+          <span>{existingLabel}</span>
+          <small>Optional - {attachableFiles.length} file{attachableFiles.length === 1 ? '' : 's'} available</small>
+        </summary>
+        <select id={`${idPrefix}-existing`} class="field project-file-picker" name="attachmentIds" multiple size={existingPickerSize}>
+          {#each attachableFiles as file}
+            <option value={file.id}>{file.path} ({file.size})</option>
+          {/each}
+        </select>
+      </details>
+    {:else}
+      <label class="attachment-field existing-files" for={`${idPrefix}-existing`}>
+        <span><Link size={14} />{existingLabel}</span>
+        <strong>Project files</strong>
+        <small>Select one or more files already stored in this project.</small>
+        <select id={`${idPrefix}-existing`} class="field project-file-picker" name="attachmentIds" multiple size={existingPickerSize}>
+          {#each attachableFiles as file}
+            <option value={file.id}>{file.path} ({file.size})</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
   {/if}
 </div>
 
@@ -435,6 +457,60 @@
 
   .existing-files select {
     font-size: 0.75rem;
+  }
+
+  .existing-files-collapsed {
+    display: block;
+    grid-column: 1 / -1;
+    border: 1px solid rgba(25, 27, 25, 0.12);
+    border-radius: 0.4rem;
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .existing-files-collapsed summary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    padding: 0.55rem 0.7rem;
+    color: #303830;
+    font-size: 0.78rem;
+    font-weight: 850;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .existing-files-collapsed summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .existing-files-collapsed summary::before {
+    content: '+';
+    display: inline-block;
+    width: 0.95rem;
+    text-align: center;
+    color: #4f594f;
+    font-size: 0.85rem;
+    font-weight: 900;
+  }
+
+  .existing-files-collapsed[open] summary::before {
+    content: '-';
+  }
+
+  .existing-files-collapsed summary small {
+    color: #697169;
+    font-size: 0.7rem;
+    font-weight: 750;
+  }
+
+  .existing-files-collapsed[open] summary {
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+  }
+
+  .existing-files-collapsed select {
+    margin: 0.55rem 0.7rem 0.7rem;
+    width: calc(100% - 1.4rem);
   }
 
   .project-file-picker {

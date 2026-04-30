@@ -241,8 +241,22 @@ export const actions: Actions = {
     const stepDueDate = formOptional(form, 'stepDueDate');
     const sendEmails = form.get('sendEmails') === 'on';
 
+    // Optional metadata edits — sent by the inline-edit panel in the detail
+    // modal. Each is only applied when present in the form so existing flows
+    // (status-only updates) still work without supplying the full record.
+    const editTitle = form.has('editTitle') ? formString(form, 'editTitle') : null;
+    const editSpecSection = form.has('editSpecSection') ? formOptional(form, 'editSpecSection') : undefined;
+    const editDueDate = form.has('editDueDate') ? formOptional(form, 'editDueDate') : undefined;
+    const editSubmitBy = form.has('editSubmitBy') ? formOptional(form, 'editSubmitBy') : undefined;
+    const editNotes = form.has('editNotes') ? formOptional(form, 'editNotes') : undefined;
+    const editRevision = form.has('editRevision') ? Number(formString(form, 'editRevision') || 0) : null;
+    const editReceivedFrom = form.has('editReceivedFrom') ? formOptional(form, 'editReceivedFrom') : undefined;
+
     if (!id || !['draft', 'submitted', 'in_review', 'approved', 'revise_resubmit', 'rejected'].includes(status)) {
       return fail(400, { error: 'Valid submittal status is required.' });
+    }
+    if (editTitle !== null && !editTitle.trim()) {
+      return fail(400, { error: 'Title cannot be empty.' });
     }
 
     const access = await requireProjectAccess(event, event.params.slug, {
@@ -258,6 +272,10 @@ export const actions: Actions = {
     if (workflowAssigneeId) {
       const assigneeError = await assertProjectMembers(projectClient, access.project.id, [workflowAssigneeId], 'Workflow assignee');
       if (assigneeError) return fail(400, { error: assigneeError });
+    }
+    if (editReceivedFrom) {
+      const receivedError = await assertProjectMembers(projectClient, access.project.id, [editReceivedFrom], 'Received from');
+      if (receivedError) return fail(400, { error: receivedError });
     }
 
     const { data: existing, error: existingError } = await projectClient
@@ -292,15 +310,25 @@ export const actions: Actions = {
     }
 
     const attachmentCountChanged = attachments.length !== originalAttachments.length;
+    const updatePayload: Record<string, unknown> = {
+      status,
+      decision,
+      attachments_json: attachments,
+      owner: workflowAssigneeId ?? existing.owner,
+      current_step:
+        workflowAssigneeId && workflowAssigneeId !== existing.owner ? (existing.current_step ?? 0) + 1 : existing.current_step
+    };
+    if (editTitle !== null) updatePayload.title = editTitle.trim();
+    if (editSpecSection !== undefined) updatePayload.spec_section = editSpecSection;
+    if (editDueDate !== undefined) updatePayload.due_date = editDueDate;
+    if (editSubmitBy !== undefined) updatePayload.submit_by = editSubmitBy;
+    if (editNotes !== undefined) updatePayload.notes = editNotes;
+    if (editRevision !== null && Number.isFinite(editRevision)) updatePayload.revision = Math.max(0, editRevision);
+    if (editReceivedFrom !== undefined) updatePayload.received_from = editReceivedFrom;
+
     const { error } = await projectClient
       .from('submittals')
-      .update({
-        status,
-        decision,
-        attachments_json: attachments,
-        owner: workflowAssigneeId ?? existing.owner,
-        current_step: workflowAssigneeId && workflowAssigneeId !== existing.owner ? (existing.current_step ?? 0) + 1 : existing.current_step
-      })
+      .update(updatePayload)
       .eq('id', id)
       .eq('project_id', access.project.id);
     if (error) return fail(400, { error: error.message });

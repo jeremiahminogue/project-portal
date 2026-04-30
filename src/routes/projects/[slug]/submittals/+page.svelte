@@ -1,21 +1,63 @@
+<!--
+  Submittals page.
+
+  IA goals (response to feedback that the previous modal "overran its real
+  estate" and surfaced "all project files out of nowhere"):
+    1. Create flow opens a focused, compact modal — not an inline grid above
+       the table that pushed the table off-screen on smaller viewports.
+    2. The "Attach existing project files" picker is collapsed by default so
+       the create form does not visually dump every file in the project.
+       (AttachmentFields exposes `existingCollapsed` for opt-in.)
+    3. Detail modal is a 2-pane workspace: left pane previews the active
+       attachment with EmbedPDF (PDFs) / inline image / fallback link;
+       right pane carries quick workflow buttons, the routing-step timeline,
+       inline edit metadata, and the Update form (status, response, BIC,
+       step due, attachments, email notifications).
+    4. Edit-metadata writes go through the existing `updateSubmittal` action
+       with optional `editTitle/editSpecSection/...` fields the action now
+       picks up. No status change is required to save a metadata edit.
+    5. Quick action buttons (Approve / Revise & Resubmit / Reject / Mark
+       in review) flip `decisionStatus`, prefill a sensible default response
+       sentence, and submit the existing form so the workflow + email path
+       runs unchanged.
+-->
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { ArrowRight, Bell, Check, Download, FilePlus2, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
+  import {
+    ArrowRight,
+    Bell,
+    Check,
+    Download,
+    FileText,
+    FilePlus2,
+    Image as ImageIcon,
+    Paperclip,
+    PencilLine,
+    RotateCcw,
+    Search,
+    Trash2,
+    X,
+    XCircle
+  } from '@lucide/svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
-  import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
+  import EmbedPdfViewer from '$lib/components/EmbedPdfViewer.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import { formatDate } from '$lib/utils';
 
   type SubmittalRoutingStep = {
+    id?: string;
     order: number;
     assignee: string;
     role: string;
     status: string;
     dueDate?: string | null;
     response?: string | null;
+    completedAt?: string | null;
   };
+
+  type SubmittalAttachment = { id?: string; name: string; size: string; type: string; path?: string };
 
   type PortalSubmittal = {
     id?: string;
@@ -29,29 +71,45 @@
     submitBy?: string | null;
     dueDate?: string | null;
     receivedFrom?: string | null;
+    receivedFromId?: string | null;
+    notes?: string | null;
+    decision?: string | null;
     routing: string[];
     routingSteps?: SubmittalRoutingStep[];
     currentStep?: number;
-    attachments?: { id?: string; name: string; size: string; type: string; path?: string }[];
+    attachments?: SubmittalAttachment[];
   };
 
   let { data, form } = $props();
-  let showSubmittalForm = $state(false);
+
+  // ── UI state ──────────────────────────────────────────────────
+  let showCreateModal = $state(false);
   let activeSubmittal = $state('');
   let query = $state('');
   let savedView = $state('all');
   let decisionStatus = $state('in_review');
+  let decisionResponse = $state('');
+  let editing = $state(false);
+  let activeAttachmentId = $state('');
   let newSubmittalNumber = $state('');
+
+  // ── Permissions (proxied from server payload) ────────────────
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
+
+  // ── Counters / filters ───────────────────────────────────────
   const openCount = $derived(data.submittals.filter((item) => !isClosedStatus(item.status)).length);
   const closedCount = $derived(data.submittals.filter((item) => isClosedStatus(item.status)).length);
   const ballCount = $derived(data.submittals.filter((item) => item.owner).length);
 
   const filteredSubmittals = $derived(
     data.submittals.filter((item) => {
-      const queryOk = !query || `${item.number} ${item.title} ${item.specSection} ${item.owner}`.toLowerCase().includes(query.toLowerCase());
+      const queryOk =
+        !query ||
+        `${item.number} ${item.title} ${item.specSection ?? ''} ${item.owner ?? ''}`
+          .toLowerCase()
+          .includes(query.toLowerCase());
       const viewOk =
         savedView === 'all' ||
         (savedView === 'open' && !['Approved', 'Rejected'].includes(item.status)) ||
@@ -62,11 +120,25 @@
   );
 
   const selectedSubmittal = $derived(data.submittals.find((item) => (item.id ?? item.number) === activeSubmittal));
+  const selectedAttachments = $derived(selectedSubmittal?.attachments ?? []);
+  const previewAttachment = $derived(
+    selectedAttachments.find((attachment) => (attachment.id ?? attachment.name) === activeAttachmentId) ??
+      selectedAttachments[0] ??
+      null
+  );
 
+  // ── Reactive resets ──────────────────────────────────────────
   $effect(() => {
-    if (selectedSubmittal) decisionStatus = statusValue(selectedSubmittal.status);
+    if (selectedSubmittal) {
+      decisionStatus = statusValue(selectedSubmittal.status);
+      decisionResponse = selectedSubmittal.decision ?? '';
+      editing = false;
+      activeAttachmentId =
+        (selectedSubmittal.attachments?.[0]?.id ?? selectedSubmittal.attachments?.[0]?.name) ?? '';
+    }
   });
 
+  // ── Helpers ──────────────────────────────────────────────────
   function statusValue(label: string) {
     const statuses: Record<string, string> = {
       Draft: 'draft',
@@ -79,13 +151,13 @@
     return statuses[label] ?? 'in_review';
   }
 
+  function isClosedStatus(status: string) {
+    return status === 'Approved' || status === 'Rejected';
+  }
+
   function clearFilters() {
     query = '';
     savedView = 'all';
-  }
-
-  function isClosedStatus(status: string) {
-    return status === 'Approved' || status === 'Rejected';
   }
 
   function submittalKey(submittal: PortalSubmittal) {
@@ -98,6 +170,7 @@
 
   function closeSubmittalModal() {
     activeSubmittal = '';
+    editing = false;
   }
 
   function stopModalClick(event: MouseEvent) {
@@ -135,13 +208,10 @@
   }
 
   function handleModalKeydown(event: KeyboardEvent) {
-    if (event.key === 'Escape' && selectedSubmittal) closeSubmittalModal();
-  }
-
-  function routeSummary(submittal: PortalSubmittal) {
-    const stepCount = submittal.routingSteps?.length ?? 0;
-    if (stepCount > 0) return `${stepCount} step${stepCount === 1 ? '' : 's'}`;
-    return submittal.routing.join(', ') || 'Not routed';
+    if (event.key === 'Escape') {
+      if (selectedSubmittal) closeSubmittalModal();
+      else if (showCreateModal) closeCreateModal();
+    }
   }
 
   function routedCount(submittal: PortalSubmittal) {
@@ -155,11 +225,49 @@
     return 'waiting';
   }
 
-  function toggleSubmittalForm() {
-    showSubmittalForm = !showSubmittalForm;
-    if (!showSubmittalForm) newSubmittalNumber = '';
+  function openCreateModal() {
+    showCreateModal = true;
+    newSubmittalNumber = '';
   }
 
+  function closeCreateModal() {
+    showCreateModal = false;
+    newSubmittalNumber = '';
+  }
+
+  function previewType(attachment: SubmittalAttachment | null): 'pdf' | 'image' | 'other' {
+    if (!attachment) return 'other';
+    const lowerName = attachment.name.toLowerCase();
+    const lowerType = attachment.type.toLowerCase();
+    if (/\.pdf$/i.test(lowerName) || lowerType.includes('pdf')) return 'pdf';
+    if (/\.(png|jpe?g|webp|gif|svg)$/i.test(lowerName) || lowerType.startsWith('image/')) return 'image';
+    return 'other';
+  }
+
+  function previewSrc(attachment: SubmittalAttachment | null) {
+    if (!attachment?.id) return '';
+    return `/api/files/${encodeURIComponent(attachment.id)}/download`;
+  }
+
+  function fileChipClasses(attachment: SubmittalAttachment) {
+    const active = (attachment.id ?? attachment.name) === (previewAttachment?.id ?? previewAttachment?.name);
+    return active ? 'file-chip is-active' : 'file-chip';
+  }
+
+  function quickAction(status: 'in_review' | 'approved' | 'revise_resubmit' | 'rejected') {
+    decisionStatus = status;
+    if (!decisionResponse?.trim()) {
+      const defaults: Record<string, string> = {
+        in_review: 'Marked in review.',
+        approved: 'Approved as submitted.',
+        revise_resubmit: 'Revise and resubmit. See comments above.',
+        rejected: 'Rejected. See comments above.'
+      };
+      decisionResponse = defaults[status];
+    }
+  }
+
+  // Form submit helpers — close modals on success
   const resetOnSuccess =
     (after?: () => void): SubmitFunction =>
     () => {
@@ -180,77 +288,28 @@
   <section class="tool-heading">
     <div class="min-w-0">
       <h1>Submittals</h1>
-      <p>Create, assign, review, and track submittal packages without mixing them into the drawing log.</p>
+      <p>Create, route, and respond to submittal packages without dragging the rest of the project file tree along.</p>
       <div class="tool-tabs" aria-label="Submittal sections">
-        <button class:active={savedView === 'all'} type="button" onclick={() => (savedView = 'all')}>Items</button>
-        <button class:active={savedView === 'ball'} type="button" onclick={() => (savedView = 'ball')}>Ball In Court</button>
-        <button class:active={savedView === 'open'} type="button" onclick={() => (savedView = 'open')}>Open</button>
-        <button class:active={savedView === 'closed'} type="button" onclick={() => (savedView = 'closed')}>Closed</button>
+        <button class:active={savedView === 'all'} type="button" onclick={() => (savedView = 'all')}>Items ({data.submittals.length})</button>
+        <button class:active={savedView === 'ball'} type="button" onclick={() => (savedView = 'ball')}>Ball In Court ({ballCount})</button>
+        <button class:active={savedView === 'open'} type="button" onclick={() => (savedView = 'open')}>Open ({openCount})</button>
+        <button class:active={savedView === 'closed'} type="button" onclick={() => (savedView = 'closed')}>Closed ({closedCount})</button>
       </div>
     </div>
     {#if canCreateCommunication}
       <div class="tool-actions">
-        <button class="btn btn-primary" type="button" onclick={toggleSubmittalForm}>
-          {#if showSubmittalForm}<X size={16} />Close form{:else}<FilePlus2 size={16} />New submittal{/if}
+        <button class="btn btn-primary" type="button" onclick={openCreateModal}>
+          <FilePlus2 size={16} />New submittal
         </button>
       </div>
     {/if}
   </section>
 
   {#if form?.error}
-    <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{form.error}</div>
+    <div class="banner-error">{form.error}</div>
   {/if}
   {#if form?.ok}
-    <div class="mb-3 rounded-md border border-pe-green/20 bg-pe-green/10 px-3 py-2 text-sm font-semibold text-pe-green-dark">Saved.</div>
-  {/if}
-
-  {#if showSubmittalForm && canCreateCommunication}
-    <form
-      class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5"
-      method="post"
-      action="?/createSubmittal"
-      enctype="multipart/form-data"
-      use:enhance={resetOnSuccess(() => {
-        newSubmittalNumber = '';
-        showSubmittalForm = false;
-      })}
-    >
-      <div><label class="label" for="sub-number">Number</label><input id="sub-number" class="field" name="number" placeholder="1646-001" bind:value={newSubmittalNumber} required /></div>
-      <div class="xl:col-span-2"><label class="label" for="sub-title">Title</label><input id="sub-title" class="field" name="title" placeholder="Fire alarm panel shop drawings" required /></div>
-      <div><label class="label" for="sub-spec">Spec section</label><input id="sub-spec" class="field" name="specSection" placeholder="28 31 00" /></div>
-      <div><label class="label" for="sub-due">Final due</label><input id="sub-due" class="field" name="dueDate" type="date" /></div>
-      <div><label class="label" for="sub-revision">Revision</label><input id="sub-revision" class="field" name="revision" type="number" min="0" value="0" /></div>
-      <div><label class="label" for="sub-submit-by">Submit by</label><input id="sub-submit-by" class="field" name="submitBy" type="date" /></div>
-      <div class="md:col-span-2"><label class="label" for="sub-owner">Assign to</label><select id="sub-owner" class="field" name="owner"><option value="">Unassigned</option>{#each data.directory as person}<option value={person.id}>{person.name} - {person.organization}</option>{/each}</select></div>
-      <div class="md:col-span-2"><label class="label" for="sub-received-from">Received from</label><select id="sub-received-from" class="field" name="receivedFrom"><option value="">Not received</option>{#each data.directory.filter((person) => person.contactType !== 'external') as person}<option value={person.id}>{person.name} - {person.organization}</option>{/each}</select></div>
-      <div class="md:col-span-2 xl:col-span-5">
-        <label class="label" for="sub-routing">Workflow reviewers</label>
-        <select id="sub-routing" class="field multi-select" name="routingAssigneeIds" multiple size={Math.min(6, Math.max(3, data.directory.length))}>
-          {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-            <option value={person.id}>{person.name} - {person.organization}</option>
-          {/each}
-        </select>
-      </div>
-      <div class="md:col-span-2 xl:col-span-3"><label class="label" for="sub-notes">Notes</label><input id="sub-notes" class="field" name="notes" placeholder="Routing notes, upload reference, or decision context" /></div>
-      {#if canAttachFiles}
-        <div class="md:col-span-2 xl:col-span-5">
-          <AttachmentFields
-            files={data.files}
-            projectSlug={data.project?.id ?? ''}
-            folderName={newSubmittalNumber.trim() ? `Submittal ${newSubmittalNumber.trim()} Attachments` : 'Submittal Attachments'}
-            idPrefix="new-submittal"
-            uploadLabel="Upload submittal files"
-            existingLabel="Attach existing project files"
-          />
-        </div>
-      {/if}
-      <label class="notify-check md:col-span-2 xl:col-span-4" for="sub-send-emails">
-        <input id="sub-send-emails" name="sendEmails" type="checkbox" checked />
-        <Bell size={15} />
-        <span>Create and send workflow emails</span>
-      </label>
-      <div class="flex items-end"><button class="btn btn-primary w-full" type="submit"><Check size={16} />Create</button></div>
-    </form>
+    <div class="banner-ok">Saved.</div>
   {/if}
 
   <section class="workbench workflow-workbench">
@@ -258,18 +317,12 @@
       <div class="log-toolbar">
         <div class="searchbox">
           <Search size={16} />
-          <input bind:value={query} placeholder="Search" />
+          <input bind:value={query} placeholder="Search submittals" />
         </div>
         <button class="filter-button" type="button" onclick={clearFilters} disabled={!query && savedView === 'all'} title="Clear filters">
           <X size={14} />
           Clear
         </button>
-        <select class="field compact" aria-label="Status filter" bind:value={savedView}>
-          <option value="all">All statuses</option>
-          <option value="open">Open ({openCount})</option>
-          <option value="closed">Closed ({closedCount})</option>
-          <option value="ball">Ball in Court ({ballCount})</option>
-        </select>
         <span class="result-count">{filteredSubmittals.length} shown</span>
       </div>
 
@@ -340,75 +393,270 @@
   </section>
 </PageShell>
 
+<!-- ────────── Create modal ────────── -->
+{#if showCreateModal && canCreateCommunication}
+  <div class="modal-backdrop" role="presentation" onclick={closeCreateModal}>
+    <div class="create-modal" role="dialog" aria-modal="true" aria-labelledby="create-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
+      <header class="modal-header">
+        <div>
+          <span class="eyebrow">New submittal</span>
+          <h2 id="create-modal-title">Create and route a submittal</h2>
+        </div>
+        <button class="icon-row-button" type="button" aria-label="Close" onclick={closeCreateModal}>
+          <X size={17} />
+        </button>
+      </header>
+
+      <form
+        class="modal-body create-form"
+        method="post"
+        action="?/createSubmittal"
+        enctype="multipart/form-data"
+        use:enhance={resetOnSuccess(closeCreateModal)}
+      >
+        <div class="field-row two">
+          <label class="field-label">
+            <span>Number<i>*</i></span>
+            <input class="field" name="number" placeholder="1646-001" bind:value={newSubmittalNumber} required />
+          </label>
+          <label class="field-label rev">
+            <span>Rev.</span>
+            <input class="field" name="revision" type="number" min="0" value="0" />
+          </label>
+        </div>
+
+        <label class="field-label">
+          <span>Title<i>*</i></span>
+          <input class="field" name="title" placeholder="Fire alarm panel shop drawings" required />
+        </label>
+
+        <div class="field-row two">
+          <label class="field-label">
+            <span>Spec section</span>
+            <input class="field" name="specSection" placeholder="28 31 00" />
+          </label>
+          <label class="field-label">
+            <span>Submit by</span>
+            <input class="field" name="submitBy" type="date" />
+          </label>
+        </div>
+
+        <div class="field-row two">
+          <label class="field-label">
+            <span>Final due</span>
+            <input class="field" name="dueDate" type="date" />
+          </label>
+          <label class="field-label">
+            <span>Ball in court</span>
+            <select class="field" name="owner">
+              <option value="">Unassigned</option>
+              {#each data.directory as person}
+                <option value={person.id}>{person.name} - {person.organization}</option>
+              {/each}
+            </select>
+          </label>
+        </div>
+
+        <label class="field-label">
+          <span>Received from</span>
+          <select class="field" name="receivedFrom">
+            <option value="">Not received</option>
+            {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+              <option value={person.id}>{person.name} - {person.organization}</option>
+            {/each}
+          </select>
+        </label>
+
+        <label class="field-label">
+          <span>Workflow reviewers (in order)</span>
+          <select class="field multi-select" name="routingAssigneeIds" multiple size={Math.min(5, Math.max(3, data.directory.length))}>
+            {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+              <option value={person.id}>{person.name} - {person.organization}</option>
+            {/each}
+          </select>
+          <small class="hint">Hold Ctrl / Cmd to pick multiple. They review in the order selected.</small>
+        </label>
+
+        <label class="field-label">
+          <span>Notes</span>
+          <textarea class="field min-h-20" name="notes" placeholder="Routing notes, decision context"></textarea>
+        </label>
+
+        {#if canAttachFiles}
+          <div class="field-label files-block">
+            <span>Files</span>
+            <AttachmentFields
+              files={data.files}
+              projectSlug={data.project?.id ?? ''}
+              folderName={newSubmittalNumber.trim() ? `Submittal ${newSubmittalNumber.trim()} Attachments` : 'Submittal Attachments'}
+              idPrefix="new-submittal"
+              uploadLabel="Upload from this device"
+              existingLabel="Attach existing project files"
+              existingCollapsed
+            />
+          </div>
+        {/if}
+
+        <label class="notify-check">
+          <input id="sub-create-emails" name="sendEmails" type="checkbox" checked />
+          <Bell size={15} />
+          <span>Send workflow emails when this submittal is created</span>
+        </label>
+
+        <footer class="modal-footer">
+          <button class="btn btn-secondary" type="button" onclick={closeCreateModal}>Cancel</button>
+          <button class="btn btn-primary" type="submit"><Check size={16} />Create submittal</button>
+        </footer>
+      </form>
+    </div>
+  </div>
+{/if}
+
+<!-- ────────── Detail modal ────────── -->
 {#if selectedSubmittal}
   <div class="modal-backdrop" role="presentation" onclick={closeSubmittalModal}>
-      <div class="workflow-modal" role="dialog" aria-modal="true" aria-labelledby="submittal-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
-        <header class="modal-header">
-          <div>
-            <span class="eyebrow">Submittal review</span>
-            <h2 id="submittal-modal-title">{selectedSubmittal.number} {selectedSubmittal.title}</h2>
-          </div>
-          <div class="modal-header-actions">
+    <div class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="submittal-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
+      <header class="modal-header">
+        <div class="modal-title-block">
+          <span class="eyebrow">Submittal {selectedSubmittal.number}</span>
+          <h2 id="submittal-modal-title">{selectedSubmittal.title}</h2>
+          <div class="modal-title-meta">
             <StatusPill label={selectedSubmittal.status} />
-            <button class="icon-row-button" type="button" aria-label="Close submittal" onclick={closeSubmittalModal}>
-              <X size={17} />
-            </button>
+            <span class="meta-chip"><Paperclip size={13} />{selectedAttachments.length} file{selectedAttachments.length === 1 ? '' : 's'}</span>
+            {#if selectedSubmittal.owner}
+              <span class="meta-chip is-bic">Ball in court: <strong>{selectedSubmittal.owner}</strong></span>
+            {/if}
+            {#if selectedSubmittal.dueDate}
+              <span class="meta-chip">Due {formatDate(selectedSubmittal.dueDate)}</span>
+            {/if}
           </div>
-        </header>
+        </div>
+        <button class="icon-row-button" type="button" aria-label="Close" onclick={closeSubmittalModal}>
+          <X size={17} />
+        </button>
+      </header>
 
-        <div class="modal-body">
-          <div class="submittal-detail-grid">
-            <div class="submittal-facts" aria-label="Submittal details">
-              <div>
-                <span>Spec section</span>
-                <strong>{selectedSubmittal.specSection || '-'}</strong>
-              </div>
-              <div>
-                <span>Ball in court</span>
-                <strong>{selectedSubmittal.owner || 'Unassigned'}</strong>
-              </div>
-              <div>
-                <span>Revision</span>
-                <strong>{selectedSubmittal.revision ?? 0}</strong>
-              </div>
-              <div>
-                <span>Submit by</span>
-                <strong>{formatDate(selectedSubmittal.submitBy)}</strong>
-              </div>
-              <div>
-                <span>Received from</span>
-                <strong>{selectedSubmittal.receivedFrom || '-'}</strong>
-              </div>
-              <div>
-                <span>Final due</span>
-                <strong>{formatDate(selectedSubmittal.dueDate)}</strong>
-              </div>
+      <div class="detail-body">
+        <!-- ── Left pane: file rail + preview ── -->
+        <section class="files-pane" aria-label="Submittal files">
+          {#if selectedAttachments.length}
+            <div class="file-rail" aria-label="Attached files">
+              {#each selectedAttachments as attachment}
+                <button
+                  type="button"
+                  class={fileChipClasses(attachment)}
+                  title={attachment.path ?? attachment.name}
+                  onclick={() => (activeAttachmentId = attachment.id ?? attachment.name)}
+                >
+                  {#if previewType(attachment) === 'pdf'}<FileText size={14} />{:else if previewType(attachment) === 'image'}<ImageIcon size={14} />{:else}<Paperclip size={14} />{/if}
+                  <span>{attachment.name}</span>
+                  <small>{attachment.size}</small>
+                </button>
+              {/each}
             </div>
 
-            <div class="workflow-strip" aria-label="Submittal workflow">
-              <div class="workflow-strip-title">
-                <span class="eyebrow">Workflow</span>
-                <span>{routedCount(selectedSubmittal)} routed</span>
+            <div class="preview-frame">
+              {#if previewAttachment}
+                {#if !previewAttachment.id}
+                  <div class="preview-empty">
+                    <strong>{previewAttachment.name}</strong>
+                    <span>This file does not have a stored copy yet.</span>
+                  </div>
+                {:else if previewType(previewAttachment) === 'pdf'}
+                  {#key previewAttachment.id}
+                    <EmbedPdfViewer
+                      src={previewSrc(previewAttachment)}
+                      title={previewAttachment.name}
+                      originalDownloadUrl={`${previewSrc(previewAttachment)}?download=1`}
+                    />
+                  {/key}
+                {:else if previewType(previewAttachment) === 'image'}
+                  <div class="preview-image">
+                    <img src={previewSrc(previewAttachment)} alt={previewAttachment.name} />
+                  </div>
+                {:else}
+                  <div class="preview-empty">
+                    <strong>{previewAttachment.name}</strong>
+                    <span>Preview is not available for this file type.</span>
+                    <a class="btn btn-secondary" href={`${previewSrc(previewAttachment)}?download=1`}>
+                      <Download size={14} />Download to view
+                    </a>
+                  </div>
+                {/if}
+              {/if}
+            </div>
+          {:else}
+            <div class="preview-empty preview-empty-large">
+              <strong>No files attached yet</strong>
+              <span>Use the form on the right to add cut sheets, product data, or shop drawings.</span>
+            </div>
+          {/if}
+        </section>
+
+        <!-- ── Right pane: workflow + edit + update ── -->
+        <section class="control-pane" aria-label="Submittal workflow">
+          {#if canReviewCommunication && selectedSubmittal.id}
+            <div class="quick-actions" role="group" aria-label="Quick decisions">
+              <button type="button" class="quick-btn approve" onclick={() => quickAction('approved')}>
+                <Check size={14} />Approve
+              </button>
+              <button type="button" class="quick-btn revise" onclick={() => quickAction('revise_resubmit')}>
+                <RotateCcw size={14} />Revise
+              </button>
+              <button type="button" class="quick-btn reject" onclick={() => quickAction('rejected')}>
+                <XCircle size={14} />Reject
+              </button>
+              <button type="button" class="quick-btn review" onclick={() => quickAction('in_review')}>
+                <PencilLine size={14} />In review
+              </button>
+            </div>
+            <p class="quick-hint">Pick one to prefill the response below, then save when you are ready.</p>
+          {/if}
+
+          <!-- Meta block / inline edit -->
+          {#if !editing}
+            <div class="meta-grid">
+              <div><span>Spec section</span><strong>{selectedSubmittal.specSection || '-'}</strong></div>
+              <div><span>Revision</span><strong>{selectedSubmittal.revision ?? 0}</strong></div>
+              <div><span>Submit by</span><strong>{formatDate(selectedSubmittal.submitBy)}</strong></div>
+              <div><span>Final due</span><strong>{formatDate(selectedSubmittal.dueDate)}</strong></div>
+              <div><span>Ball in court</span><strong>{selectedSubmittal.owner || 'Unassigned'}</strong></div>
+              <div><span>Received from</span><strong>{selectedSubmittal.receivedFrom || '-'}</strong></div>
+              {#if selectedSubmittal.notes}
+                <div class="meta-wide"><span>Notes</span><strong>{selectedSubmittal.notes}</strong></div>
+              {/if}
+              {#if canReviewCommunication}
+                <button type="button" class="meta-edit" onclick={() => (editing = true)}>
+                  <PencilLine size={13} />Edit details
+                </button>
+              {/if}
+            </div>
+
+            <!-- Routing timeline -->
+            <div class="timeline-block">
+              <div class="block-title">
+                <span class="eyebrow">Workflow timeline</span>
+                <span>{routedCount(selectedSubmittal)} step{routedCount(selectedSubmittal) === 1 ? '' : 's'}</span>
               </div>
               {#if selectedSubmittal.routingSteps?.length}
-                <ol class="workflow-stepper">
+                <ol class="timeline">
                   {#each selectedSubmittal.routingSteps as step}
-                    <li class={`workflow-step ${stepState(step, selectedSubmittal)}`}>
+                    <li class={`timeline-step ${stepState(step, selectedSubmittal)}`}>
                       <span class="step-marker">
                         {#if step.status === 'Approved'}<Check size={13} />{:else}{step.order + 1}{/if}
                       </span>
                       <div>
                         <strong>{step.assignee}</strong>
-                        <span>{step.role} - {step.status} - Due {formatDate(step.dueDate)}</span>
+                        <span>{step.role} - {step.status}{step.dueDate ? ` - Due ${formatDate(step.dueDate)}` : ''}{step.completedAt ? ` - Signed off ${formatDate(step.completedAt)}` : ''}</span>
                         {#if step.response}<p>{step.response}</p>{/if}
                       </div>
                     </li>
                   {/each}
                 </ol>
               {:else if selectedSubmittal.routing.length}
-                <ol class="workflow-stepper">
+                <ol class="timeline">
                   {#each selectedSubmittal.routing as route, index}
-                    <li class="workflow-step waiting">
+                    <li class="timeline-step waiting">
                       <span class="step-marker">{index + 1}</span>
                       <div>
                         <strong>{route}</strong>
@@ -418,634 +666,532 @@
                   {/each}
                 </ol>
               {:else}
-                <div class="workflow-empty">No reviewers routed yet.</div>
+                <p class="muted">No reviewers routed yet.</p>
               {/if}
             </div>
-          </div>
-
-          <div class="item-attachments">
-            <span class="eyebrow">Current attachments</span>
-            <AttachmentChips
-              attachments={selectedSubmittal.attachments ?? []}
-              emptyLabel="No files attached to this submittal yet."
-              projectSlug={data.project?.id ?? ''}
-              downloadAllHref={selectedSubmittal.id
-                ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(selectedSubmittal.id)}/download`
-                : ''}
-            />
-          </div>
-
-          {#if selectedSubmittal.id && canReviewCommunication}
-            <form class="modal-form" method="post" action="?/updateSubmittal" enctype="multipart/form-data" use:enhance={resetOnSuccess(closeSubmittalModal)}>
-              <input type="hidden" name="id" value={selectedSubmittal.id} />
-              <label class="tracking-field">
-                <span>Status</span>
-                <select class="field" name="status" bind:value={decisionStatus} aria-label="Submittal decision">
-                  <option value="submitted">Submitted</option>
-                  <option value="in_review">In Review</option>
-                  <option value="approved">Approved</option>
-                  <option value="revise_resubmit">Revise & Resubmit</option>
-                  <option value="rejected">Rejected</option>
-                </select>
-              </label>
-              <label class="tracking-field response-field">
-                <span>Response</span>
-                <textarea class="field min-h-28" name="decision" placeholder="Record the review response, decision notes, or routing update"></textarea>
-              </label>
-              <label class="tracking-field">
-                <span>Next ball in court</span>
-                <select class="field" name="workflowAssigneeId" aria-label="Next workflow assignee">
-                  <option value="">Keep current</option>
-                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                    <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
-                  {/each}
-                </select>
-              </label>
-              <label class="tracking-field">
-                <span>Step due</span>
-                <input class="field" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
-              </label>
-              <label class="notify-check modal-notify" for="sub-update-send-emails">
-                <input id="sub-update-send-emails" name="sendEmails" type="checkbox" checked />
-                <Bell size={15} />
-                <span>Update and send workflow emails</span>
-              </label>
-              {#if canAttachFiles}
-                <details class="modal-attachment-fields" open>
-                  <summary>Files</summary>
-                  {#if selectedSubmittal.attachments?.some((attachment) => attachment.id)}
-                    <fieldset class="remove-attachments">
-                      <legend>Remove existing files</legend>
-                      {#each selectedSubmittal.attachments.filter((attachment) => attachment.id) as attachment}
-                        <label>
-                          <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
-                          <span>{attachment.name}</span>
-                        </label>
-                      {/each}
-                    </fieldset>
-                  {/if}
-                  <AttachmentFields
-                    files={data.files}
-                    projectSlug={data.project?.id ?? ''}
-                    folderName={`Submittal ${selectedSubmittal.number} Attachments`}
-                    idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
-                    uploadLabel="Upload response files"
-                    existingLabel="Attach existing files"
-                  />
-                </details>
-              {/if}
-              <div class="modal-footer">
-                <button class="btn btn-secondary" type="button" onclick={closeSubmittalModal}>Cancel</button>
-                <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save update</button>
-              </div>
-            </form>
           {/if}
-        </div>
+
+          <!-- Forms — inline edit and update workflow -->
+          {#if selectedSubmittal.id && canReviewCommunication}
+            {#if editing}
+              <form
+                class="edit-form"
+                method="post"
+                action="?/updateSubmittal"
+                enctype="multipart/form-data"
+                use:enhance={resetOnSuccess(() => (editing = false))}
+              >
+                <input type="hidden" name="id" value={selectedSubmittal.id} />
+                <input type="hidden" name="status" value={statusValue(selectedSubmittal.status)} />
+
+                <label class="field-label">
+                  <span>Title</span>
+                  <input class="field" name="editTitle" value={selectedSubmittal.title} required />
+                </label>
+                <div class="field-row two">
+                  <label class="field-label">
+                    <span>Spec section</span>
+                    <input class="field" name="editSpecSection" value={selectedSubmittal.specSection ?? ''} />
+                  </label>
+                  <label class="field-label rev">
+                    <span>Revision</span>
+                    <input class="field" name="editRevision" type="number" min="0" value={selectedSubmittal.revision ?? 0} />
+                  </label>
+                </div>
+                <div class="field-row two">
+                  <label class="field-label">
+                    <span>Submit by</span>
+                    <input class="field" name="editSubmitBy" type="date" value={selectedSubmittal.submitBy ?? ''} />
+                  </label>
+                  <label class="field-label">
+                    <span>Final due</span>
+                    <input class="field" name="editDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
+                  </label>
+                </div>
+                <label class="field-label">
+                  <span>Received from</span>
+                  <select class="field" name="editReceivedFrom">
+                    <option value="" selected={!selectedSubmittal.receivedFromId}>Not received</option>
+                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                      <option value={person.id} selected={person.id === selectedSubmittal.receivedFromId}>{person.name} - {person.organization}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="field-label">
+                  <span>Notes</span>
+                  <textarea class="field min-h-20" name="editNotes">{selectedSubmittal.notes ?? ''}</textarea>
+                </label>
+
+                <footer class="form-footer">
+                  <button class="btn btn-secondary" type="button" onclick={() => (editing = false)}>Cancel</button>
+                  <button class="btn btn-primary" type="submit"><Check size={16} />Save details</button>
+                </footer>
+              </form>
+            {:else}
+              <form
+                class="update-form"
+                method="post"
+                action="?/updateSubmittal"
+                enctype="multipart/form-data"
+                use:enhance={resetOnSuccess(closeSubmittalModal)}
+              >
+                <input type="hidden" name="id" value={selectedSubmittal.id} />
+
+                <div class="block-title">
+                  <span class="eyebrow">Update workflow</span>
+                </div>
+
+                <div class="field-row two">
+                  <label class="field-label">
+                    <span>Decision</span>
+                    <select class="field" name="status" bind:value={decisionStatus}>
+                      <option value="submitted">Submitted</option>
+                      <option value="in_review">In Review</option>
+                      <option value="approved">Approved</option>
+                      <option value="revise_resubmit">Revise &amp; Resubmit</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </label>
+                  <label class="field-label">
+                    <span>Step due</span>
+                    <input class="field" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
+                  </label>
+                </div>
+
+                <label class="field-label">
+                  <span>Response</span>
+                  <textarea class="field min-h-24" name="decision" bind:value={decisionResponse} placeholder="Record review notes, redlines, or routing context"></textarea>
+                </label>
+
+                <label class="field-label">
+                  <span>Next ball in court</span>
+                  <select class="field" name="workflowAssigneeId" aria-label="Next workflow assignee">
+                    <option value="">Keep current ({selectedSubmittal.owner || 'Unassigned'})</option>
+                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                      <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
+                    {/each}
+                  </select>
+                </label>
+
+                {#if canAttachFiles}
+                  <details class="files-actions">
+                    <summary>
+                      <Paperclip size={13} />Add or remove files
+                      <small>{selectedAttachments.length} attached</small>
+                    </summary>
+                    {#if selectedAttachments.some((attachment) => attachment.id)}
+                      <fieldset class="remove-attachments">
+                        <legend>Remove existing files</legend>
+                        {#each selectedAttachments.filter((attachment) => attachment.id) as attachment}
+                          <label>
+                            <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
+                            <Trash2 size={12} />
+                            <span>{attachment.name}</span>
+                          </label>
+                        {/each}
+                      </fieldset>
+                    {/if}
+                    <AttachmentFields
+                      files={data.files}
+                      projectSlug={data.project?.id ?? ''}
+                      folderName={`Submittal ${selectedSubmittal.number} Attachments`}
+                      idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
+                      uploadLabel="Upload response files"
+                      existingLabel="Attach existing project files"
+                      existingCollapsed
+                    />
+                  </details>
+                {/if}
+
+                <label class="notify-check">
+                  <input id="sub-update-emails" name="sendEmails" type="checkbox" checked />
+                  <Bell size={15} />
+                  <span>Send workflow emails on save</span>
+                </label>
+
+                <footer class="form-footer">
+                  <button class="btn btn-secondary" type="button" onclick={closeSubmittalModal}>Close</button>
+                  <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save update</button>
+                </footer>
+              </form>
+            {/if}
+          {/if}
+        </section>
       </div>
+    </div>
   </div>
 {/if}
 
 <style>
-  .workflow-workbench {
-    grid-template-columns: minmax(0, 1fr);
+  /* ── Banners ── */
+  .banner-error,
+  .banner-ok {
+    margin-bottom: 0.6rem;
+    padding: 0.45rem 0.7rem;
+    border-radius: 0.4rem;
+    font-size: 0.82rem;
+    font-weight: 800;
   }
+  .banner-error { background: #fdecec; color: #9b1c1c; border: 1px solid #f4c0c0; }
+  .banner-ok { background: rgba(29, 175, 63, 0.1); color: #197a31; border: 1px solid rgba(29, 175, 63, 0.22); }
 
-  .workflow-table {
-    min-width: 0;
-    table-layout: fixed;
-  }
-
-  .workflow-table th:nth-child(1),
-  .workflow-table td:nth-child(1) {
-    width: 25%;
-  }
-
-  .workflow-table th:nth-child(2),
-  .workflow-table td:nth-child(2) {
-    width: 7%;
-  }
-
-  .workflow-table th:nth-child(3),
-  .workflow-table td:nth-child(3) {
-    width: 9%;
-  }
-
-  .workflow-table th:nth-child(4),
-  .workflow-table td:nth-child(4) {
-    width: 5%;
-  }
-
-  .workflow-table th:nth-child(7),
-  .workflow-table td:nth-child(7) {
-    width: 7%;
-  }
-
-  .workflow-table th:nth-child(5),
-  .workflow-table td:nth-child(5),
-  .workflow-table th:nth-child(6),
-  .workflow-table td:nth-child(6) {
-    width: 11%;
-  }
-
-  .workflow-table th:nth-child(8),
-  .workflow-table td:nth-child(8),
-  .workflow-table th:nth-child(9),
-  .workflow-table td:nth-child(9) {
-    width: 8%;
-  }
-
-  .workflow-table th:nth-child(10),
-  .workflow-table td:nth-child(10) {
-    width: 6%;
-  }
+  /* ── Workbench / table ── */
+  .workflow-workbench { grid-template-columns: minmax(0, 1fr); }
+  .workflow-table { min-width: 0; table-layout: fixed; }
+  .workflow-table th:nth-child(1), .workflow-table td:nth-child(1) { width: 25%; }
+  .workflow-table th:nth-child(2), .workflow-table td:nth-child(2) { width: 7%; }
+  .workflow-table th:nth-child(3), .workflow-table td:nth-child(3) { width: 9%; }
+  .workflow-table th:nth-child(4), .workflow-table td:nth-child(4) { width: 5%; }
+  .workflow-table th:nth-child(7), .workflow-table td:nth-child(7) { width: 7%; }
+  .workflow-table th:nth-child(5), .workflow-table td:nth-child(5),
+  .workflow-table th:nth-child(6), .workflow-table td:nth-child(6) { width: 11%; }
+  .workflow-table th:nth-child(8), .workflow-table td:nth-child(8),
+  .workflow-table th:nth-child(9), .workflow-table td:nth-child(9) { width: 8%; }
+  .workflow-table th:nth-child(10), .workflow-table td:nth-child(10) { width: 6%; }
 
   .submittal-record-button {
-    display: grid;
-    width: 100%;
-    gap: 0.14rem;
-    border: 0;
-    background: transparent;
-    padding: 0;
-    color: inherit;
-    text-align: left;
+    display: grid; width: 100%; gap: 0.14rem;
+    border: 0; background: transparent; padding: 0;
+    color: inherit; text-align: left;
   }
-
-  .submittal-record-button span {
-    color: #1d5fb8;
-    font-size: 0.78rem;
-    font-weight: 850;
-    text-decoration: underline;
-  }
-
+  .submittal-record-button span { color: #1d5fb8; font-size: 0.78rem; font-weight: 850; text-decoration: underline; }
   .submittal-record-button strong {
-    overflow: hidden;
-    color: #191b19;
-    font-size: 0.82rem;
-    font-weight: 800;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow: hidden; color: #191b19; font-size: 0.82rem; font-weight: 800;
+    text-overflow: ellipsis; white-space: nowrap;
   }
+  .submittal-record-button:hover strong { color: #164f9e; }
 
-  .submittal-record-button:hover strong {
-    color: #164f9e;
+  .file-count-link, .file-count-static {
+    display: inline-flex; align-items: center; gap: 0.28rem; max-width: 100%;
+    border-radius: 0.35rem; color: #22532b; font-size: 0.74rem; font-weight: 850;
+    line-height: 1; white-space: nowrap;
   }
+  .file-count-link { border: 1px solid rgba(55, 95, 56, 0.18); background: rgba(55, 95, 56, 0.08); padding: 0.32rem 0.42rem; text-decoration: none; }
+  .file-count-link:hover { border-color: rgba(55, 95, 56, 0.34); background: rgba(55, 95, 56, 0.14); }
+  .file-count-link span, .file-count-static span { overflow: hidden; text-overflow: ellipsis; }
+  .file-empty { color: #727a72; font-size: 0.74rem; font-weight: 750; }
+  .row-open-button { gap: 0.25rem; white-space: nowrap; }
+  .filter-button:disabled { cursor: not-allowed; opacity: 0.45; }
 
-  .tracking-form {
-    grid-template-columns: minmax(10rem, 13rem) minmax(16rem, 1fr) minmax(12rem, 16rem) minmax(9rem, 11rem) auto;
-    align-items: end;
-    border-top: 1px solid rgba(25, 27, 25, 0.1);
-    padding-top: 0.75rem;
-  }
-
-  .item-attachments {
-    display: grid;
-    gap: 0.45rem;
-    margin-top: 0.85rem;
-  }
-
-  .tracking-attachment-fields {
-    grid-column: 1 / -1;
-    min-width: 0;
-  }
-
-  .submittal-detail-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(18rem, 0.95fr);
-    gap: 0.85rem;
-    align-items: start;
-  }
-
-  .submittal-facts {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    overflow: hidden;
-    border: 1px solid rgba(25, 27, 25, 0.1);
-    border-radius: 0.35rem;
-    background: #fff;
-  }
-
-  .submittal-facts > div {
-    display: grid;
-    gap: 0.2rem;
-    min-height: 3.25rem;
-    border-right: 1px solid rgba(25, 27, 25, 0.08);
-    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
-    padding: 0.52rem 0.6rem;
-  }
-
-  .submittal-facts > div:nth-child(3n) {
-    border-right: 0;
-  }
-
-  .submittal-facts > div:nth-last-child(-n + 3) {
-    border-bottom: 0;
-  }
-
-  .submittal-facts span,
-  .workflow-strip-title span:last-child {
-    color: #5c665d;
-    font-size: 0.68rem;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
-
-  .submittal-facts strong {
-    overflow: hidden;
-    color: #202520;
-    font-size: 0.82rem;
-    font-weight: 800;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .workflow-strip {
-    min-width: 0;
-    border-left: 1px solid rgba(25, 27, 25, 0.12);
-    padding-left: 0.85rem;
-  }
-
-  .workflow-strip-title {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.6rem;
-    margin-bottom: 0.45rem;
-  }
-
-  .workflow-stepper {
-    display: grid;
-    gap: 0;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .workflow-step {
-    display: grid;
-    grid-template-columns: 1.6rem minmax(0, 1fr);
-    gap: 0.55rem;
-    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
-    padding: 0.48rem 0;
-  }
-
-  .workflow-step:first-child {
-    padding-top: 0;
-  }
-
-  .workflow-step:last-child {
-    border-bottom: 0;
-    padding-bottom: 0;
-  }
-
-  .step-marker {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.45rem;
-    height: 1.45rem;
-    border: 1px solid rgba(25, 27, 25, 0.14);
-    border-radius: 999px;
-    background: #fff;
-    color: #4f594f;
-    font-size: 0.72rem;
-    font-weight: 850;
-  }
-
-  .workflow-step.current .step-marker {
-    border-color: #18a53a;
-    color: #fff;
-    background: #18a53a;
-  }
-
-  .workflow-step.complete .step-marker {
-    border-color: rgba(24, 165, 58, 0.2);
-    color: #147a31;
-    background: rgba(29, 175, 63, 0.13);
-  }
-
-  .workflow-step.attention .step-marker {
-    border-color: rgba(220, 38, 38, 0.18);
-    color: #a83333;
-    background: rgba(220, 38, 38, 0.1);
-  }
-
-  .workflow-step strong,
-  .workflow-step span,
-  .workflow-step p {
-    display: block;
-    margin: 0;
-    font-size: 0.76rem;
-    line-height: 1.35;
-  }
-
-  .workflow-step strong {
-    overflow: hidden;
-    color: #191b19;
-    font-weight: 850;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .workflow-step span,
-  .workflow-step p,
-  .workflow-empty {
-    color: #4f594f;
-  }
-
-  .workflow-empty {
-    border-top: 1px solid rgba(25, 27, 25, 0.08);
-    padding-top: 0.55rem;
-    font-size: 0.78rem;
-    font-weight: 750;
-  }
-
-  .multi-select {
-    min-height: 6.2rem;
-    padding-block: 0.4rem;
-  }
-
-  .remove-attachments {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.45rem;
-    margin: 0 0 0.55rem;
-    border: 0;
-    padding: 0;
-  }
-
-  .remove-attachments legend {
-    width: 100%;
-    color: #4f594f;
-    font-size: 0.68rem;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
-
-  .remove-attachments label {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.35rem;
-    border: 1px solid rgba(25, 27, 25, 0.12);
-    border-radius: 0.35rem;
-    background: #fff;
-    padding: 0.38rem 0.5rem;
-    color: #303830;
-    font-size: 0.76rem;
-    font-weight: 800;
-  }
-
-  .tracking-field {
-    display: grid;
-    gap: 0.28rem;
-    min-width: 0;
-  }
-
-  .tracking-field span {
-    color: #4f594f;
-    font-size: 0.68rem;
-    font-weight: 850;
-    text-transform: uppercase;
-  }
-
-  .tracking-field .field {
-    width: 100%;
-  }
-
-  .notify-check {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-    color: #303630;
-    font-size: 0.82rem;
-    font-weight: 850;
-  }
-
-  .notify-check input {
-    width: 1rem;
-    height: 1rem;
-    accent-color: #191b19;
-  }
-
-  .compact-notify {
-    white-space: nowrap;
-    align-self: end;
-    min-height: 2.35rem;
-  }
-
-  .row-open-button {
-    gap: 0.25rem;
-    white-space: nowrap;
-  }
-
-  .file-count-link,
-  .file-count-static {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.28rem;
-    max-width: 100%;
-    border-radius: 0.35rem;
-    color: #22532b;
-    font-size: 0.74rem;
-    font-weight: 850;
-    line-height: 1;
-    white-space: nowrap;
-  }
-
-  .file-count-link {
-    border: 1px solid rgba(55, 95, 56, 0.18);
-    background: rgba(55, 95, 56, 0.08);
-    padding: 0.32rem 0.42rem;
-    text-decoration: none;
-  }
-
-  .file-count-link:hover {
-    border-color: rgba(55, 95, 56, 0.34);
-    background: rgba(55, 95, 56, 0.14);
-  }
-
-  .file-count-link span,
-  .file-count-static span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .file-empty {
-    color: #727a72;
-    font-size: 0.74rem;
-    font-weight: 750;
-  }
-
+  /* ── Modal shell ── */
   .modal-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 60;
-    display: grid;
-    place-items: center;
-    background: rgba(15, 17, 15, 0.38);
+    position: fixed; inset: 0; z-index: 60;
+    display: grid; place-items: center;
+    background: rgba(15, 17, 15, 0.42);
     padding: 1.25rem;
     backdrop-filter: blur(10px);
   }
 
-  .workflow-modal {
-    display: grid;
-    width: min(980px, 100%);
-    max-height: min(92vh, 980px);
+  .create-modal {
+    display: grid; grid-template-rows: auto 1fr;
+    width: min(640px, 100%);
+    max-height: min(94vh, 980px);
     overflow: hidden;
-    border: 1px solid rgba(25, 27, 25, 0.16);
-    border-radius: 0.45rem;
-    background: #fff;
-    box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
+    border: 1px solid rgba(25, 27, 25, 0.16); border-radius: 0.5rem;
+    background: #fff; box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
+  }
+
+  .detail-modal {
+    display: grid; grid-template-rows: auto 1fr;
+    width: min(1180px, 100%);
+    height: min(94vh, 1080px);
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.16); border-radius: 0.5rem;
+    background: #fff; box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
   }
 
   .modal-header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 1rem;
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 1rem; padding: 0.85rem 1rem;
     border-bottom: 1px solid rgba(25, 27, 25, 0.1);
-    padding: 0.9rem 1rem;
   }
+  .modal-title-block { min-width: 0; }
+  .modal-header h2 { margin: 0.16rem 0 0; color: #191b19; font-size: 1.05rem; font-weight: 850; line-height: 1.25; }
+  .modal-title-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.45rem; align-items: center; }
 
-  .modal-header h2 {
-    margin: 0.16rem 0 0;
-    color: #191b19;
-    font-size: 1.05rem;
-    font-weight: 850;
-    line-height: 1.25;
+  .meta-chip {
+    display: inline-flex; align-items: center; gap: 0.25rem;
+    padding: 0.22rem 0.5rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    background: #fff;
+    border-radius: 999px;
+    color: #303830; font-size: 0.72rem; font-weight: 800;
   }
+  .meta-chip.is-bic { border-color: rgba(29, 95, 184, 0.25); background: rgba(29, 95, 184, 0.08); color: #1d4f95; }
+  .meta-chip strong { font-weight: 900; }
 
-  .modal-header-actions {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-  }
-
+  /* ── Create form ── */
   .modal-body {
-    display: grid;
-    gap: 0.9rem;
     overflow: auto;
     padding: 1rem;
   }
+  .create-form { display: grid; gap: 0.7rem; }
+  .field-row.two { display: grid; gap: 0.7rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+  .field-row.two .rev { grid-template-columns: minmax(4.5rem, 6.5rem); }
 
-  .modal-form {
+  .field-label { display: grid; gap: 0.28rem; min-width: 0; }
+  .field-label > span { color: #4f594f; font-size: 0.7rem; font-weight: 850; text-transform: uppercase; }
+  .field-label > span > i { font-style: normal; color: #b32020; margin-left: 2px; }
+  .files-block > span { margin-bottom: 0.2rem; }
+  .multi-select { min-height: 5rem; padding-block: 0.4rem; }
+  .hint { color: #697169; font-size: 0.7rem; font-weight: 750; }
+  .min-h-20 { min-height: 4.4rem; }
+  .min-h-24 { min-height: 5.4rem; }
+
+  .notify-check {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    color: #303630; font-size: 0.82rem; font-weight: 850;
+    margin-top: 0.2rem;
+  }
+  .notify-check input { width: 1rem; height: 1rem; accent-color: #191b19; }
+
+  .modal-footer {
+    display: flex; justify-content: flex-end; gap: 0.55rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.8rem; margin-top: 0.4rem;
+  }
+
+  /* ── Detail body grid ── */
+  .detail-body {
     display: grid;
-    grid-template-columns: minmax(10rem, 13rem) minmax(12rem, 1fr) minmax(12rem, 15rem) minmax(9rem, 11rem);
-    gap: 0.65rem;
-    border-top: 1px solid rgba(25, 27, 25, 0.1);
+    grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.95fr);
+    min-height: 0;
+  }
+
+  /* Left pane: file rail + preview */
+  .files-pane {
+    display: grid; grid-template-rows: auto 1fr;
+    min-width: 0; min-height: 0;
+    background: #f5f6f4;
+    border-right: 1px solid rgba(25, 27, 25, 0.08);
+  }
+
+  .file-rail {
+    display: flex; gap: 0.4rem; padding: 0.55rem 0.7rem;
+    overflow-x: auto;
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+    background: #fff;
+  }
+
+  .file-chip {
+    display: inline-flex; align-items: center; gap: 0.32rem; flex-shrink: 0;
+    border: 1px solid rgba(25, 27, 25, 0.12); border-radius: 0.4rem;
+    background: #fff; padding: 0.34rem 0.55rem;
+    color: #2c322d; font-size: 0.74rem; font-weight: 800;
+    cursor: pointer;
+  }
+  .file-chip span { max-width: 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .file-chip small { color: #697169; font-size: 0.66rem; font-weight: 800; }
+  .file-chip:hover { border-color: rgba(20, 146, 52, 0.45); }
+  .file-chip.is-active {
+    border-color: rgba(20, 146, 52, 0.6);
+    background: rgba(29, 175, 63, 0.1);
+    color: #197a31;
+  }
+
+  .preview-frame {
+    min-width: 0; min-height: 0;
+    display: flex;
+    background: #2b2d2b;
+  }
+
+  .preview-frame :global(.embedpdf-shell) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .preview-image {
+    width: 100%; height: 100%;
+    display: grid; place-items: center;
+    background: #1f211f;
+    overflow: auto;
+  }
+  .preview-image img { max-width: 100%; max-height: 100%; object-fit: contain; }
+
+  .preview-empty {
+    margin: auto; padding: 1.5rem;
+    display: grid; gap: 0.5rem; justify-items: center;
+    color: #f1f3ef; text-align: center;
+    background: transparent;
+  }
+  .preview-empty strong { color: #fff; font-size: 0.95rem; font-weight: 850; }
+  .preview-empty span { color: #d3d6d2; font-size: 0.8rem; font-weight: 700; }
+  .preview-empty .btn { color: #fff; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.22); }
+  .preview-empty .btn:hover { background: rgba(255, 255, 255, 0.22); }
+  .preview-empty-large {
+    grid-column: 1 / -1; min-height: 18rem;
+    background: #f5f6f4; color: #303830;
+  }
+  .preview-empty-large strong { color: #191b19; }
+  .preview-empty-large span { color: #4f594f; }
+
+  /* Right pane: workflow + edit + update */
+  .control-pane {
+    display: grid; gap: 0.85rem;
+    overflow: auto;
+    padding: 0.95rem;
+    min-height: 0;
+  }
+
+  .quick-actions {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem;
+  }
+  .quick-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+    min-height: 2.2rem;
+    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 0.4rem;
+    background: #fff; padding: 0.45rem 0.65rem;
+    color: #1c211d; font-size: 0.78rem; font-weight: 850;
+    cursor: pointer;
+  }
+  .quick-btn.approve:hover { border-color: rgba(20, 146, 52, 0.5); background: rgba(29, 175, 63, 0.1); color: #197a31; }
+  .quick-btn.revise:hover { border-color: rgba(180, 110, 16, 0.45); background: rgba(202, 138, 4, 0.12); color: #855508; }
+  .quick-btn.reject:hover { border-color: rgba(176, 30, 30, 0.45); background: rgba(220, 38, 38, 0.1); color: #9b1c1c; }
+  .quick-btn.review:hover { border-color: rgba(29, 95, 184, 0.45); background: rgba(29, 95, 184, 0.1); color: #1d4f95; }
+
+  .quick-hint { margin: -0.3rem 0 0; color: #697169; font-size: 0.72rem; font-weight: 750; }
+
+  .meta-grid {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0;
+    overflow: hidden;
+    border: 1px solid rgba(25, 27, 25, 0.1); border-radius: 0.4rem;
+    background: #fff;
+    position: relative;
+  }
+  .meta-grid > div {
+    display: grid; gap: 0.18rem;
+    padding: 0.5rem 0.6rem;
+    border-right: 1px solid rgba(25, 27, 25, 0.08);
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+    min-height: 3rem;
+  }
+  .meta-grid > div:nth-child(2n) { border-right: 0; }
+  .meta-grid > div span { color: #5c665d; font-size: 0.66rem; font-weight: 850; text-transform: uppercase; }
+  .meta-grid > div strong {
+    color: #202520; font-size: 0.8rem; font-weight: 800;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .meta-wide { grid-column: 1 / -1; border-right: 0; }
+  .meta-wide strong { white-space: pre-wrap; }
+  .meta-edit {
+    grid-column: 1 / -1;
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.32rem;
+    border: 0; border-top: 1px solid rgba(25, 27, 25, 0.08);
+    background: rgba(255, 255, 255, 0.6); padding: 0.45rem 0.6rem;
+    color: #1d5fb8; font-size: 0.74rem; font-weight: 850;
+    cursor: pointer;
+  }
+  .meta-edit:hover { background: rgba(29, 95, 184, 0.06); }
+
+  .timeline-block { display: grid; gap: 0.5rem; }
+  .block-title { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+  .block-title .eyebrow { color: #4f594f; font-size: 0.68rem; font-weight: 850; text-transform: uppercase; }
+  .block-title span:last-child { color: #5c665d; font-size: 0.7rem; font-weight: 800; }
+
+  .timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+  .timeline-step {
+    display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: 0.55rem;
+    padding: 0.42rem 0;
+    border-bottom: 1px solid rgba(25, 27, 25, 0.06);
+  }
+  .timeline-step:first-child { padding-top: 0; }
+  .timeline-step:last-child { border-bottom: 0; padding-bottom: 0; }
+  .step-marker {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.45rem; height: 1.45rem;
+    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 999px;
+    background: #fff; color: #4f594f; font-size: 0.72rem; font-weight: 850;
+  }
+  .timeline-step.current .step-marker { border-color: #18a53a; color: #fff; background: #18a53a; }
+  .timeline-step.complete .step-marker { border-color: rgba(24, 165, 58, 0.2); color: #147a31; background: rgba(29, 175, 63, 0.13); }
+  .timeline-step.attention .step-marker { border-color: rgba(220, 38, 38, 0.18); color: #a83333; background: rgba(220, 38, 38, 0.1); }
+
+  .timeline-step strong, .timeline-step span, .timeline-step p {
+    display: block; margin: 0; font-size: 0.74rem; line-height: 1.35;
+  }
+  .timeline-step strong {
+    overflow: hidden; color: #191b19; font-weight: 850;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .timeline-step span { color: #4f594f; }
+  .timeline-step p { color: #303830; margin-top: 0.15rem; white-space: pre-wrap; }
+  .muted { margin: 0; color: #697169; font-size: 0.78rem; font-weight: 750; }
+
+  /* ── Update / edit forms ── */
+  .update-form, .edit-form {
+    display: grid; gap: 0.65rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
     padding-top: 0.85rem;
   }
 
-  .response-field,
-  .modal-attachment-fields,
-  .modal-footer {
-    grid-column: 1 / -1;
+  .form-footer {
+    display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.2rem;
   }
 
-  .modal-notify {
-    grid-column: 1 / -1;
+  .files-actions {
+    border: 1px solid rgba(25, 27, 25, 0.1); border-radius: 0.4rem;
+    background: #fff;
+  }
+  .files-actions summary {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+    padding: 0.45rem 0.6rem;
+    color: #303830; font-size: 0.78rem; font-weight: 850;
+    cursor: pointer;
+    list-style: none;
+    width: 100%;
+  }
+  .files-actions summary::-webkit-details-marker { display: none; }
+  .files-actions summary::before {
+    content: '+'; display: inline-block; width: 0.95rem; text-align: center;
+    color: #4f594f; font-size: 0.85rem; font-weight: 900;
+  }
+  .files-actions[open] summary::before { content: '-'; }
+  .files-actions summary small { margin-left: auto; color: #697169; font-size: 0.7rem; font-weight: 800; }
+  .files-actions[open] summary { border-bottom: 1px solid rgba(25, 27, 25, 0.08); }
+  .files-actions :global(.attachment-fields) {
+    margin: 0.55rem 0.6rem 0.7rem;
+    grid-template-columns: 1fr;
   }
 
-  .modal-attachment-fields {
-    min-width: 0;
-    border-top: 1px solid rgba(25, 27, 25, 0.08);
-    padding-top: 0.45rem;
+  .remove-attachments {
+    display: flex; flex-wrap: wrap; gap: 0.4rem;
+    margin: 0.55rem 0.6rem 0;
+    border: 0; padding: 0;
+  }
+  .remove-attachments legend {
+    width: 100%;
+    color: #4f594f; font-size: 0.66rem; font-weight: 850; text-transform: uppercase;
+    margin-bottom: 0.3rem;
+  }
+  .remove-attachments label {
+    display: inline-flex; align-items: center; gap: 0.32rem;
+    border: 1px solid rgba(25, 27, 25, 0.12); border-radius: 0.32rem;
+    background: #fff; padding: 0.32rem 0.5rem;
+    color: #303830; font-size: 0.74rem; font-weight: 800;
+    cursor: pointer;
+  }
+  .remove-attachments label:has(input:checked) {
+    border-color: rgba(176, 30, 30, 0.45);
+    background: rgba(220, 38, 38, 0.08);
+    color: #9b1c1c;
   }
 
-  .modal-attachment-fields summary {
-    width: fit-content;
-    color: #191b19;
-    font-size: 0.82rem;
-    font-weight: 850;
-  }
-
-  .modal-attachment-fields[open] summary {
-    margin-bottom: 0.6rem;
-  }
-
-  .modal-footer {
-    display: flex;
-    justify-content: flex-end;
-    gap: 0.55rem;
-    border-top: 1px solid rgba(25, 27, 25, 0.08);
-    padding-top: 0.8rem;
-  }
-
-  .filter-button:disabled {
-    cursor: not-allowed;
-    opacity: 0.45;
-  }
-
-  @media (max-width: 900px) {
-    .workflow-table {
-      min-width: 920px;
-    }
-
-    .submittal-detail-grid {
-      grid-template-columns: 1fr;
-    }
-
-    .workflow-strip {
-      border-left: 0;
-      border-top: 1px solid rgba(25, 27, 25, 0.12);
-      padding-top: 0.75rem;
-      padding-left: 0;
-    }
-
-    .tracking-form {
-      grid-template-columns: 1fr;
-    }
-
-    .tracking-attachment-fields {
-      grid-column: auto;
-    }
-
-    .compact-notify {
-      white-space: normal;
-    }
-
-    .modal-form {
-      grid-template-columns: 1fr;
-    }
+  /* ── Mobile fallbacks ── */
+  @media (max-width: 960px) {
+    .workflow-table { min-width: 920px; }
+    .detail-modal { width: 100%; height: 100%; max-height: 100vh; border-radius: 0; }
+    .detail-body { grid-template-columns: 1fr; grid-template-rows: minmax(48vh, 1fr) auto; }
+    .files-pane { border-right: 0; border-bottom: 1px solid rgba(25, 27, 25, 0.08); }
+    .control-pane { padding: 0.8rem; }
   }
 
   @media (max-width: 640px) {
-    .submittal-facts {
-      grid-template-columns: 1fr;
-    }
-
-    .submittal-facts > div,
-    .submittal-facts > div:nth-child(3n),
-    .submittal-facts > div:nth-last-child(-n + 3) {
-      border-right: 0;
-      border-bottom: 1px solid rgba(25, 27, 25, 0.08);
-    }
-
-    .submittal-facts > div:last-child {
-      border-bottom: 0;
-    }
-
-    .modal-backdrop {
-      align-items: end;
-      padding: 0;
-    }
-
-    .workflow-modal {
-      width: 100%;
-      max-height: 92vh;
-      border-radius: 0.45rem 0.45rem 0 0;
-    }
-
-    .modal-header {
-      align-items: flex-start;
-      padding: 0.8rem;
-    }
-
-    .modal-body {
-      padding: 0.8rem;
-    }
-
-    .modal-footer {
-      display: grid;
-    }
+    .modal-backdrop { padding: 0; align-items: end; }
+    .create-modal { width: 100%; max-height: 92vh; border-radius: 0.45rem 0.45rem 0 0; }
+    .detail-modal { border-radius: 0; }
+    .field-row.two { grid-template-columns: 1fr; }
+    .quick-actions { grid-template-columns: 1fr 1fr; }
+    .meta-grid { grid-template-columns: 1fr; }
+    .meta-grid > div { border-right: 0; }
   }
 </style>
