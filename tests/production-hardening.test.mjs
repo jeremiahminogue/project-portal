@@ -141,6 +141,7 @@ test('OCR reindex preserves good metadata while allowing page skeleton repair', 
 
 test('file APIs are Vercel-safe and storage failures are handled', () => {
   const uploadButton = file('src/lib/components/FileUploadButton.svelte');
+  const uploadClient = file('src/lib/client/project-file-upload.ts');
   const fileRoute = file('src/routes/api/files/[id]/+server.ts');
   const downloadRoute = file('src/routes/api/files/[id]/download/+server.ts');
   const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
@@ -149,14 +150,15 @@ test('file APIs are Vercel-safe and storage failures are handled', () => {
   const ingest = file('src/lib/server/file-ingest.ts');
   const uploadSession = file('src/lib/server/upload-session.ts');
   const groupRenameRoute = file('src/routes/api/files/groups/rename/+server.ts');
-  assert.match(uploadButton, /\/api\/files\/upload-url/);
+  assert.match(uploadButton, /uploadProjectFile/);
+  assert.match(uploadClient, /\/api\/files\/upload-url/);
   assert.match(uploadButton, /upload-control-row/);
   assert.match(uploadButton, /upload-group-field/);
-  assert.match(uploadButton, /method: 'PUT'/);
-  assert.match(uploadButton, /uploadThroughPortal/);
-  assert.match(uploadButton, /error\.stage !== 'storage'/);
-  assert.match(uploadButton, /\/api\/files'/);
-  assert.match(uploadButton, /uploadToken: uploadUrl\.uploadToken/);
+  assert.match(uploadClient, /method: 'PUT'/);
+  assert.match(uploadClient, /uploadThroughPortal/);
+  assert.match(uploadClient, /error\.stage !== 'storage'/);
+  assert.match(uploadClient, /\/api\/files'/);
+  assert.match(uploadClient, /uploadToken: uploadUrl\.uploadToken/);
   assert.match(uploadUrlRoute, /typeof sizeBytes !== 'number'/);
   assert.match(uploadUrlRoute, /issueUploadSession/);
   assert.match(registerRoute, /verifyUploadSession/);
@@ -202,6 +204,7 @@ test('PDF page indexing does not collapse when OCR fails or defers', () => {
 
 test('file uploads carry tool context so specs and documents stay out of drawings', () => {
   const uploadButton = file('src/lib/components/FileUploadButton.svelte');
+  const uploadClient = file('src/lib/client/project-file-upload.ts');
   const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
   const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
   const registerRoute = file('src/routes/api/files/+server.ts');
@@ -212,7 +215,9 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   const reindex = file('src/routes/api/files/[id]/reindex/+server.ts');
 
   assert.match(uploadButton, /documentKind = 'file'/);
-  assert.match(uploadButton, /form\.set\('documentKind', documentKind\)/);
+  assert.match(uploadButton, /documentKind,/);
+  assert.match(uploadClient, /form\.set\('documentKind', input\.documentKind \?\? 'file'\)/);
+  assert.match(uploadClient, /documentKind: input\.documentKind \?\? 'file'/);
   assert.match(filesPage, /const uploadDocumentKind/);
   assert.match(filesPage, /documentKind=\{uploadDocumentKind\}/);
   assert.match(filesPage, /const defaultUploadFolder/);

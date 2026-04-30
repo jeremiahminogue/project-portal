@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { ArrowRight, Check, Download, MessageSquarePlus, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
+  import type { SubmitFunction } from '@sveltejs/kit';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
@@ -34,6 +35,7 @@
   let query = $state('');
   let savedView = $state('all');
   let responseStatus = $state('answered');
+  let newRfiNumber = $state('');
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
@@ -119,6 +121,20 @@
   function handleModalKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape' && selectedRfi) closeRfiModal();
   }
+
+  function toggleRfiForm() {
+    showRfiForm = !showRfiForm;
+    if (!showRfiForm) newRfiNumber = '';
+  }
+
+  const resetOnSuccess =
+    (after?: () => void): SubmitFunction =>
+    () => {
+      return async ({ result, update }) => {
+        await update({ reset: result.type === 'success' });
+        if (result.type === 'success') after?.();
+      };
+    };
 </script>
 
 <svelte:head>
@@ -142,7 +158,7 @@
     </div>
     {#if canCreateCommunication}
       <div class="tool-actions">
-        <button class="btn btn-primary" type="button" onclick={() => (showRfiForm = !showRfiForm)}>
+        <button class="btn btn-primary" type="button" onclick={toggleRfiForm}>
           {#if showRfiForm}<X size={16} />Close form{:else}<MessageSquarePlus size={16} />New RFI{/if}
         </button>
       </div>
@@ -157,8 +173,17 @@
   {/if}
 
   {#if showRfiForm && canCreateCommunication}
-    <form class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5" method="post" action="?/createRfi" enctype="multipart/form-data" use:enhance>
-      <div><label class="label" for="rfi-number">Number</label><input id="rfi-number" class="field" name="number" placeholder="Auto" /></div>
+    <form
+      class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5"
+      method="post"
+      action="?/createRfi"
+      enctype="multipart/form-data"
+      use:enhance={resetOnSuccess(() => {
+        newRfiNumber = '';
+        showRfiForm = false;
+      })}
+    >
+      <div><label class="label" for="rfi-number">Number</label><input id="rfi-number" class="field" name="number" placeholder="Auto" bind:value={newRfiNumber} /></div>
       <div class="md:col-span-2"><label class="label" for="rfi-subject">Subject</label><input id="rfi-subject" class="field" name="subject" placeholder="Clarify fire alarm tie-in" required /></div>
       <div><label class="label" for="rfi-due">Due</label><input id="rfi-due" class="field" name="dueDate" type="date" /></div>
       <div><label class="label" for="rfi-assigned">Assign to</label><select id="rfi-assigned" class="field" name="assignedTo"><option value="">Unassigned</option>{#each data.directory as person}<option value={person.id}>{person.name}</option>{/each}</select></div>
@@ -178,7 +203,14 @@
       <div class="md:col-span-2 xl:col-span-4"><label class="label" for="rfi-solution">Suggested solution</label><textarea id="rfi-solution" class="field min-h-24" name="suggestedSolution"></textarea></div>
       {#if canAttachFiles}
         <div class="md:col-span-2 xl:col-span-5">
-          <AttachmentFields files={data.files} idPrefix="new-rfi" uploadLabel="Upload RFI files" existingLabel="Attach existing project files" />
+          <AttachmentFields
+            files={data.files}
+            projectSlug={data.project?.id ?? ''}
+            folderName={newRfiNumber.trim() ? `RFI ${newRfiNumber.trim()} Attachments` : 'RFI Attachments'}
+            idPrefix="new-rfi"
+            uploadLabel="Upload RFI files"
+            existingLabel="Attach existing project files"
+          />
         </div>
       {/if}
       <div class="flex items-end"><button class="btn btn-primary w-full" type="submit"><Check size={16} />Create</button></div>
@@ -339,6 +371,7 @@
             <AttachmentChips
               attachments={selectedRfi.attachments ?? []}
               emptyLabel="No files attached to this RFI yet."
+              projectSlug={data.project?.id ?? ''}
               downloadAllHref={selectedRfi.id
                 ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/rfi/${encodeURIComponent(selectedRfi.id)}/download`
                 : ''}
@@ -346,7 +379,7 @@
           </div>
 
           {#if selectedRfi.id && canReviewCommunication}
-            <form class="modal-form rfi-modal-form" method="post" action="?/answerRfi" enctype="multipart/form-data" use:enhance>
+            <form class="modal-form rfi-modal-form" method="post" action="?/answerRfi" enctype="multipart/form-data" use:enhance={resetOnSuccess(closeRfiModal)}>
               <input type="hidden" name="id" value={selectedRfi.id} />
               <label class="tracking-field">
                 <span>Status</span>
@@ -396,8 +429,8 @@
                 </select>
               </label>
               {#if canAttachFiles}
-                <details class="modal-attachment-fields">
-                  <summary>Attach or remove files</summary>
+                <details class="modal-attachment-fields" open>
+                  <summary>Files</summary>
                   {#if selectedRfi.attachments?.some((attachment) => attachment.id)}
                     <fieldset class="remove-attachments">
                       <legend>Remove existing files</legend>
@@ -411,6 +444,8 @@
                   {/if}
                   <AttachmentFields
                     files={data.files}
+                    projectSlug={data.project?.id ?? ''}
+                    folderName={`RFI ${selectedRfi.number} Attachments`}
                     idPrefix={`rfi-${selectedRfi.id}-attachments`}
                     uploadLabel="Upload response files"
                     existingLabel="Attach existing files"

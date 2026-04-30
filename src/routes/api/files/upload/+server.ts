@@ -20,6 +20,17 @@ function formString(form: FormData, name: string) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+function formJsonArray(form: FormData, name: string) {
+  const value = form.get(name);
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 function isUploadedFile(value: unknown): value is UploadedFile {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<UploadedFile>;
@@ -46,6 +57,7 @@ export const POST: RequestHandler = async (event) => {
   const projectSlug = formString(form, 'projectSlug');
   const folderName = formString(form, 'folderName');
   const documentKind = formString(form, 'documentKind');
+  const tags = formJsonArray(form, 'tags');
   const rawFile = form.get('file');
 
   if (!projectSlug || !isUploadedFile(rawFile)) {
@@ -90,6 +102,7 @@ export const POST: RequestHandler = async (event) => {
       mimeType: contentType,
       folderName,
       documentKind,
+      tags,
       bytes
     });
     if (isPhotoUpload(rawFile.name, contentType, folderName)) {

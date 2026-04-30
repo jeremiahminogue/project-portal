@@ -1,6 +1,7 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import { ArrowRight, Bell, Check, Download, FilePlus2, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
+  import type { SubmitFunction } from '@sveltejs/kit';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
@@ -40,6 +41,7 @@
   let query = $state('');
   let savedView = $state('all');
   let decisionStatus = $state('in_review');
+  let newSubmittalNumber = $state('');
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
@@ -152,6 +154,20 @@
     if (step.status === 'Revise & Resubmit' || step.status === 'Rejected') return 'attention';
     return 'waiting';
   }
+
+  function toggleSubmittalForm() {
+    showSubmittalForm = !showSubmittalForm;
+    if (!showSubmittalForm) newSubmittalNumber = '';
+  }
+
+  const resetOnSuccess =
+    (after?: () => void): SubmitFunction =>
+    () => {
+      return async ({ result, update }) => {
+        await update({ reset: result.type === 'success' });
+        if (result.type === 'success') after?.();
+      };
+    };
 </script>
 
 <svelte:head>
@@ -174,7 +190,7 @@
     </div>
     {#if canCreateCommunication}
       <div class="tool-actions">
-        <button class="btn btn-primary" type="button" onclick={() => (showSubmittalForm = !showSubmittalForm)}>
+        <button class="btn btn-primary" type="button" onclick={toggleSubmittalForm}>
           {#if showSubmittalForm}<X size={16} />Close form{:else}<FilePlus2 size={16} />New submittal{/if}
         </button>
       </div>
@@ -189,8 +205,17 @@
   {/if}
 
   {#if showSubmittalForm && canCreateCommunication}
-    <form class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5" method="post" action="?/createSubmittal" enctype="multipart/form-data" use:enhance>
-      <div><label class="label" for="sub-number">Number</label><input id="sub-number" class="field" name="number" placeholder="1646-001" required /></div>
+    <form
+      class="utility-panel mb-3 grid gap-4 md:grid-cols-2 xl:grid-cols-5"
+      method="post"
+      action="?/createSubmittal"
+      enctype="multipart/form-data"
+      use:enhance={resetOnSuccess(() => {
+        newSubmittalNumber = '';
+        showSubmittalForm = false;
+      })}
+    >
+      <div><label class="label" for="sub-number">Number</label><input id="sub-number" class="field" name="number" placeholder="1646-001" bind:value={newSubmittalNumber} required /></div>
       <div class="xl:col-span-2"><label class="label" for="sub-title">Title</label><input id="sub-title" class="field" name="title" placeholder="Fire alarm panel shop drawings" required /></div>
       <div><label class="label" for="sub-spec">Spec section</label><input id="sub-spec" class="field" name="specSection" placeholder="28 31 00" /></div>
       <div><label class="label" for="sub-due">Final due</label><input id="sub-due" class="field" name="dueDate" type="date" /></div>
@@ -209,7 +234,14 @@
       <div class="md:col-span-2 xl:col-span-3"><label class="label" for="sub-notes">Notes</label><input id="sub-notes" class="field" name="notes" placeholder="Routing notes, upload reference, or decision context" /></div>
       {#if canAttachFiles}
         <div class="md:col-span-2 xl:col-span-5">
-          <AttachmentFields files={data.files} idPrefix="new-submittal" uploadLabel="Upload submittal files" existingLabel="Attach existing project files" />
+          <AttachmentFields
+            files={data.files}
+            projectSlug={data.project?.id ?? ''}
+            folderName={newSubmittalNumber.trim() ? `Submittal ${newSubmittalNumber.trim()} Attachments` : 'Submittal Attachments'}
+            idPrefix="new-submittal"
+            uploadLabel="Upload submittal files"
+            existingLabel="Attach existing project files"
+          />
         </div>
       {/if}
       <label class="notify-check md:col-span-2 xl:col-span-4" for="sub-send-emails">
@@ -396,6 +428,7 @@
             <AttachmentChips
               attachments={selectedSubmittal.attachments ?? []}
               emptyLabel="No files attached to this submittal yet."
+              projectSlug={data.project?.id ?? ''}
               downloadAllHref={selectedSubmittal.id
                 ? `/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(selectedSubmittal.id)}/download`
                 : ''}
@@ -403,7 +436,7 @@
           </div>
 
           {#if selectedSubmittal.id && canReviewCommunication}
-            <form class="modal-form" method="post" action="?/updateSubmittal" enctype="multipart/form-data" use:enhance>
+            <form class="modal-form" method="post" action="?/updateSubmittal" enctype="multipart/form-data" use:enhance={resetOnSuccess(closeSubmittalModal)}>
               <input type="hidden" name="id" value={selectedSubmittal.id} />
               <label class="tracking-field">
                 <span>Status</span>
@@ -438,8 +471,8 @@
                 <span>Update and send workflow emails</span>
               </label>
               {#if canAttachFiles}
-                <details class="modal-attachment-fields">
-                  <summary>Attach or remove files</summary>
+                <details class="modal-attachment-fields" open>
+                  <summary>Files</summary>
                   {#if selectedSubmittal.attachments?.some((attachment) => attachment.id)}
                     <fieldset class="remove-attachments">
                       <legend>Remove existing files</legend>
@@ -453,6 +486,8 @@
                   {/if}
                   <AttachmentFields
                     files={data.files}
+                    projectSlug={data.project?.id ?? ''}
+                    folderName={`Submittal ${selectedSubmittal.number} Attachments`}
                     idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
                     uploadLabel="Upload response files"
                     existingLabel="Attach existing files"

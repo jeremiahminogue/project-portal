@@ -58,7 +58,14 @@
       </div>
       {#if canAttachFiles}
         <input type="hidden" name="attachmentIds" value="" />
-        <AttachmentFields files={data.files} idPrefix="update-attachments" uploadLabel="Upload update files" existingLabel="Attach existing project files" />
+        <AttachmentFields
+          files={data.files}
+          projectSlug={data.project?.id ?? ''}
+          folderName="Update Attachments"
+          idPrefix="update-attachments"
+          uploadLabel="Upload update files"
+          existingLabel="Attach existing project files"
+        />
       {/if}
       <label class="flex items-center gap-2 text-sm font-bold text-pe-body">
         <input type="checkbox" name="notify" />
@@ -83,7 +90,7 @@
         <p class="mt-3 whitespace-pre-line text-sm leading-7 text-pe-sub">{update.body}</p>
         {#if update.attachments?.length}
           <div class="mt-4">
-            <AttachmentChips attachments={update.attachments} />
+            <AttachmentChips attachments={update.attachments} projectSlug={data.project?.id ?? ''} />
           </div>
         {/if}
         <div class="update-actions">

@@ -38,7 +38,14 @@
             <input class="field" name="title" placeholder="Subject" required />
             <textarea class="field min-h-20" name="body" placeholder="First message"></textarea>
             {#if data.chatAccess?.canAttach}
-              <AttachmentFields files={data.files} idPrefix="new-chat-subject" uploadLabel="Upload chat files" existingLabel="Attach existing files" />
+              <AttachmentFields
+                files={data.files}
+                projectSlug={data.project?.id ?? ''}
+                folderName="Chat Attachments"
+                idPrefix="new-chat-subject"
+                uploadLabel="Upload chat files"
+                existingLabel="Attach existing files"
+              />
             {/if}
             <button class="btn btn-primary w-full" type="submit">Create</button>
           </form>
@@ -100,7 +107,7 @@
                 <div class="overflow-wrap-anywhere rounded-xl border border-black/8 bg-white px-4 py-3 text-sm leading-6 text-pe-body">{message.body}</div>
                 {#if message.attachments?.length}
                   <div class="mt-2">
-                    <AttachmentChips attachments={message.attachments} />
+                    <AttachmentChips attachments={message.attachments} projectSlug={data.project?.id ?? ''} />
                   </div>
                 {/if}
               </div>
@@ -128,7 +135,14 @@
           <div class="grid gap-3">
             <textarea class="field min-h-12 flex-1 resize-none" name="body" placeholder="Type a message"></textarea>
             {#if data.chatAccess?.canAttach}
-              <AttachmentFields files={data.files} idPrefix={`chat-${selected.id}`} uploadLabel="Upload chat files" existingLabel="Attach existing files" />
+              <AttachmentFields
+                files={data.files}
+                projectSlug={data.project?.id ?? ''}
+                folderName="Chat Attachments"
+                idPrefix={`chat-${selected.id}`}
+                uploadLabel="Upload chat files"
+                existingLabel="Attach existing files"
+              />
             {/if}
             <button class="btn btn-primary sm:w-fit" type="submit"><Send size={16} />Send</button>
           </div>

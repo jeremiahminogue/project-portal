@@ -1,8 +1,14 @@
 <script lang="ts">
-  import { Link, UploadCloud } from '@lucide/svelte';
+  import { onMount } from 'svelte';
+  import { Link, UploadCloud, X } from '@lucide/svelte';
+  import { uploadProjectFile, type UploadedProjectFile } from '$lib/client/project-file-upload';
 
   let {
     files = [],
+    projectSlug = '',
+    folderName = 'Attachments',
+    documentKind = 'file',
+    tags = ['attachment'],
     idPrefix = 'attachments',
     uploadLabel = 'Upload attachments',
     existingLabel = 'Attach existing project files',
@@ -10,6 +16,10 @@
     maxFileMb = 100
   }: {
     files?: { id: string; path: string; size: string }[];
+    projectSlug?: string;
+    folderName?: string;
+    documentKind?: 'drawing' | 'specification' | 'file';
+    tags?: string[];
     idPrefix?: string;
     uploadLabel?: string;
     existingLabel?: string;
@@ -17,19 +27,63 @@
     maxFileMb?: number;
   } = $props();
 
+  let root: HTMLDivElement | undefined = $state();
   let uploadInput: HTMLInputElement | undefined = $state();
   let selectedFileNames = $state<string[]>([]);
+  let uploadedFiles = $state<UploadedProjectFile[]>([]);
+  let uploadErrors = $state<string[]>([]);
+  let uploadMessage = $state('');
+  let isUploading = $state(false);
   let isDragging = $state(false);
 
   const attachableFiles = $derived(files.filter((file) => !file.id.startsWith('storage:')));
   const existingPickerSize = $derived(Math.min(5, Math.max(2, attachableFiles.length)));
+  const directUploadEnabled = $derived(Boolean(projectSlug));
+  const attachedUploadCount = $derived(directUploadEnabled ? uploadedFiles.length : selectedFileNames.length);
   const selectedCountLabel = $derived(
-    selectedFileNames.length === 1 ? '1 file selected' : `${selectedFileNames.length} files selected`
+    attachedUploadCount === 1 ? '1 file selected' : `${attachedUploadCount} files selected`
   );
-  const tooManyFiles = $derived(selectedFileNames.length > maxFiles);
+  const tooManyFiles = $derived(attachedUploadCount > maxFiles);
+
+  onMount(() => {
+    const form = root?.closest('form');
+    if (!form) return;
+
+    const clearPendingFiles = () => {
+      selectedFileNames = [];
+      uploadedFiles = [];
+      uploadErrors = [];
+      uploadMessage = '';
+      isUploading = false;
+      if (uploadInput) uploadInput.value = '';
+    };
+
+    const handleSubmit = (event: SubmitEvent) => {
+      if (!isUploading) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      uploadMessage = 'Finish uploading attachments before saving.';
+    };
+
+    form.addEventListener('submit', handleSubmit, true);
+    form.addEventListener('reset', clearPendingFiles);
+    return () => {
+      form.removeEventListener('submit', handleSubmit, true);
+      form.removeEventListener('reset', clearPendingFiles);
+    };
+  });
+
+  function clearUploadInput() {
+    if (uploadInput) uploadInput.value = '';
+  }
 
   function updateSelectedFiles() {
-    selectedFileNames = Array.from(uploadInput?.files ?? []).map((file) => file.name);
+    const files = Array.from(uploadInput?.files ?? []);
+    if (directUploadEnabled) {
+      void uploadFiles(files);
+      return;
+    }
+    selectedFileNames = files.map((file) => file.name);
   }
 
   function browseFiles() {
@@ -47,17 +101,77 @@
     const droppedFiles = Array.from(event.dataTransfer?.files ?? []);
     if (!uploadInput || droppedFiles.length === 0) return;
 
+    if (directUploadEnabled) {
+      void uploadFiles(droppedFiles);
+      return;
+    }
+
     const transfer = new DataTransfer();
     for (const file of Array.from(uploadInput.files ?? [])) transfer.items.add(file);
     for (const file of droppedFiles) transfer.items.add(file);
     uploadInput.files = transfer.files;
     updateSelectedFiles();
   }
+
+  async function uploadFiles(files: File[]) {
+    if (!files.length || !directUploadEnabled) return;
+    uploadErrors = [];
+    uploadMessage = '';
+
+    if (isUploading) {
+      uploadMessage = 'Finish the current upload before adding more files.';
+      clearUploadInput();
+      return;
+    }
+
+    if (uploadedFiles.length + files.length > maxFiles) {
+      uploadErrors = [`Attach up to ${maxFiles} files at a time.`];
+      clearUploadInput();
+      return;
+    }
+
+    const tooLarge = files.find((file) => file.size > maxFileMb * 1024 * 1024);
+    if (tooLarge) {
+      uploadErrors = [`${tooLarge.name} is larger than ${maxFileMb} MB.`];
+      clearUploadInput();
+      return;
+    }
+
+    isUploading = true;
+    try {
+      for (const file of files) {
+        uploadMessage = `Uploading ${file.name}...`;
+        const uploaded = await uploadProjectFile({
+          projectSlug,
+          file,
+          folderName,
+          documentKind,
+          tags,
+          onPortalFallback: () => {
+            uploadMessage = `Direct upload was blocked by the browser; finishing ${file.name} through the portal...`;
+          }
+        });
+        uploadedFiles = [...uploadedFiles, uploaded];
+        if (uploaded.warning) uploadErrors = [...uploadErrors, `${uploaded.name}: ${uploaded.warning}`];
+      }
+      uploadMessage = files.length === 1 ? `${files[0].name} attached.` : `${files.length} files attached.`;
+    } catch (error) {
+      uploadErrors = [...uploadErrors, error instanceof Error ? error.message : 'Attachment upload failed.'];
+    } finally {
+      isUploading = false;
+      clearUploadInput();
+    }
+  }
+
+  function removeUploadedFile(id: string) {
+    uploadedFiles = uploadedFiles.filter((file) => file.id !== id);
+  }
 </script>
 
-<div class="attachment-fields">
+<div bind:this={root} class:single-field={!attachableFiles.length} class="attachment-fields">
   <div
     class:dragging={isDragging}
+    class:uploading={isUploading}
     class="attachment-field upload-drop"
     role="group"
     aria-labelledby={`${idPrefix}-upload-label`}
@@ -68,10 +182,10 @@
   >
     <span id={`${idPrefix}-upload-label`}><UploadCloud size={14} />{uploadLabel}</span>
     <strong>My computer</strong>
-    <small>Drag files here or browse. Up to {maxFiles} files, {maxFileMb} MB each.</small>
-    <button class="browse-control" type="button" onclick={browseFiles}>
+    <small>{directUploadEnabled ? 'Files upload now, then attach when you save.' : 'Drag files here or browse.'} Up to {maxFiles} files, {maxFileMb} MB each.</small>
+    <button class="browse-control" type="button" onclick={browseFiles} disabled={isUploading}>
       <UploadCloud size={16} />
-      Browse files
+      {isUploading ? 'Uploading...' : 'Browse files'}
     </button>
     <input
       bind:this={uploadInput}
@@ -83,13 +197,39 @@
       tabindex="-1"
       onchange={updateSelectedFiles}
     />
-    {#if selectedFileNames.length}
+    {#each uploadedFiles as file}
+      <input type="hidden" name="attachmentIds" value={file.id} />
+    {/each}
+    {#if attachedUploadCount}
       <em class:warning={tooManyFiles}>
         {selectedCountLabel}{tooManyFiles ? ` - limit ${maxFiles}` : ''}
       </em>
       <ul class="selected-file-list" aria-label="Selected files">
-        {#each selectedFileNames as name}
-          <li>{name}</li>
+        {#if directUploadEnabled}
+          {#each uploadedFiles as file}
+            <li>
+              <span>{file.name}</span>
+              <small>{file.sizeLabel}</small>
+              <a href={`/projects/${encodeURIComponent(projectSlug)}/files/${encodeURIComponent(file.id)}`} target="_blank" rel="noreferrer">Preview</a>
+              <button type="button" aria-label={`Remove ${file.name}`} onclick={() => removeUploadedFile(file.id)}>
+                <X size={13} />
+              </button>
+            </li>
+          {/each}
+        {:else}
+          {#each selectedFileNames as name}
+            <li><span>{name}</span></li>
+          {/each}
+        {/if}
+      </ul>
+    {/if}
+    {#if uploadMessage}
+      <p class="attachment-message" aria-live="polite">{uploadMessage}</p>
+    {/if}
+    {#if uploadErrors.length}
+      <ul class="attachment-errors" aria-label="Attachment upload errors" aria-live="assertive">
+        {#each uploadErrors as error}
+          <li>{error}</li>
         {/each}
       </ul>
     {/if}
@@ -115,6 +255,10 @@
     gap: 0.55rem;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     min-width: 0;
+  }
+
+  .attachment-fields.single-field {
+    grid-template-columns: 1fr;
   }
 
   .attachment-field {
@@ -163,6 +307,10 @@
   }
 
   .selected-file-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 0.42rem;
     overflow: hidden;
     border: 1px solid rgba(25, 27, 25, 0.08);
     border-radius: 0.32rem;
@@ -171,8 +319,49 @@
     color: #303830;
     font-size: 0.72rem;
     font-weight: 780;
+  }
+
+  .selected-file-list span {
+    overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .selected-file-list small,
+  .selected-file-list a {
+    font-size: 0.68rem;
+    font-weight: 850;
+    white-space: nowrap;
+  }
+
+  .selected-file-list small {
+    color: #697169;
+  }
+
+  .selected-file-list a {
+    color: #1d5fb8;
+    text-decoration: none;
+  }
+
+  .selected-file-list a:hover {
+    text-decoration: underline;
+  }
+
+  .selected-file-list button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.35rem;
+    height: 1.35rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 999px;
+    background: #fff;
+    color: #5b625c;
+  }
+
+  .selected-file-list button:hover {
+    border-color: rgba(154, 52, 18, 0.2);
+    color: #9a3412;
   }
 
   .upload-drop {
@@ -189,6 +378,11 @@
   .upload-drop.dragging {
     border-color: #375f38;
     background: rgba(55, 95, 56, 0.08);
+  }
+
+  .upload-drop.uploading {
+    border-color: rgba(29, 95, 184, 0.28);
+    background: rgba(29, 95, 184, 0.06);
   }
 
   .file-input {
@@ -228,6 +422,11 @@
     outline: none;
   }
 
+  .browse-control:disabled {
+    cursor: wait;
+    opacity: 0.72;
+  }
+
   .upload-drop:hover .browse-control,
   .upload-drop.dragging .browse-control {
     border-color: rgba(20, 146, 52, 0.45);
@@ -245,6 +444,26 @@
 
   .project-file-picker option {
     padding: 0.22rem 0.2rem;
+  }
+
+  .attachment-message,
+  .attachment-errors {
+    margin: 0;
+    font-size: 0.72rem;
+    font-weight: 760;
+    line-height: 1.35;
+  }
+
+  .attachment-message {
+    color: #4f594f;
+  }
+
+  .attachment-errors {
+    display: grid;
+    gap: 0.12rem;
+    padding: 0;
+    color: #9a3412;
+    list-style: none;
   }
 
   @media (max-width: 760px) {
