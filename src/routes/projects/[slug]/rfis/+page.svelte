@@ -214,12 +214,11 @@
       {#if canAttachFiles}
         <div class="md:col-span-2 xl:col-span-5">
           <AttachmentFields
-            files={data.files}
             projectSlug={data.project?.id ?? ''}
             folderName={newRfiNumber.trim() ? `RFI ${newRfiNumber.trim()} Attachments` : 'RFI Attachments'}
             idPrefix="new-rfi"
             uploadLabel="Upload RFI files"
-            existingLabel="Attach existing project files"
+            hideExisting
           />
         </div>
       {/if}
@@ -462,12 +461,11 @@
                     </fieldset>
                   {/if}
                   <AttachmentFields
-                    files={data.files}
                     projectSlug={data.project?.id ?? ''}
                     folderName={`RFI ${selectedRfi.number} Attachments`}
                     idPrefix={`rfi-${selectedRfi.id}-attachments`}
                     uploadLabel="Upload response files"
-                    existingLabel="Attach existing files"
+                    hideExisting
                   />
                 </details>
               {/if}

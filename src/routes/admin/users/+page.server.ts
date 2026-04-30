@@ -210,6 +210,8 @@ export const actions: Actions = {
     const projectId = formString(form, 'projectId');
     const role = roleValue(formString(form, 'role'));
     const sendEmail = checked(form, 'sendEmail');
+    const isSubmittalManager = checked(form, 'isSubmittalManager');
+    const isRfiManager = checked(form, 'isRfiManager');
 
     if (!userId || !projectId) return fail(400, { error: 'Choose a user and project before assigning access.' });
 
@@ -219,13 +221,20 @@ export const actions: Actions = {
         project_id: projectId,
         user_id: userId,
         role,
+        is_submittal_manager: isSubmittalManager,
+        is_rfi_manager: isRfiManager,
         accepted_at: new Date().toISOString()
       },
       { onConflict: 'project_id,user_id' }
     );
 
     if (error) return fail(400, { error: error.message });
-    await writeAdminAudit(event, 'membership.upsert', 'user', userId, { projectId, role });
+    await writeAdminAudit(event, 'membership.upsert', 'user', userId, {
+      projectId,
+      role,
+      isSubmittalManager,
+      isRfiManager
+    });
 
     let emailSkipped = false;
     if (sendEmail) {

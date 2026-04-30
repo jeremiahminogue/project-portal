@@ -62,6 +62,23 @@ export const load: PageServerLoad = async (event) => {
   const access = event.locals.supabase ? await requireProjectAccess(event, slug) : null;
   const role = access && !isProjectAccessError(access) ? access.role : null;
 
+  // Look up which project members carry the submittal-manager flag so the
+  // page can (a) auto-route unrouted submittals to one of them and (b) show
+  // a "Set up routing" panel only to managers.
+  let submittalManagerIds: string[] = [];
+  let isSubmittalManager = false;
+  if (event.locals.supabase && access && !isProjectAccessError(access)) {
+    const { data: managers } = await event.locals.supabase
+      .from('project_members')
+      .select('user_id')
+      .eq('project_id', access.project.id)
+      .eq('is_submittal_manager', true);
+    submittalManagerIds = (managers ?? [])
+      .map((row: { user_id: string | null }) => row.user_id)
+      .filter((id): id is string => Boolean(id));
+    isSubmittalManager = submittalManagerIds.includes(access.user.id);
+  }
+
   return {
     project,
     submittals,
@@ -71,7 +88,9 @@ export const load: PageServerLoad = async (event) => {
       role,
       canCreate: role ? projectRoleCapabilities[role].canCreateCommunication : !event.locals.supabase,
       canReview: role ? projectRoleCapabilities[role].canReviewCommunication : !event.locals.supabase,
-      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase
+      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase,
+      isSubmittalManager,
+      submittalManagerIds
     }
   };
 };
@@ -111,8 +130,20 @@ export const actions: Actions = {
       .filter((row) => row.assignee.length > 0);
     const routingAssigneeIds = routing.map((row) => row.assignee);
 
-    // Ball-in-court is the first reviewer if routing is set, otherwise unassigned.
-    const owner = routing[0]?.assignee || null;
+    // No routing was provided (non-manager submitted from a member/guest UI).
+    // Hand the submittal to the project's first designated submittal manager
+    // so they can plan the chain. If no manager is set, the submittal stays
+    // unassigned and the next admin who opens it routes it.
+    let owner: string | null = routing[0]?.assignee || null;
+    if (!owner) {
+      const { data: managerRows } = await projectClient
+        .from('project_members')
+        .select('user_id')
+        .eq('project_id', access.project.id)
+        .eq('is_submittal_manager', true)
+        .limit(1);
+      owner = (managerRows?.[0]?.user_id as string | null) ?? null;
+    }
 
     const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
 
@@ -503,6 +534,120 @@ export const actions: Actions = {
         metadata
       }).catch((error) => console.error('[notifications] submittal update notification failed:', error));
     }
+    return { ok: true };
+  },
+
+  routeSubmittal: async (event) => {
+    const client = event.locals.supabase;
+    if (!client) return actionError('Supabase is not configured yet.');
+
+    const form = await event.request.formData();
+    const id = formString(form, 'id');
+    if (!id) return fail(400, { error: 'Submittal id is required.' });
+
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin', 'member'],
+      action: 'route submittals for this project'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return actionError('Supabase is not configured yet.');
+
+    // Admins can always route. Members must carry the submittal-manager flag
+    // for this project.
+    const isAdmin = access.role === 'admin' || access.role === 'superadmin';
+    if (!isAdmin) {
+      const { data: managerRow, error: managerError } = await projectClient
+        .from('project_members')
+        .select('is_submittal_manager')
+        .eq('project_id', access.project.id)
+        .eq('user_id', access.user.id)
+        .maybeSingle();
+      if (managerError) return fail(400, { error: managerError.message });
+      if (!managerRow?.is_submittal_manager) {
+        return actionError('Only submittal managers can route submittals.', 403);
+      }
+    }
+
+    const rawAssignees = formStringList(form, 'routingAssigneeIds');
+    const rawDueDates = formStringList(form, 'routingDueDates');
+    const routing = rawAssignees
+      .map((assignee, index) => ({ assignee: assignee.trim(), dueDate: (rawDueDates[index] ?? '').trim() }))
+      .filter((row) => row.assignee.length > 0);
+    if (!routing.length) return fail(400, { error: 'Pick at least one reviewer.' });
+
+    const { data: existing, error: existingError } = await projectClient
+      .from('submittals')
+      .select('id, number, title, spec_section, due_date, owner, status, revision, submitted_by')
+      .eq('id', id)
+      .eq('project_id', access.project.id)
+      .maybeSingle();
+    if (existingError) return fail(400, { error: existingError.message });
+    if (!existing) return fail(404, { error: 'Submittal not found.' });
+
+    const { count, error: countError } = await projectClient
+      .from('submittal_routing_steps')
+      .select('id', { count: 'exact', head: true })
+      .eq('submittal_id', id);
+    if (countError) return fail(400, { error: countError.message });
+    if ((count ?? 0) > 0) return fail(400, { error: 'This submittal already has a routing chain.' });
+
+    const memberError = await assertProjectMembers(
+      projectClient,
+      access.project.id,
+      routing.map((row) => row.assignee),
+      'Reviewers'
+    );
+    if (memberError) return fail(400, { error: memberError });
+
+    const steps = routing.map((row, index) => ({
+      submittal_id: id,
+      step_order: index,
+      assignee: row.assignee,
+      role: 'member',
+      due_date: row.dueDate || (index === 0 ? existing.due_date : null),
+      status: nextStepStatus(index)
+    }));
+    const { error: routingError } = await projectClient.from('submittal_routing_steps').insert(steps);
+    if (routingError) return fail(400, { error: routingError.message });
+
+    const firstAssignee = routing[0].assignee;
+    const { error: updateError } = await projectClient
+      .from('submittals')
+      .update({ owner: firstAssignee, current_step: 0, status: 'in_review' })
+      .eq('id', id)
+      .eq('project_id', access.project.id);
+    if (updateError) return fail(400, { error: updateError.message });
+
+    const sendEmails = form.get('sendEmails') === 'on';
+    if (sendEmails) {
+      const metadata = {
+        projectSlug: access.project.slug,
+        projectName: access.project.name,
+        actorEmail: access.user.email,
+        number: existing.number,
+        title: existing.title,
+        specSection: existing.spec_section,
+        dueDate: existing.due_date,
+        owner: firstAssignee,
+        workflowAssigneeId: firstAssignee,
+        submittedById: existing.submitted_by,
+        stepIndex: 0,
+        totalSteps: routing.length,
+        revision: existing.revision ?? 0,
+        previousStatus: existing.status,
+        status: 'in_review'
+      };
+      await notifyProjectEvent(event, {
+        projectId: access.project.id,
+        actorId: access.user.id,
+        type: 'submittal.action_required',
+        entityType: 'submittal',
+        entityId: id,
+        metadata
+      }).catch((error) => console.error('[notifications] submittal action-required notification failed:', error));
+    }
+
     return { ok: true };
   },
 

@@ -144,6 +144,8 @@
                 <option value="guest">Guest</option>
                 <option value="readonly">Read-only</option>
               </select>
+              <label class="mini-check" title="User can route incoming submittals on this project"><input type="checkbox" name="isSubmittalManager" /> Submittal manager</label>
+              <label class="mini-check" title="User can manage RFIs on this project"><input type="checkbox" name="isRfiManager" /> RFI manager</label>
               <label class="mini-check"><input type="checkbox" name="sendEmail" /> Email</label>
               <button class="btn btn-secondary" type="submit" aria-label={`Assign project to ${user.email}`}>
                 <Plus size={14} />

@@ -14,7 +14,8 @@
     existingLabel = 'Attach existing project files',
     maxFiles = 10,
     maxFileMb = 100,
-    existingCollapsed = false
+    existingCollapsed = false,
+    hideExisting = false
   }: {
     files?: { id: string; path: string; size: string }[];
     projectSlug?: string;
@@ -32,6 +33,11 @@
      * doesn't visually dump every file in the project.
      */
     existingCollapsed?: boolean;
+    /**
+     * When true, the "Attach existing project files" picker is not rendered at
+     * all. Use for flows where the user should only upload new files.
+     */
+    hideExisting?: boolean;
   } = $props();
 
   let root: HTMLDivElement | undefined = $state();
@@ -175,7 +181,7 @@
   }
 </script>
 
-<div bind:this={root} class:single-field={!attachableFiles.length} class="attachment-fields">
+<div bind:this={root} class:single-field={hideExisting || !attachableFiles.length} class="attachment-fields">
   <div
     class:dragging={isDragging}
     class:uploading={isUploading}
@@ -242,7 +248,7 @@
     {/if}
   </div>
 
-  {#if attachableFiles.length}
+  {#if !hideExisting && attachableFiles.length}
     {#if existingCollapsed}
       <details class="attachment-field existing-files existing-files-collapsed">
         <summary>

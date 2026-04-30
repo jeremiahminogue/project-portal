@@ -95,6 +95,7 @@
   let activeAttachmentId = $state('');
   let newSubmittalNumber = $state('');
   let routingRows = $state<RoutingRow[]>([{ assigneeId: '', dueDate: '' }]);
+  let routingSetupRows = $state<RoutingRow[]>([{ assigneeId: '', dueDate: '' }]);
 
   const decisionLabels: Record<string, string> = {
     in_review: 'Mark in review',
@@ -109,6 +110,26 @@
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
   const canDeleteCommunication = $derived(
     data.communicationAccess?.role === 'superadmin' || data.communicationAccess?.role === 'admin'
+  );
+  // Submittal managers + admins/superadmins can plan the routing chain. Other
+  // members upload and the chain gets set by a manager from the detail modal.
+  const canRouteSubmittals = $derived(
+    data.communicationAccess?.isSubmittalManager === true ||
+      data.communicationAccess?.role === 'admin' ||
+      data.communicationAccess?.role === 'superadmin'
+  );
+  const submittalManagerIds = $derived<string[]>(data.communicationAccess?.submittalManagerIds ?? []);
+  const submittalManagerNames = $derived(
+    submittalManagerIds
+      .map((id) => data.directory.find((person) => person.id === id)?.name)
+      .filter((name): name is string => Boolean(name))
+  );
+  const submittalManagerLabel = $derived(
+    submittalManagerNames.length === 0
+      ? 'a submittal manager'
+      : submittalManagerNames.length === 1
+        ? submittalManagerNames[0]
+        : `${submittalManagerNames[0]} (+${submittalManagerNames.length - 1})`
   );
 
   // ── Counters / filters ───────────────────────────────────────
@@ -156,8 +177,24 @@
       decisionArmed = false;
       editing = false;
       activeAttachmentId = '';
+      routingSetupRows = [{ assigneeId: '', dueDate: '' }];
     }
   });
+
+  function addRoutingSetupRow() {
+    routingSetupRows = [...routingSetupRows, { assigneeId: '', dueDate: '' }];
+  }
+  function removeRoutingSetupRow(index: number) {
+    routingSetupRows = routingSetupRows.filter((_, i) => i !== index);
+    if (routingSetupRows.length === 0) routingSetupRows = [{ assigneeId: '', dueDate: '' }];
+  }
+  function moveRoutingSetupRow(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (target < 0 || target >= routingSetupRows.length) return;
+    const next = [...routingSetupRows];
+    [next[index], next[target]] = [next[target], next[index]];
+    routingSetupRows = next;
+  }
 
   // ── Helpers ──────────────────────────────────────────────────
   function statusValue(label: string) {
@@ -540,49 +577,59 @@
           </select>
         </label>
 
-        <div class="field-label routing-block">
-          <span>Workflow reviewers (in order)</span>
-          <div class="routing-rows">
-            {#each routingRows as row, index (index)}
-              <div class="routing-row">
-                <span class="routing-step-marker" aria-hidden="true">{index + 1}</span>
-                <select
-                  class="field"
-                  name="routingAssigneeIds"
-                  bind:value={row.assigneeId}
-                  aria-label={`Reviewer ${index + 1}`}
-                >
-                  <option value="">Pick reviewer</option>
-                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                    <option value={person.id}>{person.name} - {person.organization}</option>
-                  {/each}
-                </select>
-                <input
-                  class="field routing-due"
-                  name="routingDueDates"
-                  type="date"
-                  bind:value={row.dueDate}
-                  aria-label={`Due date for step ${index + 1}`}
-                />
-                <div class="routing-row-actions">
-                  <button type="button" class="row-icon-btn" aria-label="Move up" title="Move up" disabled={index === 0} onclick={() => moveRoutingRow(index, -1)}>
-                    <ChevronUp size={13} />
-                  </button>
-                  <button type="button" class="row-icon-btn" aria-label="Move down" title="Move down" disabled={index === routingRows.length - 1} onclick={() => moveRoutingRow(index, 1)}>
-                    <ChevronDown size={13} />
-                  </button>
-                  <button type="button" class="row-icon-btn is-danger" aria-label="Remove reviewer" title="Remove" onclick={() => removeRoutingRow(index)} disabled={routingRows.length === 1 && !row.assigneeId && !row.dueDate}>
-                    <X size={13} />
-                  </button>
+        {#if canRouteSubmittals}
+          <div class="field-label routing-block">
+            <span>Workflow reviewers (in order)</span>
+            <div class="routing-rows">
+              {#each routingRows as row, index (index)}
+                <div class="routing-row">
+                  <span class="routing-step-marker" aria-hidden="true">{index + 1}</span>
+                  <select
+                    class="field"
+                    name="routingAssigneeIds"
+                    bind:value={row.assigneeId}
+                    aria-label={`Reviewer ${index + 1}`}
+                  >
+                    <option value="">Pick reviewer</option>
+                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                      <option value={person.id}>{person.name} - {person.organization}</option>
+                    {/each}
+                  </select>
+                  <input
+                    class="field routing-due"
+                    name="routingDueDates"
+                    type="date"
+                    bind:value={row.dueDate}
+                    aria-label={`Due date for step ${index + 1}`}
+                  />
+                  <div class="routing-row-actions">
+                    <button type="button" class="row-icon-btn" aria-label="Move up" title="Move up" disabled={index === 0} onclick={() => moveRoutingRow(index, -1)}>
+                      <ChevronUp size={13} />
+                    </button>
+                    <button type="button" class="row-icon-btn" aria-label="Move down" title="Move down" disabled={index === routingRows.length - 1} onclick={() => moveRoutingRow(index, 1)}>
+                      <ChevronDown size={13} />
+                    </button>
+                    <button type="button" class="row-icon-btn is-danger" aria-label="Remove reviewer" title="Remove" onclick={() => removeRoutingRow(index)} disabled={routingRows.length === 1 && !row.assigneeId && !row.dueDate}>
+                      <X size={13} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-            {/each}
+              {/each}
+            </div>
+            <button type="button" class="routing-add" onclick={addRoutingRow}>
+              <Plus size={13} />Add reviewer
+            </button>
+            <small class="hint">First reviewer gets the submittal on creation. Each next reviewer is notified when the previous one approves. Leave empty to send to {submittalManagerLabel} for routing.</small>
           </div>
-          <button type="button" class="routing-add" onclick={addRoutingRow}>
-            <Plus size={13} />Add reviewer
-          </button>
-          <small class="hint">First reviewer gets the submittal on creation. Each next reviewer is notified when the previous one approves.</small>
-        </div>
+        {:else}
+          <div class="routing-handoff-note">
+            <ArrowRight size={14} />
+            <div>
+              <strong>Goes to {submittalManagerLabel} for routing</strong>
+              <span>They'll assign reviewers and kick off the workflow.</span>
+            </div>
+          </div>
+        {/if}
 
         <label class="field-label">
           <span>Notes</span>
@@ -593,13 +640,11 @@
           <div class="field-label files-block">
             <span>Files</span>
             <AttachmentFields
-              files={data.files}
               projectSlug={data.project?.id ?? ''}
               folderName={newSubmittalNumber.trim() ? `Submittal ${newSubmittalNumber.trim()} Attachments` : 'Submittal Attachments'}
               idPrefix="new-submittal"
               uploadLabel="Upload from this device"
-              existingLabel="Attach existing project files"
-              existingCollapsed
+              hideExisting
             />
           </div>
         {/if}
@@ -787,13 +832,13 @@
               {/if}
             </div>
 
-            <!-- Routing timeline — current step carries inline actions -->
-            <div class="timeline-block">
-              <div class="block-title">
-                <span class="eyebrow">Workflow timeline</span>
-                <span>{routedCount(selectedSubmittal)} step{routedCount(selectedSubmittal) === 1 ? '' : 's'}</span>
-              </div>
-              {#if selectedSubmittal.routingSteps?.length}
+            {#if selectedSubmittal.routingSteps?.length}
+              <!-- Routing timeline — current step carries inline actions -->
+              <div class="timeline-block">
+                <div class="block-title">
+                  <span class="eyebrow">Workflow timeline</span>
+                  <span>{routedCount(selectedSubmittal)} step{routedCount(selectedSubmittal) === 1 ? '' : 's'}</span>
+                </div>
                 <ol class="timeline">
                   {#each selectedSubmittal.routingSteps as step}
                     <li class={`timeline-step ${stepState(step, selectedSubmittal)}`}>
@@ -816,31 +861,87 @@
                     </li>
                   {/each}
                 </ol>
-              {:else if selectedSubmittal.routing.length}
-                <ol class="timeline">
-                  {#each selectedSubmittal.routing as route, index}
-                    <li class="timeline-step waiting">
-                      <span class="step-marker">{index + 1}</span>
-                      <div>
-                        <strong>{route}</strong>
-                        <span>Route sequence</span>
-                      </div>
-                    </li>
-                  {/each}
-                </ol>
-              {:else}
-                <p class="muted">No reviewers routed yet.</p>
-              {/if}
 
-              {#if !decisionArmed && canReviewCommunication && selectedSubmittal.id && (!selectedSubmittal.routingSteps?.length || isWorkflowClosed)}
-                <div class="step-actions step-actions-loose" role="group" aria-label="Quick decision">
-                  <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
-                  <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
-                  <button type="button" class="step-btn reject" onclick={() => armDecision('rejected')}><XCircle size={13} />Reject</button>
-                  <button type="button" class="step-btn review" onclick={() => armDecision('in_review')}><PencilLine size={13} />In review</button>
+                {#if !decisionArmed && canReviewCommunication && selectedSubmittal.id && isWorkflowClosed}
+                  <div class="step-actions step-actions-loose" role="group" aria-label="Quick decision">
+                    <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
+                    <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
+                    <button type="button" class="step-btn reject" onclick={() => armDecision('rejected')}><XCircle size={13} />Reject</button>
+                    <button type="button" class="step-btn review" onclick={() => armDecision('in_review')}><PencilLine size={13} />In review</button>
+                  </div>
+                {/if}
+              </div>
+            {:else if canRouteSubmittals && selectedSubmittal.id}
+              <!-- No chain yet — manager sets it up here. -->
+              <form
+                class="routing-setup"
+                method="post"
+                action="?/routeSubmittal"
+                use:enhance={resetOnSuccess()}
+              >
+                <input type="hidden" name="id" value={selectedSubmittal.id} />
+                <div class="block-title">
+                  <span class="eyebrow">Set up routing</span>
+                  <span>Awaiting reviewers</span>
                 </div>
-              {/if}
-            </div>
+                <p class="muted routing-setup-intro">Pick reviewers in order. Each gets an email when the previous one approves.</p>
+                <div class="routing-rows">
+                  {#each routingSetupRows as row, index (index)}
+                    <div class="routing-row">
+                      <span class="routing-step-marker" aria-hidden="true">{index + 1}</span>
+                      <select
+                        class="field"
+                        name="routingAssigneeIds"
+                        bind:value={row.assigneeId}
+                        aria-label={`Reviewer ${index + 1}`}
+                      >
+                        <option value="">Pick reviewer</option>
+                        {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                          <option value={person.id}>{person.name} - {person.organization}</option>
+                        {/each}
+                      </select>
+                      <input
+                        class="field routing-due"
+                        name="routingDueDates"
+                        type="date"
+                        bind:value={row.dueDate}
+                        aria-label={`Due date for step ${index + 1}`}
+                      />
+                      <div class="routing-row-actions">
+                        <button type="button" class="row-icon-btn" aria-label="Move up" title="Move up" disabled={index === 0} onclick={() => moveRoutingSetupRow(index, -1)}>
+                          <ChevronUp size={13} />
+                        </button>
+                        <button type="button" class="row-icon-btn" aria-label="Move down" title="Move down" disabled={index === routingSetupRows.length - 1} onclick={() => moveRoutingSetupRow(index, 1)}>
+                          <ChevronDown size={13} />
+                        </button>
+                        <button type="button" class="row-icon-btn is-danger" aria-label="Remove reviewer" title="Remove" onclick={() => removeRoutingSetupRow(index)} disabled={routingSetupRows.length === 1 && !row.assigneeId && !row.dueDate}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+                <button type="button" class="routing-add" onclick={addRoutingSetupRow}>
+                  <Plus size={13} />Add reviewer
+                </button>
+                <label class="notify-check">
+                  <input name="sendEmails" type="checkbox" checked />
+                  <Bell size={15} />
+                  <span>Email the first reviewer when the chain starts</span>
+                </label>
+                <footer class="form-footer">
+                  <button class="btn btn-primary" type="submit"><ArrowRight size={16} />Send to workflow</button>
+                </footer>
+              </form>
+            {:else}
+              <div class="awaiting-routing">
+                <ArrowRight size={14} />
+                <div>
+                  <strong>Awaiting routing</strong>
+                  <span>{submittalManagerLabel} will assign reviewers shortly.</span>
+                </div>
+              </div>
+            {/if}
 
             <!-- Action drawer — only when a decision is armed -->
             {#if decisionArmed && canReviewCommunication && selectedSubmittal.id}
@@ -917,13 +1018,11 @@
                       </fieldset>
                     {/if}
                     <AttachmentFields
-                      files={data.files}
                       projectSlug={data.project?.id ?? ''}
                       folderName={`Submittal ${selectedSubmittal.number} Attachments`}
                       idPrefix={`submittal-${selectedSubmittal.id}-attachments`}
                       uploadLabel="Upload response files"
-                      existingLabel="Attach existing project files"
-                      existingCollapsed
+                      hideExisting
                     />
                   </details>
                 {/if}
@@ -1118,6 +1217,36 @@
     cursor: pointer;
   }
   .routing-add:hover { border-color: rgba(20, 146, 52, 0.5); background: rgba(29, 175, 63, 0.08); color: #197a31; }
+
+  .routing-handoff-note {
+    display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid rgba(29, 95, 184, 0.25); border-radius: 0.4rem;
+    background: rgba(29, 95, 184, 0.06);
+    color: #1d4f95;
+  }
+  .routing-handoff-note > div { display: grid; gap: 0.1rem; }
+  .routing-handoff-note strong { color: #1d4f95; font-size: 0.8rem; font-weight: 850; }
+  .routing-handoff-note span { color: #4f594f; font-size: 0.74rem; font-weight: 750; }
+
+  .routing-setup {
+    display: grid; gap: 0.55rem;
+    border: 1px solid rgba(29, 95, 184, 0.22); border-radius: 0.45rem;
+    background: rgba(29, 95, 184, 0.05);
+    padding: 0.7rem 0.75rem;
+  }
+  .routing-setup-intro { font-size: 0.74rem; }
+
+  .awaiting-routing {
+    display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid rgba(202, 138, 4, 0.28); border-radius: 0.4rem;
+    background: rgba(202, 138, 4, 0.08);
+    color: #855508;
+  }
+  .awaiting-routing > div { display: grid; gap: 0.1rem; }
+  .awaiting-routing strong { color: #855508; font-size: 0.8rem; font-weight: 850; }
+  .awaiting-routing span { color: #5b3e0a; font-size: 0.74rem; font-weight: 750; }
   .min-h-20 { min-height: 3.6rem; }
   .min-h-24 { min-height: 4.6rem; }
 
