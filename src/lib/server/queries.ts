@@ -63,6 +63,8 @@ export type DrawingPage = {
 export type PortalSubmittal = Submittal & {
   id?: string;
   currentStep?: number;
+  submittedBy?: string | null;
+  submittedById?: string | null;
 };
 
 export type PortalRfi = RFI & {
@@ -295,7 +297,7 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
     .from('submittals')
     .select(
       `id, number, title, spec_section, submitted_date, due_date, status, current_step, notes,
-      decision, attachments_json, revision, submit_by, received_from,
+      decision, attachments_json, revision, submit_by, received_from, submitted_by,
       owner,
       submittal_routing_steps (id, step_order, role, assignee, status, due_date, response, required, signed_off_at)`
     )
@@ -307,6 +309,7 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
   const profileIds = rows.flatMap((row: any) => [
     row.owner,
     row.received_from,
+    row.submitted_by,
     ...(row.submittal_routing_steps ?? []).map((step: any) => step.assignee)
   ]);
   const [profiles, attachmentLinks] = await Promise.all([
@@ -317,6 +320,7 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
   return rows.map((row: any) => {
     const owner = profiles.get(row.owner);
     const receivedFrom = profiles.get(row.received_from);
+    const submittedBy = profiles.get(row.submitted_by);
     const steps = [...(row.submittal_routing_steps ?? [])].sort((a, b) => a.step_order - b.step_order);
     return {
       id: row.id,
@@ -335,6 +339,8 @@ export async function getSubmittals(event: EventLike, slug: string): Promise<Por
       submitBy: row.submit_by,
       receivedFrom: profileDisplayName(receivedFrom),
       receivedFromId: row.received_from,
+      submittedBy: profileDisplayName(submittedBy),
+      submittedById: row.submitted_by,
       attachments: attachmentLinks?.get(row.id) ?? normalizeItemAttachments(row.attachments_json),
       routingSteps: steps.map((step: any) => {
         const profile = profiles.get(step.assignee);

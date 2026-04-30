@@ -17,8 +17,11 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import {
+    ArrowRight,
     Bell,
     Check,
+    ChevronDown,
+    ChevronUp,
     Download,
     Eye,
     FileText,
@@ -26,6 +29,7 @@
     Image as ImageIcon,
     Paperclip,
     PencilLine,
+    Plus,
     RotateCcw,
     Search,
     Trash2,
@@ -65,6 +69,8 @@
     dueDate?: string | null;
     receivedFrom?: string | null;
     receivedFromId?: string | null;
+    submittedBy?: string | null;
+    submittedById?: string | null;
     notes?: string | null;
     decision?: string | null;
     routing: string[];
@@ -72,6 +78,8 @@
     currentStep?: number;
     attachments?: SubmittalAttachment[];
   };
+
+  type RoutingRow = { assigneeId: string; dueDate: string };
 
   let { data, form } = $props();
 
@@ -86,6 +94,7 @@
   let editing = $state(false);
   let activeAttachmentId = $state('');
   let newSubmittalNumber = $state('');
+  let routingRows = $state<RoutingRow[]>([{ assigneeId: '', dueDate: '' }]);
 
   const decisionLabels: Record<string, string> = {
     in_review: 'Mark in review',
@@ -132,6 +141,12 @@
   );
   const currentStepOrder = $derived(selectedSubmittal?.currentStep ?? 0);
   const isWorkflowClosed = $derived(selectedSubmittal ? isClosedStatus(selectedSubmittal.status) : false);
+  const nextRoutingStep = $derived(
+    selectedSubmittal?.routingSteps?.find((step) => step.order === currentStepOrder + 1) ?? null
+  );
+  const isFinalRoutingStep = $derived(
+    !!selectedSubmittal?.routingSteps?.length && !nextRoutingStep
+  );
 
   // ── Reactive resets ──────────────────────────────────────────
   $effect(() => {
@@ -241,11 +256,30 @@
   function openCreateModal() {
     showCreateModal = true;
     newSubmittalNumber = '';
+    routingRows = [{ assigneeId: '', dueDate: '' }];
   }
 
   function closeCreateModal() {
     showCreateModal = false;
     newSubmittalNumber = '';
+    routingRows = [{ assigneeId: '', dueDate: '' }];
+  }
+
+  function addRoutingRow() {
+    routingRows = [...routingRows, { assigneeId: '', dueDate: '' }];
+  }
+
+  function removeRoutingRow(index: number) {
+    routingRows = routingRows.filter((_, i) => i !== index);
+    if (routingRows.length === 0) routingRows = [{ assigneeId: '', dueDate: '' }];
+  }
+
+  function moveRoutingRow(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (target < 0 || target >= routingRows.length) return;
+    const next = [...routingRows];
+    [next[index], next[target]] = [next[target], next[index]];
+    routingRows = next;
   }
 
   function previewType(attachment: SubmittalAttachment | null): 'pdf' | 'image' | 'other' {
@@ -506,15 +540,49 @@
           </select>
         </label>
 
-        <label class="field-label">
+        <div class="field-label routing-block">
           <span>Workflow reviewers (in order)</span>
-          <select class="field multi-select" name="routingAssigneeIds" multiple size={Math.min(5, Math.max(3, data.directory.length))}>
-            {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-              <option value={person.id}>{person.name} - {person.organization}</option>
+          <div class="routing-rows">
+            {#each routingRows as row, index (index)}
+              <div class="routing-row">
+                <span class="routing-step-marker" aria-hidden="true">{index + 1}</span>
+                <select
+                  class="field"
+                  name="routingAssigneeIds"
+                  bind:value={row.assigneeId}
+                  aria-label={`Reviewer ${index + 1}`}
+                >
+                  <option value="">Pick reviewer</option>
+                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                    <option value={person.id}>{person.name} - {person.organization}</option>
+                  {/each}
+                </select>
+                <input
+                  class="field routing-due"
+                  name="routingDueDates"
+                  type="date"
+                  bind:value={row.dueDate}
+                  aria-label={`Due date for step ${index + 1}`}
+                />
+                <div class="routing-row-actions">
+                  <button type="button" class="row-icon-btn" aria-label="Move up" title="Move up" disabled={index === 0} onclick={() => moveRoutingRow(index, -1)}>
+                    <ChevronUp size={13} />
+                  </button>
+                  <button type="button" class="row-icon-btn" aria-label="Move down" title="Move down" disabled={index === routingRows.length - 1} onclick={() => moveRoutingRow(index, 1)}>
+                    <ChevronDown size={13} />
+                  </button>
+                  <button type="button" class="row-icon-btn is-danger" aria-label="Remove reviewer" title="Remove" onclick={() => removeRoutingRow(index)} disabled={routingRows.length === 1 && !row.assigneeId && !row.dueDate}>
+                    <X size={13} />
+                  </button>
+                </div>
+              </div>
             {/each}
-          </select>
-          <small class="hint">Hold Ctrl / Cmd to pick multiple. They review in the order selected.</small>
-        </label>
+          </div>
+          <button type="button" class="routing-add" onclick={addRoutingRow}>
+            <Plus size={13} />Add reviewer
+          </button>
+          <small class="hint">First reviewer gets the submittal on creation. Each next reviewer is notified when the previous one approves.</small>
+        </div>
 
         <label class="field-label">
           <span>Notes</span>
@@ -708,6 +776,7 @@
               <div><span>Final due</span><strong>{formatDate(selectedSubmittal.dueDate)}</strong></div>
               <div><span>Ball in court</span><strong>{selectedSubmittal.owner || 'Unassigned'}</strong></div>
               <div><span>Received from</span><strong>{selectedSubmittal.receivedFrom || '-'}</strong></div>
+              <div class="meta-wide"><span>Submitted by</span><strong>{selectedSubmittal.submittedBy || '-'}</strong></div>
               {#if selectedSubmittal.notes}
                 <div class="meta-wide"><span>Notes</span><strong>{selectedSubmittal.notes}</strong></div>
               {/if}
@@ -791,6 +860,22 @@
                     <X size={13} />
                   </button>
                 </div>
+
+                {#if decisionStatus === 'approved'}
+                  <p class="next-step-hint">
+                    {#if nextRoutingStep}
+                      <ArrowRight size={13} />Next reviewer: <strong>{nextRoutingStep.assignee}</strong>
+                    {:else if isFinalRoutingStep}
+                      <Check size={13} />Final approval — closes the submittal.
+                    {:else}
+                      <ArrowRight size={13} />Saves the approval. Use Next ball in court below to hand off.
+                    {/if}
+                  </p>
+                {:else if decisionStatus === 'revise_resubmit' || decisionStatus === 'rejected'}
+                  <p class="next-step-hint is-kickback">
+                    <RotateCcw size={13} />Returns to <strong>{selectedSubmittal.submittedBy || 'the submitter'}</strong> for revision.
+                  </p>
+                {/if}
 
                 <label class="field-label">
                   <span>Response</span>
@@ -1003,6 +1088,36 @@
   .files-block > span { margin-bottom: 0.2rem; }
   .multi-select { min-height: 4.4rem; padding-block: 0.35rem; }
   .hint { color: #697169; font-size: 0.7rem; font-weight: 750; }
+
+  /* Routing row builder (create modal) */
+  .routing-block { gap: 0.4rem; }
+  .routing-rows { display: grid; gap: 0.4rem; }
+  .routing-row {
+    display: grid;
+    grid-template-columns: 1.6rem minmax(0, 1fr) minmax(7rem, 8.5rem) auto;
+    align-items: center; gap: 0.4rem;
+  }
+  .routing-step-marker {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.55rem; height: 1.55rem;
+    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 999px;
+    background: #f5f6f4; color: #4f594f;
+    font-size: 0.74rem; font-weight: 900;
+  }
+  .routing-due { padding-block: 0.35rem; }
+  .routing-row-actions { display: inline-flex; gap: 0.2rem; }
+  .routing-row-actions .row-icon-btn { width: 1.5rem; height: 1.5rem; }
+  .routing-row-actions .row-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; background: #fff; color: #2c322d; border-color: rgba(25, 27, 25, 0.14); }
+  .routing-add {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    align-self: start;
+    padding: 0.32rem 0.55rem;
+    border: 1px dashed rgba(25, 27, 25, 0.22); border-radius: 0.36rem;
+    background: #fff;
+    color: #303830; font-size: 0.74rem; font-weight: 850;
+    cursor: pointer;
+  }
+  .routing-add:hover { border-color: rgba(20, 146, 52, 0.5); background: rgba(29, 175, 63, 0.08); color: #197a31; }
   .min-h-20 { min-height: 3.6rem; }
   .min-h-24 { min-height: 4.6rem; }
 
@@ -1226,6 +1341,14 @@
   .drawer-tag.is-revise-resubmit { border-color: rgba(180, 110, 16, 0.45); background: rgba(202, 138, 4, 0.14); color: #855508; }
   .drawer-tag.is-rejected { border-color: rgba(176, 30, 30, 0.45); background: rgba(220, 38, 38, 0.12); color: #9b1c1c; }
   .drawer-tag.is-in-review { border-color: rgba(29, 95, 184, 0.4); background: rgba(29, 95, 184, 0.1); color: #1d4f95; }
+
+  .next-step-hint {
+    display: inline-flex; align-items: center; gap: 0.32rem;
+    margin: 0;
+    color: #303830; font-size: 0.78rem; font-weight: 800;
+  }
+  .next-step-hint strong { color: #191b19; font-weight: 900; }
+  .next-step-hint.is-kickback { color: #855508; }
 
   .form-footer {
     display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.2rem;

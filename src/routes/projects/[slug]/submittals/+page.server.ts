@@ -23,6 +23,10 @@ function formStringArray(form: FormData, name: string) {
   return [...new Set(form.getAll(name).filter((value): value is string => typeof value === 'string' && value.trim().length > 0))];
 }
 
+function formStringList(form: FormData, name: string) {
+  return form.getAll(name).map((value) => (typeof value === 'string' ? value : ''));
+}
+
 async function assertProjectMembers(
   client: NonNullable<App.Locals['supabase']>,
   projectId: string,
@@ -94,25 +98,25 @@ export const actions: Actions = {
     const specSection = formOptional(form, 'specSection');
     const dueDate = formOptional(form, 'dueDate');
     const submitBy = formOptional(form, 'submitBy');
-    const owner = formOptional(form, 'owner');
     const receivedFrom = formOptional(form, 'receivedFrom');
     const revision = Math.max(0, Number(formString(form, 'revision') || 0));
     const notes = formOptional(form, 'notes');
     const sendEmails = form.get('sendEmails') === 'on';
-    const routingAssigneeIds = formStringArray(form, 'routingAssigneeIds');
+
+    // Parallel arrays — preserve row order from the create modal so step_order is meaningful.
+    const rawAssignees = formStringList(form, 'routingAssigneeIds');
+    const rawDueDates = formStringList(form, 'routingDueDates');
+    const routing = rawAssignees
+      .map((assignee, index) => ({ assignee: assignee.trim(), dueDate: (rawDueDates[index] ?? '').trim() }))
+      .filter((row) => row.assignee.length > 0);
+    const routingAssigneeIds = routing.map((row) => row.assignee);
+
+    // Ball-in-court is the first reviewer if routing is set, otherwise unassigned.
+    const owner = routing[0]?.assignee || null;
+
     const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
 
     if (!number || !title) return fail(400, { error: 'Number and title are required.' });
-    if (owner) {
-      const { data: ownerMember, error: ownerError } = await projectClient
-        .from('project_members')
-        .select('id')
-        .eq('project_id', access.project.id)
-        .eq('user_id', owner)
-        .maybeSingle();
-      if (ownerError) return fail(400, { error: ownerError.message });
-      if (!ownerMember) return fail(400, { error: 'Submittal owner must already belong to this project.' });
-    }
     const memberError = await assertProjectMembers(
       projectClient,
       access.project.id,
@@ -147,6 +151,7 @@ export const actions: Actions = {
         due_date: dueDate,
         submit_by: submitBy,
         received_from: receivedFrom,
+        submitted_by: access.user.id,
         revision,
         owner,
         status: 'submitted',
@@ -172,17 +177,16 @@ export const actions: Actions = {
         return fail(400, { error: error instanceof Error ? error.message : 'Could not save submittal file attachments.' });
       }
 
-      const route = routingAssigneeIds.length ? routingAssigneeIds : owner ? [owner] : [];
-      const routing = route.map((assignee, index) => ({
+      const routingSteps = routing.map((step, index) => ({
         submittal_id: row.id,
         step_order: index,
-        assignee,
+        assignee: step.assignee,
         role: 'member',
-        due_date: index === 0 ? dueDate : null,
+        due_date: step.dueDate || (index === 0 ? dueDate : null),
         status: nextStepStatus(index)
       }));
-      if (routing.length) {
-        const { error: routingError } = await projectClient.from('submittal_routing_steps').insert(routing);
+      if (routingSteps.length) {
+        const { error: routingError } = await projectClient.from('submittal_routing_steps').insert(routingSteps);
         if (routingError) return fail(400, { error: routingError.message });
       }
 
@@ -199,7 +203,7 @@ export const actions: Actions = {
           submitBy,
           receivedFrom,
           revision,
-          workflowAssigneeId: route[0] ?? owner,
+          workflowAssigneeId: owner,
           skipUserIds: owner ? [owner] : [],
           status: 'submitted',
           notes,
@@ -213,7 +217,7 @@ export const actions: Actions = {
           entityId: row.id,
           metadata
         }).catch((error) => console.error('[notifications] submittal created notification failed:', error));
-        if (route[0] ?? owner) {
+        if (owner) {
           await notifyProjectEvent(event, {
             projectId: access.project.id,
             actorId: access.user.id,
@@ -280,12 +284,31 @@ export const actions: Actions = {
 
     const { data: existing, error: existingError } = await projectClient
       .from('submittals')
-      .select('id, number, title, spec_section, due_date, owner, status, decision, notes, attachments_json, current_step, revision')
+      .select('id, number, title, spec_section, due_date, owner, status, decision, notes, attachments_json, current_step, revision, submitted_by')
       .eq('id', id)
       .eq('project_id', access.project.id)
       .maybeSingle();
     if (existingError) return fail(400, { error: existingError.message });
     if (!existing) return fail(404, { error: 'Submittal not found.' });
+
+    // Pull the routing chain so we can auto-advance on approval and bounce
+    // back to the submitter on revise/reject without making the reviewer
+    // remember the next assignee.
+    const { data: routingChain, error: routingError } = await projectClient
+      .from('submittal_routing_steps')
+      .select('id, step_order, assignee, status, due_date')
+      .eq('submittal_id', id)
+      .order('step_order', { ascending: true });
+    if (routingError) return fail(400, { error: routingError.message });
+    const chain = routingChain ?? [];
+    const currentIdx = existing.current_step ?? 0;
+    const currentRow = chain.find((row) => row.step_order === currentIdx) ?? null;
+    const nextRow = chain.find((row) => row.step_order === currentIdx + 1) ?? null;
+    const isFinalStep = !nextRow;
+    const submitterId = (existing.submitted_by as string | null) ?? null;
+    const overrideHandoff = Boolean(workflowAssigneeId && workflowAssigneeId !== existing.owner);
+    const isApproval = status === 'approved';
+    const isKickback = status === 'revise_resubmit' || status === 'rejected';
 
     const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
     const removeAttachmentIds = new Set(formStringArray(form, 'removeAttachmentIds'));
@@ -310,13 +333,40 @@ export const actions: Actions = {
     }
 
     const attachmentCountChanged = attachments.length !== originalAttachments.length;
+
+    // Decide where the workflow ends up after this decision.
+    // - Approval auto-advances down the routing chain unless an override
+    //   workflowAssigneeId is supplied (manual handoff inserts a new step).
+    // - Approval at the last step closes the submittal as 'approved'.
+    // - Revise/reject kicks the submittal back to the original submitter
+    //   and resets current_step to 0 so the next pass walks the chain again.
+    let nextSubmittalStatus = status;
+    let nextOwner: string | null = (existing.owner as string | null) ?? null;
+    let nextStepIdx = currentIdx;
+
+    if (overrideHandoff && workflowAssigneeId) {
+      nextOwner = workflowAssigneeId;
+      nextStepIdx = currentIdx + 1;
+      if (isApproval && isFinalStep) nextSubmittalStatus = 'in_review';
+    } else if (isApproval) {
+      if (nextRow) {
+        nextOwner = nextRow.assignee as string;
+        nextStepIdx = currentIdx + 1;
+        nextSubmittalStatus = 'in_review';
+      } else {
+        nextSubmittalStatus = 'approved';
+      }
+    } else if (isKickback) {
+      nextOwner = submitterId;
+      nextStepIdx = 0;
+    }
+
     const updatePayload: Record<string, unknown> = {
-      status,
+      status: nextSubmittalStatus,
       decision,
       attachments_json: attachments,
-      owner: workflowAssigneeId ?? existing.owner,
-      current_step:
-        workflowAssigneeId && workflowAssigneeId !== existing.owner ? (existing.current_step ?? 0) + 1 : existing.current_step
+      owner: nextOwner,
+      current_step: nextStepIdx
     };
     if (editTitle !== null) updatePayload.title = editTitle.trim();
     if (editSpecSection !== undefined) updatePayload.spec_section = editSpecSection;
@@ -346,29 +396,40 @@ export const actions: Actions = {
       return fail(400, { error: error instanceof Error ? error.message : 'Could not save submittal file attachments.' });
     }
 
-    if (workflowAssigneeId && workflowAssigneeId !== existing.owner) {
+    // Always stamp the current step row with the decision + response.
+    if (currentRow) {
+      const { error: routeUpdateError } = await projectClient
+        .from('submittal_routing_steps')
+        .update({
+          status,
+          response: decision,
+          due_date: stepDueDate ?? currentRow.due_date,
+          completed_by: access.user.id,
+          signed_off_at: ['approved', 'revise_resubmit', 'rejected'].includes(status) ? new Date().toISOString() : null
+        })
+        .eq('id', currentRow.id);
+      if (routeUpdateError && routeUpdateError.code !== '42501') return fail(400, { error: routeUpdateError.message });
+    }
+
+    if (overrideHandoff && workflowAssigneeId) {
+      // Manual handoff: append a new step beyond the planned chain.
       const { error: routeError } = await projectClient.from('submittal_routing_steps').insert({
         submittal_id: id,
-        step_order: (existing.current_step ?? 0) + 1,
+        step_order: currentIdx + 1,
         assignee: workflowAssigneeId,
         role: 'member',
         due_date: stepDueDate,
         status: 'submitted'
       });
       if (routeError) return fail(400, { error: routeError.message });
-    } else {
-      const { error: routeUpdateError } = await projectClient
+    } else if (isApproval && nextRow) {
+      // Auto-advance: arm the next planned step so the assignee sees it as
+      // active and the action_required email points at them.
+      const { error: nextRowError } = await projectClient
         .from('submittal_routing_steps')
-        .update({
-          status,
-          response: decision,
-          due_date: stepDueDate,
-          completed_by: access.user.id,
-          signed_off_at: ['approved', 'revise_resubmit', 'rejected'].includes(status) ? new Date().toISOString() : null
-        })
-        .eq('submittal_id', id)
-        .eq('step_order', existing.current_step ?? 0);
-      if (routeUpdateError && routeUpdateError.code !== '42501') return fail(400, { error: routeUpdateError.message });
+        .update({ status: 'submitted', due_date: stepDueDate ?? nextRow.due_date })
+        .eq('id', nextRow.id);
+      if (nextRowError && nextRowError.code !== '42501') return fail(400, { error: nextRowError.message });
     }
 
     const metadata = {
@@ -379,17 +440,20 @@ export const actions: Actions = {
       title: existing.title,
       specSection: existing.spec_section,
       dueDate: existing.due_date,
-      owner: workflowAssigneeId ?? existing.owner,
-      workflowAssigneeId: workflowAssigneeId ?? existing.owner,
+      owner: nextOwner,
+      workflowAssigneeId: nextOwner,
+      submittedById: submitterId,
+      stepIndex: nextStepIdx,
+      totalSteps: chain.length,
       revision: existing.revision ?? 0,
       previousStatus: existing.status,
-      status,
+      status: nextSubmittalStatus,
       decision,
       notes: existing.notes,
       attachmentCount: attachments.length
     };
 
-    if (sendEmails && existing.status !== status) {
+    if (sendEmails && existing.status !== nextSubmittalStatus) {
       await notifyProjectEvent(event, {
         projectId: access.project.id,
         actorId: access.user.id,
@@ -399,12 +463,15 @@ export const actions: Actions = {
         metadata
       }).catch((error) => console.error('[notifications] submittal workflow notification failed:', error));
 
+      // Final approval → notify approval distribution.
+      // Revise/reject → notify the submitter so they know to fix and resubmit.
+      // Mid-chain approval → notify the next assignee that it's their turn.
       const decisionEvent =
-        status === 'approved'
+        nextSubmittalStatus === 'approved'
           ? 'submittal.approved'
-          : status === 'revise_resubmit'
+          : nextSubmittalStatus === 'revise_resubmit'
             ? 'submittal.revise_resubmit'
-            : status === 'rejected'
+            : nextSubmittalStatus === 'rejected'
               ? 'submittal.rejected'
               : null;
       if (decisionEvent) {
@@ -416,7 +483,7 @@ export const actions: Actions = {
           entityId: id,
           metadata
         }).catch((error) => console.error('[notifications] submittal decision notification failed:', error));
-      } else if (existing.owner && ['submitted', 'in_review'].includes(status)) {
+      } else if (nextOwner && ['submitted', 'in_review'].includes(nextSubmittalStatus)) {
         await notifyProjectEvent(event, {
           projectId: access.project.id,
           actorId: access.user.id,
