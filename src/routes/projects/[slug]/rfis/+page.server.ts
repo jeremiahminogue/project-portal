@@ -491,5 +491,26 @@ export const actions: Actions = {
       }).catch((error) => console.error('[notifications] RFI reopened notification failed:', error));
     }
     return { ok: true };
+  },
+
+  deleteRfi: async (event) => {
+    const form = await event.request.formData();
+    const id = formString(form, 'id');
+    if (!id) return fail(400, { error: 'Choose an RFI to delete.' });
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin'],
+      action: 'delete RFIs for this project'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
+    const projectClient = databaseClientForProjectAccess(event, access);
+    if (!projectClient) return actionError('Supabase is not configured yet.');
+
+    const { error } = await projectClient
+      .from('rfis')
+      .delete()
+      .eq('id', id)
+      .eq('project_id', access.project.id);
+    if (error) return fail(400, { error: error.message });
+    return { ok: true };
   }
 };

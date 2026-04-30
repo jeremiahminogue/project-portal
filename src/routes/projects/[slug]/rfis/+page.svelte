@@ -1,6 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { ArrowRight, Check, Download, MessageSquarePlus, Paperclip, PencilLine, Search, X } from '@lucide/svelte';
+  import { Check, Download, Eye, MessageSquarePlus, Paperclip, PencilLine, Search, Trash2, X } from '@lucide/svelte';
   import type { SubmitFunction } from '@sveltejs/kit';
   import AttachmentChips from '$lib/components/AttachmentChips.svelte';
   import AttachmentFields from '$lib/components/AttachmentFields.svelte';
@@ -39,6 +39,9 @@
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
+  const canDeleteCommunication = $derived(
+    data.communicationAccess?.role === 'superadmin' || data.communicationAccess?.role === 'admin'
+  );
   const openCount = $derived(data.rfis.filter((item) => item.status === 'Open').length);
   const answeredCount = $derived(data.rfis.filter((item) => item.status === 'Answered').length);
   const closedCount = $derived(data.rfis.filter((item) => item.status === 'Closed').length);
@@ -87,6 +90,13 @@
 
   function stopRowAction(event: MouseEvent) {
     event.stopPropagation();
+  }
+
+  function confirmDelete(event: SubmitEvent, rfi: PortalRfi) {
+    event.stopPropagation();
+    if (!confirm(`Delete RFI ${rfi.number} - ${rfi.title || rfi.question}? This cannot be undone.`)) {
+      event.preventDefault();
+    }
   }
 
   function rfiDownloadHref(rfi: PortalRfi) {
@@ -258,8 +268,8 @@
               <tr class:active-row={(selectedRfi?.id ?? selectedRfi?.number) === (rfi.id ?? rfi.number)} onclick={() => openRfiModal(rfi)}>
                 <td>
                   <button class="record-button" type="button" onclick={(event) => openRfiButton(event, rfi)} aria-label={`Open ${rfi.number}`}>
-                    <span>{rfi.number}</span>
-                    <strong>{rfi.title || rfi.question}</strong>
+                    <span class="rfi-number">{rfi.number}</span>
+                    <strong class="rfi-title">{rfi.title || rfi.question}</strong>
                   </button>
                 </td>
                 <td><StatusPill label={rfi.status} /></td>
@@ -287,10 +297,19 @@
                 <td>{formatDate(rfi.dueDate)}</td>
                 <td>{rfi.answer || '-'}</td>
                 <td>
-                  <button class="mini-button row-open-button" type="button" onclick={(event) => openRfiButton(event, rfi)}>
-                    Open
-                    <ArrowRight size={13} />
-                  </button>
+                  <div class="row-actions">
+                    <button class="row-icon-btn" type="button" aria-label={`Open ${rfi.number}`} title="Open" onclick={(event) => openRfiButton(event, rfi)}>
+                      <Eye size={14} />
+                    </button>
+                    {#if canDeleteCommunication && rfi.id}
+                      <form method="post" action="?/deleteRfi" use:enhance onsubmit={(event) => confirmDelete(event, rfi)}>
+                        <input type="hidden" name="id" value={rfi.id} />
+                        <button class="row-icon-btn is-danger" type="submit" aria-label={`Delete ${rfi.number}`} title="Delete RFI" onclick={stopRowAction}>
+                          <Trash2 size={14} />
+                        </button>
+                      </form>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {:else}
@@ -525,7 +544,8 @@
 
   .workflow-table th:nth-child(9),
   .workflow-table td:nth-child(9) {
-    width: 6%;
+    width: 8%;
+    min-width: 4rem;
   }
 
   .workflow-table td {
@@ -535,25 +555,30 @@
   }
 
   .record-button {
-    display: grid;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
     width: 100%;
-    gap: 0.14rem;
+    min-width: 0;
     border: 0;
     background: transparent;
     padding: 0;
     color: inherit;
     text-align: left;
+    cursor: pointer;
   }
 
-  .record-button span {
+  .record-button .rfi-number {
+    flex-shrink: 0;
     color: #1d5fb8;
     font-size: 0.78rem;
     font-weight: 850;
     text-decoration: underline;
   }
 
-  .record-button strong {
+  .record-button .rfi-title {
     overflow: hidden;
+    min-width: 0;
     color: #191b19;
     font-size: 0.82rem;
     font-weight: 800;
@@ -561,7 +586,7 @@
     white-space: nowrap;
   }
 
-  .record-button:hover strong {
+  .record-button:hover .rfi-title {
     color: #164f9e;
   }
 
@@ -671,9 +696,43 @@
     opacity: 0.45;
   }
 
-  .row-open-button {
-    gap: 0.25rem;
-    white-space: nowrap;
+  .row-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .row-actions form {
+    display: inline-flex;
+    margin: 0;
+    padding: 0;
+  }
+
+  .row-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.7rem;
+    height: 1.7rem;
+    border: 1px solid rgba(25, 27, 25, 0.14);
+    border-radius: 0.34rem;
+    background: #fff;
+    padding: 0;
+    color: #2c322d;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+
+  .row-icon-btn:hover {
+    border-color: rgba(20, 146, 52, 0.45);
+    background: rgba(29, 175, 63, 0.08);
+    color: #197a31;
+  }
+
+  .row-icon-btn.is-danger:hover {
+    border-color: rgba(176, 30, 30, 0.5);
+    background: rgba(220, 38, 38, 0.1);
+    color: #9b1c1c;
   }
 
   .file-count-link,

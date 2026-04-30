@@ -17,10 +17,10 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
   import {
-    ArrowRight,
     Bell,
     Check,
     Download,
+    Eye,
     FileText,
     FilePlus2,
     Image as ImageIcon,
@@ -98,6 +98,9 @@
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
+  const canDeleteCommunication = $derived(
+    data.communicationAccess?.role === 'superadmin' || data.communicationAccess?.role === 'admin'
+  );
 
   // ── Counters / filters ───────────────────────────────────────
   const openCount = $derived(data.submittals.filter((item) => !isClosedStatus(item.status)).length);
@@ -187,6 +190,13 @@
 
   function stopRowAction(event: MouseEvent) {
     event.stopPropagation();
+  }
+
+  function confirmDelete(event: SubmitEvent, submittal: PortalSubmittal) {
+    event.stopPropagation();
+    if (!confirm(`Delete submittal ${submittal.number} - ${submittal.title}? This cannot be undone.`)) {
+      event.preventDefault();
+    }
   }
 
   function submittalDownloadHref(submittal: PortalSubmittal) {
@@ -367,8 +377,8 @@
               <tr class:active-row={(selectedSubmittal?.id ?? selectedSubmittal?.number) === (sub.id ?? sub.number)} onclick={() => openSubmittalModal(sub)}>
                 <td>
                   <button class="submittal-record-button" type="button" onclick={(event) => openSubmittalButton(event, sub)} aria-label={`Open ${sub.number}`}>
-                    <span>{sub.number}</span>
-                    <strong>{sub.title}</strong>
+                    <span class="submittal-number">{sub.number}</span>
+                    <strong class="submittal-title">{sub.title}</strong>
                   </button>
                 </td>
                 <td>{sub.specSection || '-'}</td>
@@ -397,10 +407,19 @@
                 <td>{formatDate(sub.submitBy)}</td>
                 <td>{formatDate(sub.dueDate)}</td>
                 <td>
-                  <button class="mini-button row-open-button" type="button" onclick={(event) => openSubmittalButton(event, sub)}>
-                    Open
-                    <ArrowRight size={13} />
-                  </button>
+                  <div class="row-actions">
+                    <button class="row-icon-btn" type="button" aria-label={`Open ${sub.number}`} title="Open" onclick={(event) => openSubmittalButton(event, sub)}>
+                      <Eye size={14} />
+                    </button>
+                    {#if canDeleteCommunication && sub.id}
+                      <form method="post" action="?/deleteSubmittal" use:enhance onsubmit={(event) => confirmDelete(event, sub)}>
+                        <input type="hidden" name="id" value={sub.id} />
+                        <button class="row-icon-btn is-danger" type="submit" aria-label={`Delete ${sub.number}`} title="Delete submittal" onclick={stopRowAction}>
+                          <Trash2 size={14} />
+                        </button>
+                      </form>
+                    {/if}
+                  </div>
                 </td>
               </tr>
             {:else}
@@ -868,19 +887,26 @@
   .workflow-table th:nth-child(6), .workflow-table td:nth-child(6) { width: 11%; }
   .workflow-table th:nth-child(8), .workflow-table td:nth-child(8),
   .workflow-table th:nth-child(9), .workflow-table td:nth-child(9) { width: 8%; }
-  .workflow-table th:nth-child(10), .workflow-table td:nth-child(10) { width: 6%; }
+  .workflow-table th:nth-child(10), .workflow-table td:nth-child(10) { width: 8%; min-width: 4rem; }
 
   .submittal-record-button {
-    display: grid; width: 100%; gap: 0.14rem;
+    display: inline-flex; align-items: baseline; gap: 0.5rem;
+    width: 100%; min-width: 0;
     border: 0; background: transparent; padding: 0;
     color: inherit; text-align: left;
+    cursor: pointer;
   }
-  .submittal-record-button span { color: #1d5fb8; font-size: 0.78rem; font-weight: 850; text-decoration: underline; }
-  .submittal-record-button strong {
-    overflow: hidden; color: #191b19; font-size: 0.82rem; font-weight: 800;
+  .submittal-record-button .submittal-number {
+    flex-shrink: 0;
+    color: #1d5fb8; font-size: 0.78rem; font-weight: 850;
+    text-decoration: underline;
+  }
+  .submittal-record-button .submittal-title {
+    overflow: hidden; min-width: 0;
+    color: #191b19; font-size: 0.82rem; font-weight: 800;
     text-overflow: ellipsis; white-space: nowrap;
   }
-  .submittal-record-button:hover strong { color: #164f9e; }
+  .submittal-record-button:hover .submittal-title { color: #164f9e; }
 
   .file-count-link, .file-count-static {
     display: inline-flex; align-items: center; gap: 0.28rem; max-width: 100%;
@@ -891,7 +917,23 @@
   .file-count-link:hover { border-color: rgba(55, 95, 56, 0.34); background: rgba(55, 95, 56, 0.14); }
   .file-count-link span, .file-count-static span { overflow: hidden; text-overflow: ellipsis; }
   .file-empty { color: #727a72; font-size: 0.74rem; font-weight: 750; }
-  .row-open-button { gap: 0.25rem; white-space: nowrap; }
+  .row-actions {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+  }
+  .row-actions form { display: inline-flex; margin: 0; padding: 0; }
+  .row-icon-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 1.7rem; height: 1.7rem;
+    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 0.34rem;
+    background: #fff; padding: 0;
+    color: #2c322d;
+    cursor: pointer;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .row-icon-btn:hover { border-color: rgba(20, 146, 52, 0.45); background: rgba(29, 175, 63, 0.08); color: #197a31; }
+  .row-icon-btn.is-danger:hover {
+    border-color: rgba(176, 30, 30, 0.5); background: rgba(220, 38, 38, 0.1); color: #9b1c1c;
+  }
   .filter-button:disabled { cursor: not-allowed; opacity: 0.45; }
 
   /* ── Modal shell ── */
