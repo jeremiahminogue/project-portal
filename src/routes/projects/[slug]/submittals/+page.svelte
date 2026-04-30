@@ -1,25 +1,18 @@
 <!--
   Submittals page.
 
-  IA goals (response to feedback that the previous modal "overran its real
-  estate" and surfaced "all project files out of nowhere"):
-    1. Create flow opens a focused, compact modal — not an inline grid above
-       the table that pushed the table off-screen on smaller viewports.
-    2. The "Attach existing project files" picker is collapsed by default so
-       the create form does not visually dump every file in the project.
-       (AttachmentFields exposes `existingCollapsed` for opt-in.)
-    3. Detail modal is a 2-pane workspace: left pane previews the active
-       attachment with EmbedPDF (PDFs) / inline image / fallback link;
-       right pane carries quick workflow buttons, the routing-step timeline,
-       inline edit metadata, and the Update form (status, response, BIC,
-       step due, attachments, email notifications).
-    4. Edit-metadata writes go through the existing `updateSubmittal` action
-       with optional `editTitle/editSpecSection/...` fields the action now
-       picks up. No status change is required to save a metadata edit.
-    5. Quick action buttons (Approve / Revise & Resubmit / Reject / Mark
-       in review) flip `decisionStatus`, prefill a sensible default response
-       sentence, and submit the existing form so the workflow + email path
-       runs unchanged.
+  Detail modal is timeline-as-spine:
+    - Opens narrow (no preview pane). File rail sits at the top of the
+      control pane; clicking a chip mounts the preview pane and widens
+      the modal. Clicking the active chip again closes the preview.
+    - Routing timeline carries Approve / Revise / Reject / In review
+      inline on the *current* step only. Picking one arms a single
+      action drawer (response + next BIC + step due + files + email
+      toggle) which posts to ?/updateSubmittal.
+    - Edit details still uses the same action with editTitle/editSpec…
+      prefixed fields. Mutually exclusive with the action drawer.
+    - Create modal stays small and compact (~620×720) with the existing-
+      files picker collapsed (AttachmentFields existingCollapsed).
 -->
 <script lang="ts">
   import { enhance } from '$app/forms';
@@ -89,9 +82,17 @@
   let savedView = $state('all');
   let decisionStatus = $state('in_review');
   let decisionResponse = $state('');
+  let decisionArmed = $state(false);
   let editing = $state(false);
   let activeAttachmentId = $state('');
   let newSubmittalNumber = $state('');
+
+  const decisionLabels: Record<string, string> = {
+    in_review: 'Mark in review',
+    approved: 'Approve',
+    revise_resubmit: 'Revise & resubmit',
+    rejected: 'Reject'
+  };
 
   // ── Permissions (proxied from server payload) ────────────────
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
@@ -122,19 +123,21 @@
   const selectedSubmittal = $derived(data.submittals.find((item) => (item.id ?? item.number) === activeSubmittal));
   const selectedAttachments = $derived(selectedSubmittal?.attachments ?? []);
   const previewAttachment = $derived(
-    selectedAttachments.find((attachment) => (attachment.id ?? attachment.name) === activeAttachmentId) ??
-      selectedAttachments[0] ??
-      null
+    activeAttachmentId
+      ? selectedAttachments.find((attachment) => (attachment.id ?? attachment.name) === activeAttachmentId) ?? null
+      : null
   );
+  const currentStepOrder = $derived(selectedSubmittal?.currentStep ?? 0);
+  const isWorkflowClosed = $derived(selectedSubmittal ? isClosedStatus(selectedSubmittal.status) : false);
 
   // ── Reactive resets ──────────────────────────────────────────
   $effect(() => {
     if (selectedSubmittal) {
       decisionStatus = statusValue(selectedSubmittal.status);
-      decisionResponse = selectedSubmittal.decision ?? '';
+      decisionResponse = '';
+      decisionArmed = false;
       editing = false;
-      activeAttachmentId =
-        (selectedSubmittal.attachments?.[0]?.id ?? selectedSubmittal.attachments?.[0]?.name) ?? '';
+      activeAttachmentId = '';
     }
   });
 
@@ -254,8 +257,10 @@
     return active ? 'file-chip is-active' : 'file-chip';
   }
 
-  function quickAction(status: 'in_review' | 'approved' | 'revise_resubmit' | 'rejected') {
+  function armDecision(status: 'in_review' | 'approved' | 'revise_resubmit' | 'rejected') {
     decisionStatus = status;
+    decisionArmed = true;
+    editing = false;
     if (!decisionResponse?.trim()) {
       const defaults: Record<string, string> = {
         in_review: 'Marked in review.',
@@ -265,6 +270,21 @@
       };
       decisionResponse = defaults[status];
     }
+  }
+
+  function cancelDecision() {
+    decisionArmed = false;
+    decisionResponse = '';
+    if (selectedSubmittal) decisionStatus = statusValue(selectedSubmittal.status);
+  }
+
+  function toggleAttachmentPreview(attachment: SubmittalAttachment) {
+    const key = attachment.id ?? attachment.name;
+    activeAttachmentId = activeAttachmentId === key ? '' : key;
+  }
+
+  function isCurrentStep(step: SubmittalRoutingStep) {
+    return step.order === currentStepOrder && !isWorkflowClosed;
   }
 
   // Form submit helpers — close modals on success
@@ -515,7 +535,7 @@
 <!-- ────────── Detail modal ────────── -->
 {#if selectedSubmittal}
   <div class="modal-backdrop" role="presentation" onclick={closeSubmittalModal}>
-    <div class="detail-modal" role="dialog" aria-modal="true" aria-labelledby="submittal-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
+    <div class="detail-modal" class:has-preview={!!previewAttachment} role="dialog" aria-modal="true" aria-labelledby="submittal-modal-title" tabindex="-1" onclick={stopModalClick} onkeydown={handleModalKeydown}>
       <header class="modal-header">
         <div class="modal-title-block">
           <span class="eyebrow">Submittal {selectedSubmittal.number}</span>
@@ -537,8 +557,59 @@
       </header>
 
       <div class="detail-body">
-        <!-- ── Left pane: file rail + preview ── -->
-        <section class="files-pane" aria-label="Submittal files">
+        <!-- ── Preview pane (only when a chip is active) ── -->
+        {#if previewAttachment}
+          <section class="files-pane" aria-label="File preview">
+            <div class="preview-toolbar">
+              <span class="preview-name" title={previewAttachment.path ?? previewAttachment.name}>
+                {#if previewType(previewAttachment) === 'pdf'}<FileText size={14} />{:else if previewType(previewAttachment) === 'image'}<ImageIcon size={14} />{:else}<Paperclip size={14} />{/if}
+                <span>{previewAttachment.name}</span>
+                <small>{previewAttachment.size}</small>
+              </span>
+              <div class="preview-actions">
+                {#if previewAttachment.id}
+                  <a class="mini-button" href={`${previewSrc(previewAttachment)}?download=1`} title="Download">
+                    <Download size={13} />
+                  </a>
+                {/if}
+                <button class="mini-button" type="button" aria-label="Close preview" onclick={() => (activeAttachmentId = '')}>
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+            <div class="preview-frame">
+              {#if !previewAttachment.id}
+                <div class="preview-empty">
+                  <strong>{previewAttachment.name}</strong>
+                  <span>This file does not have a stored copy yet.</span>
+                </div>
+              {:else if previewType(previewAttachment) === 'pdf'}
+                {#key previewAttachment.id}
+                  <EmbedPdfViewer
+                    src={previewSrc(previewAttachment)}
+                    title={previewAttachment.name}
+                    originalDownloadUrl={`${previewSrc(previewAttachment)}?download=1`}
+                  />
+                {/key}
+              {:else if previewType(previewAttachment) === 'image'}
+                <div class="preview-image">
+                  <img src={previewSrc(previewAttachment)} alt={previewAttachment.name} />
+                </div>
+              {:else}
+                <div class="preview-empty">
+                  <strong>{previewAttachment.name}</strong>
+                  <span>Preview is not available for this file type.</span>
+                  <a class="btn btn-secondary" href={`${previewSrc(previewAttachment)}?download=1`}>
+                    <Download size={14} />Download to view
+                  </a>
+                </div>
+              {/if}
+            </div>
+          </section>
+        {/if}
+
+        <!-- ── Control pane: files → meta → timeline → action drawer ── -->
+        <section class="control-pane" aria-label="Submittal workflow">
           {#if selectedAttachments.length}
             <div class="file-rail" aria-label="Attached files">
               {#each selectedAttachments as attachment}
@@ -546,7 +617,7 @@
                   type="button"
                   class={fileChipClasses(attachment)}
                   title={attachment.path ?? attachment.name}
-                  onclick={() => (activeAttachmentId = attachment.id ?? attachment.name)}
+                  onclick={() => toggleAttachmentPreview(attachment)}
                 >
                   {#if previewType(attachment) === 'pdf'}<FileText size={14} />{:else if previewType(attachment) === 'image'}<ImageIcon size={14} />{:else}<Paperclip size={14} />{/if}
                   <span>{attachment.name}</span>
@@ -554,67 +625,63 @@
                 </button>
               {/each}
             </div>
+          {/if}
 
-            <div class="preview-frame">
-              {#if previewAttachment}
-                {#if !previewAttachment.id}
-                  <div class="preview-empty">
-                    <strong>{previewAttachment.name}</strong>
-                    <span>This file does not have a stored copy yet.</span>
-                  </div>
-                {:else if previewType(previewAttachment) === 'pdf'}
-                  {#key previewAttachment.id}
-                    <EmbedPdfViewer
-                      src={previewSrc(previewAttachment)}
-                      title={previewAttachment.name}
-                      originalDownloadUrl={`${previewSrc(previewAttachment)}?download=1`}
-                    />
-                  {/key}
-                {:else if previewType(previewAttachment) === 'image'}
-                  <div class="preview-image">
-                    <img src={previewSrc(previewAttachment)} alt={previewAttachment.name} />
-                  </div>
-                {:else}
-                  <div class="preview-empty">
-                    <strong>{previewAttachment.name}</strong>
-                    <span>Preview is not available for this file type.</span>
-                    <a class="btn btn-secondary" href={`${previewSrc(previewAttachment)}?download=1`}>
-                      <Download size={14} />Download to view
-                    </a>
-                  </div>
-                {/if}
-              {/if}
-            </div>
+          {#if editing && selectedSubmittal.id && canReviewCommunication}
+            <form
+              class="edit-form"
+              method="post"
+              action="?/updateSubmittal"
+              enctype="multipart/form-data"
+              use:enhance={resetOnSuccess(() => (editing = false))}
+            >
+              <input type="hidden" name="id" value={selectedSubmittal.id} />
+              <input type="hidden" name="status" value={statusValue(selectedSubmittal.status)} />
+
+              <label class="field-label">
+                <span>Title</span>
+                <input class="field" name="editTitle" value={selectedSubmittal.title} required />
+              </label>
+              <div class="field-row two">
+                <label class="field-label">
+                  <span>Spec section</span>
+                  <input class="field" name="editSpecSection" value={selectedSubmittal.specSection ?? ''} />
+                </label>
+                <label class="field-label rev">
+                  <span>Revision</span>
+                  <input class="field" name="editRevision" type="number" min="0" value={selectedSubmittal.revision ?? 0} />
+                </label>
+              </div>
+              <div class="field-row two">
+                <label class="field-label">
+                  <span>Submit by</span>
+                  <input class="field" name="editSubmitBy" type="date" value={selectedSubmittal.submitBy ?? ''} />
+                </label>
+                <label class="field-label">
+                  <span>Final due</span>
+                  <input class="field" name="editDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
+                </label>
+              </div>
+              <label class="field-label">
+                <span>Received from</span>
+                <select class="field" name="editReceivedFrom">
+                  <option value="" selected={!selectedSubmittal.receivedFromId}>Not received</option>
+                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                    <option value={person.id} selected={person.id === selectedSubmittal.receivedFromId}>{person.name} - {person.organization}</option>
+                  {/each}
+                </select>
+              </label>
+              <label class="field-label">
+                <span>Notes</span>
+                <textarea class="field min-h-20" name="editNotes">{selectedSubmittal.notes ?? ''}</textarea>
+              </label>
+
+              <footer class="form-footer">
+                <button class="btn btn-secondary" type="button" onclick={() => (editing = false)}>Cancel</button>
+                <button class="btn btn-primary" type="submit"><Check size={16} />Save details</button>
+              </footer>
+            </form>
           {:else}
-            <div class="preview-empty preview-empty-large">
-              <strong>No files attached yet</strong>
-              <span>Use the form on the right to add cut sheets, product data, or shop drawings.</span>
-            </div>
-          {/if}
-        </section>
-
-        <!-- ── Right pane: workflow + edit + update ── -->
-        <section class="control-pane" aria-label="Submittal workflow">
-          {#if canReviewCommunication && selectedSubmittal.id}
-            <div class="quick-actions" role="group" aria-label="Quick decisions">
-              <button type="button" class="quick-btn approve" onclick={() => quickAction('approved')}>
-                <Check size={14} />Approve
-              </button>
-              <button type="button" class="quick-btn revise" onclick={() => quickAction('revise_resubmit')}>
-                <RotateCcw size={14} />Revise
-              </button>
-              <button type="button" class="quick-btn reject" onclick={() => quickAction('rejected')}>
-                <XCircle size={14} />Reject
-              </button>
-              <button type="button" class="quick-btn review" onclick={() => quickAction('in_review')}>
-                <PencilLine size={14} />In review
-              </button>
-            </div>
-            <p class="quick-hint">Pick one to prefill the response below, then save when you are ready.</p>
-          {/if}
-
-          <!-- Meta block / inline edit -->
-          {#if !editing}
             <div class="meta-grid">
               <div><span>Spec section</span><strong>{selectedSubmittal.specSection || '-'}</strong></div>
               <div><span>Revision</span><strong>{selectedSubmittal.revision ?? 0}</strong></div>
@@ -632,7 +699,7 @@
               {/if}
             </div>
 
-            <!-- Routing timeline -->
+            <!-- Routing timeline — current step carries inline actions -->
             <div class="timeline-block">
               <div class="block-title">
                 <span class="eyebrow">Workflow timeline</span>
@@ -649,6 +716,14 @@
                         <strong>{step.assignee}</strong>
                         <span>{step.role} - {step.status}{step.dueDate ? ` - Due ${formatDate(step.dueDate)}` : ''}{step.completedAt ? ` - Signed off ${formatDate(step.completedAt)}` : ''}</span>
                         {#if step.response}<p>{step.response}</p>{/if}
+                        {#if isCurrentStep(step) && canReviewCommunication && selectedSubmittal.id && !decisionArmed}
+                          <div class="step-actions" role="group" aria-label="Decide on this step">
+                            <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
+                            <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
+                            <button type="button" class="step-btn reject" onclick={() => armDecision('rejected')}><XCircle size={13} />Reject</button>
+                            <button type="button" class="step-btn review" onclick={() => armDecision('in_review')}><PencilLine size={13} />In review</button>
+                          </div>
+                        {/if}
                       </div>
                     </li>
                   {/each}
@@ -668,94 +743,34 @@
               {:else}
                 <p class="muted">No reviewers routed yet.</p>
               {/if}
+
+              {#if !decisionArmed && canReviewCommunication && selectedSubmittal.id && (!selectedSubmittal.routingSteps?.length || isWorkflowClosed)}
+                <div class="step-actions step-actions-loose" role="group" aria-label="Quick decision">
+                  <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
+                  <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
+                  <button type="button" class="step-btn reject" onclick={() => armDecision('rejected')}><XCircle size={13} />Reject</button>
+                  <button type="button" class="step-btn review" onclick={() => armDecision('in_review')}><PencilLine size={13} />In review</button>
+                </div>
+              {/if}
             </div>
-          {/if}
 
-          <!-- Forms — inline edit and update workflow -->
-          {#if selectedSubmittal.id && canReviewCommunication}
-            {#if editing}
+            <!-- Action drawer — only when a decision is armed -->
+            {#if decisionArmed && canReviewCommunication && selectedSubmittal.id}
               <form
-                class="edit-form"
-                method="post"
-                action="?/updateSubmittal"
-                enctype="multipart/form-data"
-                use:enhance={resetOnSuccess(() => (editing = false))}
-              >
-                <input type="hidden" name="id" value={selectedSubmittal.id} />
-                <input type="hidden" name="status" value={statusValue(selectedSubmittal.status)} />
-
-                <label class="field-label">
-                  <span>Title</span>
-                  <input class="field" name="editTitle" value={selectedSubmittal.title} required />
-                </label>
-                <div class="field-row two">
-                  <label class="field-label">
-                    <span>Spec section</span>
-                    <input class="field" name="editSpecSection" value={selectedSubmittal.specSection ?? ''} />
-                  </label>
-                  <label class="field-label rev">
-                    <span>Revision</span>
-                    <input class="field" name="editRevision" type="number" min="0" value={selectedSubmittal.revision ?? 0} />
-                  </label>
-                </div>
-                <div class="field-row two">
-                  <label class="field-label">
-                    <span>Submit by</span>
-                    <input class="field" name="editSubmitBy" type="date" value={selectedSubmittal.submitBy ?? ''} />
-                  </label>
-                  <label class="field-label">
-                    <span>Final due</span>
-                    <input class="field" name="editDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
-                  </label>
-                </div>
-                <label class="field-label">
-                  <span>Received from</span>
-                  <select class="field" name="editReceivedFrom">
-                    <option value="" selected={!selectedSubmittal.receivedFromId}>Not received</option>
-                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                      <option value={person.id} selected={person.id === selectedSubmittal.receivedFromId}>{person.name} - {person.organization}</option>
-                    {/each}
-                  </select>
-                </label>
-                <label class="field-label">
-                  <span>Notes</span>
-                  <textarea class="field min-h-20" name="editNotes">{selectedSubmittal.notes ?? ''}</textarea>
-                </label>
-
-                <footer class="form-footer">
-                  <button class="btn btn-secondary" type="button" onclick={() => (editing = false)}>Cancel</button>
-                  <button class="btn btn-primary" type="submit"><Check size={16} />Save details</button>
-                </footer>
-              </form>
-            {:else}
-              <form
-                class="update-form"
+                class="action-drawer"
                 method="post"
                 action="?/updateSubmittal"
                 enctype="multipart/form-data"
                 use:enhance={resetOnSuccess(closeSubmittalModal)}
               >
                 <input type="hidden" name="id" value={selectedSubmittal.id} />
+                <input type="hidden" name="status" value={decisionStatus} />
 
-                <div class="block-title">
-                  <span class="eyebrow">Update workflow</span>
-                </div>
-
-                <div class="field-row two">
-                  <label class="field-label">
-                    <span>Decision</span>
-                    <select class="field" name="status" bind:value={decisionStatus}>
-                      <option value="submitted">Submitted</option>
-                      <option value="in_review">In Review</option>
-                      <option value="approved">Approved</option>
-                      <option value="revise_resubmit">Revise &amp; Resubmit</option>
-                      <option value="rejected">Rejected</option>
-                    </select>
-                  </label>
-                  <label class="field-label">
-                    <span>Step due</span>
-                    <input class="field" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
-                  </label>
+                <div class="drawer-header">
+                  <span class="drawer-tag is-{decisionStatus.replace('_','-')}">{decisionLabels[decisionStatus] ?? 'Update'}</span>
+                  <button type="button" class="mini-button" onclick={cancelDecision} aria-label="Cancel decision">
+                    <X size={13} />
+                  </button>
                 </div>
 
                 <label class="field-label">
@@ -763,15 +778,21 @@
                   <textarea class="field min-h-24" name="decision" bind:value={decisionResponse} placeholder="Record review notes, redlines, or routing context"></textarea>
                 </label>
 
-                <label class="field-label">
-                  <span>Next ball in court</span>
-                  <select class="field" name="workflowAssigneeId" aria-label="Next workflow assignee">
-                    <option value="">Keep current ({selectedSubmittal.owner || 'Unassigned'})</option>
-                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                      <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
-                    {/each}
-                  </select>
-                </label>
+                <div class="field-row two">
+                  <label class="field-label">
+                    <span>Next ball in court</span>
+                    <select class="field" name="workflowAssigneeId" aria-label="Next workflow assignee">
+                      <option value="">Keep current ({selectedSubmittal.owner || 'Unassigned'})</option>
+                      {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                        <option value={person.id} selected={person.id === selectedSubmittal.ownerId}>{person.name}</option>
+                      {/each}
+                    </select>
+                  </label>
+                  <label class="field-label">
+                    <span>Step due</span>
+                    <input class="field" name="stepDueDate" type="date" value={selectedSubmittal.dueDate ?? ''} />
+                  </label>
+                </div>
 
                 {#if canAttachFiles}
                   <details class="files-actions">
@@ -810,8 +831,8 @@
                 </label>
 
                 <footer class="form-footer">
-                  <button class="btn btn-secondary" type="button" onclick={closeSubmittalModal}>Close</button>
-                  <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save update</button>
+                  <button class="btn btn-secondary" type="button" onclick={cancelDecision}>Cancel</button>
+                  <button class="btn btn-primary" type="submit"><Check size={16} />Save decision</button>
                 </footer>
               </form>
             {/if}
@@ -884,8 +905,8 @@
 
   .create-modal {
     display: grid; grid-template-rows: auto 1fr;
-    width: min(640px, 100%);
-    max-height: min(94vh, 980px);
+    width: min(620px, 100%);
+    max-height: min(86vh, 720px);
     overflow: hidden;
     border: 1px solid rgba(25, 27, 25, 0.16); border-radius: 0.5rem;
     background: #fff; box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
@@ -893,11 +914,16 @@
 
   .detail-modal {
     display: grid; grid-template-rows: auto 1fr;
-    width: min(1180px, 100%);
-    height: min(94vh, 1080px);
+    width: min(620px, 100%);
+    max-height: min(88vh, 880px);
     overflow: hidden;
     border: 1px solid rgba(25, 27, 25, 0.16); border-radius: 0.5rem;
     background: #fff; box-shadow: 0 28px 90px -42px rgba(0, 0, 0, 0.65);
+    transition: width 0.18s ease;
+  }
+  .detail-modal.has-preview {
+    width: min(1180px, 100%);
+    max-height: min(94vh, 1080px);
   }
 
   .modal-header {
@@ -923,20 +949,20 @@
   /* ── Create form ── */
   .modal-body {
     overflow: auto;
-    padding: 1rem;
+    padding: 0.85rem 1rem;
   }
-  .create-form { display: grid; gap: 0.7rem; }
-  .field-row.two { display: grid; gap: 0.7rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
+  .create-form { display: grid; gap: 0.55rem; }
+  .field-row.two { display: grid; gap: 0.55rem; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: end; }
   .field-row.two .rev { grid-template-columns: minmax(4.5rem, 6.5rem); }
 
-  .field-label { display: grid; gap: 0.28rem; min-width: 0; }
+  .field-label { display: grid; gap: 0.22rem; min-width: 0; }
   .field-label > span { color: #4f594f; font-size: 0.7rem; font-weight: 850; text-transform: uppercase; }
   .field-label > span > i { font-style: normal; color: #b32020; margin-left: 2px; }
   .files-block > span { margin-bottom: 0.2rem; }
-  .multi-select { min-height: 5rem; padding-block: 0.4rem; }
+  .multi-select { min-height: 4.4rem; padding-block: 0.35rem; }
   .hint { color: #697169; font-size: 0.7rem; font-weight: 750; }
-  .min-h-20 { min-height: 4.4rem; }
-  .min-h-24 { min-height: 5.4rem; }
+  .min-h-20 { min-height: 3.6rem; }
+  .min-h-24 { min-height: 4.6rem; }
 
   .notify-check {
     display: inline-flex; align-items: center; gap: 0.45rem;
@@ -954,11 +980,14 @@
   /* ── Detail body grid ── */
   .detail-body {
     display: grid;
-    grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.95fr);
+    grid-template-columns: minmax(0, 1fr);
     min-height: 0;
   }
+  .detail-modal.has-preview .detail-body {
+    grid-template-columns: minmax(0, 1.45fr) minmax(380px, 0.85fr);
+  }
 
-  /* Left pane: file rail + preview */
+  /* Left pane: preview only (rendered when an attachment is active) */
   .files-pane {
     display: grid; grid-template-rows: auto 1fr;
     min-width: 0; min-height: 0;
@@ -966,17 +995,31 @@
     border-right: 1px solid rgba(25, 27, 25, 0.08);
   }
 
-  .file-rail {
-    display: flex; gap: 0.4rem; padding: 0.55rem 0.7rem;
-    overflow-x: auto;
-    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+  .preview-toolbar {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    padding: 0.5rem 0.7rem;
     background: #fff;
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+  }
+  .preview-name {
+    display: inline-flex; align-items: center; gap: 0.35rem; min-width: 0;
+    color: #1c211d; font-size: 0.78rem; font-weight: 850;
+  }
+  .preview-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .preview-name small { color: #697169; font-size: 0.68rem; font-weight: 800; }
+  .preview-actions { display: inline-flex; gap: 0.3rem; }
+
+  /* File rail lives in the control pane now */
+  .file-rail {
+    display: flex; gap: 0.4rem;
+    overflow-x: auto;
+    padding-bottom: 0.1rem;
   }
 
   .file-chip {
     display: inline-flex; align-items: center; gap: 0.32rem; flex-shrink: 0;
     border: 1px solid rgba(25, 27, 25, 0.12); border-radius: 0.4rem;
-    background: #fff; padding: 0.34rem 0.55rem;
+    background: #fff; padding: 0.32rem 0.5rem;
     color: #2c322d; font-size: 0.74rem; font-weight: 800;
     cursor: pointer;
   }
@@ -1018,38 +1061,33 @@
   .preview-empty span { color: #d3d6d2; font-size: 0.8rem; font-weight: 700; }
   .preview-empty .btn { color: #fff; background: rgba(255, 255, 255, 0.14); border-color: rgba(255, 255, 255, 0.22); }
   .preview-empty .btn:hover { background: rgba(255, 255, 255, 0.22); }
-  .preview-empty-large {
-    grid-column: 1 / -1; min-height: 18rem;
-    background: #f5f6f4; color: #303830;
-  }
-  .preview-empty-large strong { color: #191b19; }
-  .preview-empty-large span { color: #4f594f; }
 
-  /* Right pane: workflow + edit + update */
+  /* Control pane: file rail → meta → timeline → action drawer */
   .control-pane {
-    display: grid; gap: 0.85rem;
+    display: grid; gap: 0.7rem; align-content: start;
     overflow: auto;
-    padding: 0.95rem;
+    padding: 0.85rem;
     min-height: 0;
   }
 
-  .quick-actions {
-    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem;
+  /* Inline timeline-step actions (current step only) */
+  .step-actions {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.32rem;
+    margin-top: 0.4rem;
   }
-  .quick-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
-    min-height: 2.2rem;
-    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 0.4rem;
-    background: #fff; padding: 0.45rem 0.65rem;
-    color: #1c211d; font-size: 0.78rem; font-weight: 850;
+  .step-actions-loose { margin-top: 0.55rem; }
+  .step-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+    min-height: 1.95rem;
+    border: 1px solid rgba(25, 27, 25, 0.14); border-radius: 0.36rem;
+    background: #fff; padding: 0.32rem 0.5rem;
+    color: #1c211d; font-size: 0.74rem; font-weight: 850;
     cursor: pointer;
   }
-  .quick-btn.approve:hover { border-color: rgba(20, 146, 52, 0.5); background: rgba(29, 175, 63, 0.1); color: #197a31; }
-  .quick-btn.revise:hover { border-color: rgba(180, 110, 16, 0.45); background: rgba(202, 138, 4, 0.12); color: #855508; }
-  .quick-btn.reject:hover { border-color: rgba(176, 30, 30, 0.45); background: rgba(220, 38, 38, 0.1); color: #9b1c1c; }
-  .quick-btn.review:hover { border-color: rgba(29, 95, 184, 0.45); background: rgba(29, 95, 184, 0.1); color: #1d4f95; }
-
-  .quick-hint { margin: -0.3rem 0 0; color: #697169; font-size: 0.72rem; font-weight: 750; }
+  .step-btn.approve:hover { border-color: rgba(20, 146, 52, 0.5); background: rgba(29, 175, 63, 0.1); color: #197a31; }
+  .step-btn.revise:hover { border-color: rgba(180, 110, 16, 0.45); background: rgba(202, 138, 4, 0.12); color: #855508; }
+  .step-btn.reject:hover { border-color: rgba(176, 30, 30, 0.45); background: rgba(220, 38, 38, 0.1); color: #9b1c1c; }
+  .step-btn.review:hover { border-color: rgba(29, 95, 184, 0.45); background: rgba(29, 95, 184, 0.1); color: #1d4f95; }
 
   .meta-grid {
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0;
@@ -1118,11 +1156,34 @@
   .muted { margin: 0; color: #697169; font-size: 0.78rem; font-weight: 750; }
 
   /* ── Update / edit forms ── */
-  .update-form, .edit-form {
-    display: grid; gap: 0.65rem;
+  .edit-form {
+    display: grid; gap: 0.55rem;
     border-top: 1px solid rgba(25, 27, 25, 0.08);
-    padding-top: 0.85rem;
+    padding-top: 0.7rem;
   }
+
+  .action-drawer {
+    display: grid; gap: 0.55rem;
+    border: 1px solid rgba(25, 27, 25, 0.12); border-radius: 0.45rem;
+    background: #fafbf9;
+    padding: 0.7rem 0.75rem;
+  }
+  .drawer-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+    margin-bottom: 0.1rem;
+  }
+  .drawer-tag {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.22rem 0.55rem;
+    border-radius: 999px;
+    font-size: 0.72rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.02em;
+    border: 1px solid rgba(25, 27, 25, 0.14);
+    background: #fff; color: #303830;
+  }
+  .drawer-tag.is-approved { border-color: rgba(20, 146, 52, 0.4); background: rgba(29, 175, 63, 0.12); color: #197a31; }
+  .drawer-tag.is-revise-resubmit { border-color: rgba(180, 110, 16, 0.45); background: rgba(202, 138, 4, 0.14); color: #855508; }
+  .drawer-tag.is-rejected { border-color: rgba(176, 30, 30, 0.45); background: rgba(220, 38, 38, 0.12); color: #9b1c1c; }
+  .drawer-tag.is-in-review { border-color: rgba(29, 95, 184, 0.4); background: rgba(29, 95, 184, 0.1); color: #1d4f95; }
 
   .form-footer {
     display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.2rem;
@@ -1179,10 +1240,14 @@
   /* ── Mobile fallbacks ── */
   @media (max-width: 960px) {
     .workflow-table { min-width: 920px; }
-    .detail-modal { width: 100%; height: 100%; max-height: 100vh; border-radius: 0; }
-    .detail-body { grid-template-columns: 1fr; grid-template-rows: minmax(48vh, 1fr) auto; }
+    .detail-modal,
+    .detail-modal.has-preview { width: 100%; height: 100%; max-height: 100vh; border-radius: 0; }
+    .detail-modal.has-preview .detail-body {
+      grid-template-columns: 1fr;
+      grid-template-rows: minmax(45vh, 1fr) auto;
+    }
     .files-pane { border-right: 0; border-bottom: 1px solid rgba(25, 27, 25, 0.08); }
-    .control-pane { padding: 0.8rem; }
+    .control-pane { padding: 0.75rem; }
   }
 
   @media (max-width: 640px) {
@@ -1190,7 +1255,7 @@
     .create-modal { width: 100%; max-height: 92vh; border-radius: 0.45rem 0.45rem 0 0; }
     .detail-modal { border-radius: 0; }
     .field-row.two { grid-template-columns: 1fr; }
-    .quick-actions { grid-template-columns: 1fr 1fr; }
+    .step-actions { grid-template-columns: 1fr 1fr; }
     .meta-grid { grid-template-columns: 1fr; }
     .meta-grid > div { border-right: 0; }
   }
