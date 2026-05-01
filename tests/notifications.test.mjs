@@ -105,12 +105,12 @@ test('RFI and submittal workflows emit Procore-style notification events instead
   assert.match(submittalServer, /submittal\.approved/);
   assert.match(submittalServer, /submittal\.revise_resubmit/);
   assert.match(submittalServer, /submittal\.rejected/);
-  assert.match(submittalServer, /sendEmails && existing\.status !== status/);
+  assert.match(submittalServer, /sendEmails && allowWorkflowWrite && existing\.status !== nextSubmittalStatus/);
   assert.match(submittalServer, /skipUserIds: owner \? \[owner\] : \[\]/);
   assert.doesNotMatch(submittalServer, /maybeNotifyAssignee/);
   assert.match(submittalUi, /name="sendEmails"/);
-  assert.match(submittalUi, /Create and send workflow emails/);
-  assert.match(submittalUi, /Update and send workflow emails/);
+  assert.match(submittalUi, /Send workflow emails when this submittal is created/);
+  assert.match(submittalUi, /Send workflow emails on save/);
   assert.match(submittalUi, /Clear/);
   assert.doesNotMatch(submittalUi, />Packages</);
 });
@@ -176,7 +176,7 @@ test('RFIs and submittals support production item-level file attachments', () =>
   assert.match(submittalUi, /Upload submittal files/);
   assert.match(submittalUi, /\{#if canAttachFiles\}/);
   assert.match(submittalUi, /attachments\/submittal\/\$\{encodeURIComponent\(selectedSubmittal\.id\)\}\/download/);
-  assert.match(submittalUi, /AttachmentChips/);
+  assert.match(submittalUi, /file-download-all/);
   assert.match(submittalUi, /file-count-link/);
   assert.match(fields, /Drag files here or browse/);
   assert.match(fields, /selected-file-list/);

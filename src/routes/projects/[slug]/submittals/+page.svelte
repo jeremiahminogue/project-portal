@@ -785,6 +785,15 @@
                   <small>{attachment.size}</small>
                 </button>
               {/each}
+              {#if selectedSubmittal.id && selectedAttachments.filter((attachment) => attachment.id).length > 1}
+                <a
+                  class="file-chip file-download-all"
+                  href={`/api/projects/${encodeURIComponent(data.project?.id ?? '')}/attachments/submittal/${encodeURIComponent(selectedSubmittal.id)}/download`}
+                >
+                  <Download size={14} />
+                  <span>Download all</span>
+                </a>
+              {/if}
             </div>
           {/if}
 
@@ -1385,6 +1394,16 @@
     border-color: rgba(20, 146, 52, 0.6);
     background: rgba(29, 175, 63, 0.1);
     color: #197a31;
+  }
+  .file-download-all {
+    border-color: rgba(29, 95, 184, 0.2);
+    background: rgba(29, 95, 184, 0.07);
+    color: #1d4f95;
+    text-decoration: none;
+  }
+  .file-download-all:hover {
+    border-color: rgba(29, 95, 184, 0.4);
+    background: rgba(29, 95, 184, 0.12);
   }
 
   .preview-frame {
