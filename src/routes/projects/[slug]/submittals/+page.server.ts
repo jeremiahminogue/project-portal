@@ -61,6 +61,7 @@ export const load: PageServerLoad = async (event) => {
   ]);
   const access = event.locals.supabase ? await requireProjectAccess(event, slug) : null;
   const role = access && !isProjectAccessError(access) ? access.role : null;
+  const userId = access && !isProjectAccessError(access) ? access.user.id : null;
 
   // Look up which project members carry the submittal-manager flag so the
   // page can (a) auto-route unrouted submittals to one of them and (b) show
@@ -86,6 +87,9 @@ export const load: PageServerLoad = async (event) => {
     files,
     communicationAccess: {
       role,
+      // Surface the current user's id so the client can compute the same
+      // submitter/BIC/admin gates the server enforces in updateSubmittal.
+      userId,
       canCreate: role ? projectRoleCapabilities[role].canCreateCommunication : !event.locals.supabase,
       canReview: role ? projectRoleCapabilities[role].canReviewCommunication : !event.locals.supabase,
       canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase,
@@ -341,8 +345,39 @@ export const actions: Actions = {
     const isApproval = status === 'approved';
     const isKickback = status === 'revise_resubmit' || status === 'rejected';
 
+    // ── Authorization gate ────────────────────────────────────
+    //
+    // Three actor classes mirror the page-level gates and the RFI gate:
+    //   isAdmin     - admin / superadmin: can do anything.
+    //   isBic       - the current ball-in-court (`owner`) or the assignee
+    //                 on the current routing step: can drive workflow
+    //                 (status, decision, handoff) + attach files.
+    //   isSubmitter - the original `submitted_by` user: can edit metadata
+    //                 (title, spec, dates, notes, revision, received_from)
+    //                 + attach files. Cannot move workflow.
+    // Anyone else who somehow reaches this action gets a 403 — matches
+    // server-side rejection of the readonly banner the UI shows them.
+    const isAdmin = access.role === 'admin' || access.role === 'superadmin';
+    const currentStepAssignee = (currentRow?.assignee as string | null) ?? null;
+    const isBic =
+      isAdmin ||
+      (existing.owner != null && existing.owner === access.user.id) ||
+      (currentStepAssignee != null && currentStepAssignee === access.user.id);
+    const isSubmitter = isAdmin || (submitterId != null && submitterId === access.user.id);
+    if (!isAdmin && !isBic && !isSubmitter) {
+      return actionError('Only the assigned reviewer, the original submitter, or a project admin can change this submittal.', 403);
+    }
+
     const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
-    const removeAttachmentIds = new Set(formStringArray(form, 'removeAttachmentIds'));
+    // Attachment removal is admin-only. Non-admins keep all existing files
+    // so a normal user cannot delete somebody else's upload — they can still
+    // add new ones, and an admin clears stale files before the original
+    // uploader re-uploads.
+    const requestedRemoveIds = new Set(formStringArray(form, 'removeAttachmentIds'));
+    if (!isAdmin && requestedRemoveIds.size > 0) {
+      return actionError('Only a project admin can remove submittal attachments.', 403);
+    }
+    const removeAttachmentIds = isAdmin ? requestedRemoveIds : new Set<string>();
     const originalAttachments = normalizeItemAttachments(existing.attachments_json);
     const currentAttachments = originalAttachments.filter(
       (attachment) => !attachment.id || !removeAttachmentIds.has(attachment.id)
@@ -365,47 +400,67 @@ export const actions: Actions = {
 
     const attachmentCountChanged = attachments.length !== originalAttachments.length;
 
-    // Decide where the workflow ends up after this decision.
-    // - Approval auto-advances down the routing chain unless an override
-    //   workflowAssigneeId is supplied (manual handoff inserts a new step).
-    // - Approval at the last step closes the submittal as 'approved'.
-    // - Revise/reject kicks the submittal back to the original submitter
-    //   and resets current_step to 0 so the next pass walks the chain again.
-    let nextSubmittalStatus = status;
+    // Decide where the workflow ends up after this decision. Workflow
+    // writes are BIC-only — a submitter who only fixes a typo skips this
+    // entire block so we don't accidentally rewrite the active step's
+    // status or reassign ownership.
+    const allowWorkflowWrite = isAdmin || isBic;
+    let nextSubmittalStatus = existing.status as typeof status;
     let nextOwner: string | null = (existing.owner as string | null) ?? null;
     let nextStepIdx = currentIdx;
 
-    if (overrideHandoff && workflowAssigneeId) {
-      nextOwner = workflowAssigneeId;
-      nextStepIdx = currentIdx + 1;
-      if (isApproval && isFinalStep) nextSubmittalStatus = 'in_review';
-    } else if (isApproval) {
-      if (nextRow) {
-        nextOwner = nextRow.assignee as string;
+    if (allowWorkflowWrite) {
+      nextSubmittalStatus = status;
+      if (overrideHandoff && workflowAssigneeId) {
+        nextOwner = workflowAssigneeId;
         nextStepIdx = currentIdx + 1;
-        nextSubmittalStatus = 'in_review';
-      } else {
-        nextSubmittalStatus = 'approved';
+        if (isApproval && isFinalStep) nextSubmittalStatus = 'in_review';
+      } else if (isApproval) {
+        if (nextRow) {
+          nextOwner = nextRow.assignee as string;
+          nextStepIdx = currentIdx + 1;
+          nextSubmittalStatus = 'in_review';
+        } else {
+          nextSubmittalStatus = 'approved';
+        }
+      } else if (isKickback) {
+        nextOwner = submitterId;
+        nextStepIdx = 0;
       }
-    } else if (isKickback) {
-      nextOwner = submitterId;
-      nextStepIdx = 0;
     }
 
     const updatePayload: Record<string, unknown> = {
       status: nextSubmittalStatus,
-      decision,
+      decision: allowWorkflowWrite ? decision : existing.decision,
       attachments_json: attachments,
       owner: nextOwner,
       current_step: nextStepIdx
     };
-    if (editTitle !== null) updatePayload.title = editTitle.trim();
-    if (editSpecSection !== undefined) updatePayload.spec_section = editSpecSection;
-    if (editDueDate !== undefined) updatePayload.due_date = editDueDate;
-    if (editSubmitBy !== undefined) updatePayload.submit_by = editSubmitBy;
-    if (editNotes !== undefined) updatePayload.notes = editNotes;
-    if (editRevision !== null && Number.isFinite(editRevision)) updatePayload.revision = Math.max(0, editRevision);
-    if (editReceivedFrom !== undefined) updatePayload.received_from = editReceivedFrom;
+
+    // Metadata writes are admin OR submitter. A BIC who isn't the submitter
+    // can act on workflow but not silently overwrite the original record's
+    // title, spec, dates, notes, revision, or received-from.
+    const allowMetadataWrite = isAdmin || isSubmitter;
+    const tryingMetadataWrite =
+      editTitle !== null ||
+      editSpecSection !== undefined ||
+      editDueDate !== undefined ||
+      editSubmitBy !== undefined ||
+      editNotes !== undefined ||
+      editRevision !== null ||
+      editReceivedFrom !== undefined;
+    if (!allowMetadataWrite && tryingMetadataWrite) {
+      return actionError('Only a project admin or the original submitter can edit submittal details.', 403);
+    }
+    if (allowMetadataWrite) {
+      if (editTitle !== null) updatePayload.title = editTitle.trim();
+      if (editSpecSection !== undefined) updatePayload.spec_section = editSpecSection;
+      if (editDueDate !== undefined) updatePayload.due_date = editDueDate;
+      if (editSubmitBy !== undefined) updatePayload.submit_by = editSubmitBy;
+      if (editNotes !== undefined) updatePayload.notes = editNotes;
+      if (editRevision !== null && Number.isFinite(editRevision)) updatePayload.revision = Math.max(0, editRevision);
+      if (editReceivedFrom !== undefined) updatePayload.received_from = editReceivedFrom;
+    }
 
     const { error } = await projectClient
       .from('submittals')
@@ -427,40 +482,45 @@ export const actions: Actions = {
       return fail(400, { error: error instanceof Error ? error.message : 'Could not save submittal file attachments.' });
     }
 
-    // Always stamp the current step row with the decision + response.
-    if (currentRow) {
-      const { error: routeUpdateError } = await projectClient
-        .from('submittal_routing_steps')
-        .update({
-          status,
-          response: decision,
-          due_date: stepDueDate ?? currentRow.due_date,
-          completed_by: access.user.id,
-          signed_off_at: ['approved', 'revise_resubmit', 'rejected'].includes(status) ? new Date().toISOString() : null
-        })
-        .eq('id', currentRow.id);
-      if (routeUpdateError && routeUpdateError.code !== '42501') return fail(400, { error: routeUpdateError.message });
-    }
+    // Routing-step writes mirror the workflow gate. A submitter-only edit
+    // skips this entire block — they can fix metadata without re-stamping
+    // the active reviewer's response.
+    if (allowWorkflowWrite) {
+      // Always stamp the current step row with the decision + response.
+      if (currentRow) {
+        const { error: routeUpdateError } = await projectClient
+          .from('submittal_routing_steps')
+          .update({
+            status,
+            response: decision,
+            due_date: stepDueDate ?? currentRow.due_date,
+            completed_by: access.user.id,
+            signed_off_at: ['approved', 'revise_resubmit', 'rejected'].includes(status) ? new Date().toISOString() : null
+          })
+          .eq('id', currentRow.id);
+        if (routeUpdateError && routeUpdateError.code !== '42501') return fail(400, { error: routeUpdateError.message });
+      }
 
-    if (overrideHandoff && workflowAssigneeId) {
-      // Manual handoff: append a new step beyond the planned chain.
-      const { error: routeError } = await projectClient.from('submittal_routing_steps').insert({
-        submittal_id: id,
-        step_order: currentIdx + 1,
-        assignee: workflowAssigneeId,
-        role: 'member',
-        due_date: stepDueDate,
-        status: 'submitted'
-      });
-      if (routeError) return fail(400, { error: routeError.message });
-    } else if (isApproval && nextRow) {
-      // Auto-advance: arm the next planned step so the assignee sees it as
-      // active and the action_required email points at them.
-      const { error: nextRowError } = await projectClient
-        .from('submittal_routing_steps')
-        .update({ status: 'submitted', due_date: stepDueDate ?? nextRow.due_date })
-        .eq('id', nextRow.id);
-      if (nextRowError && nextRowError.code !== '42501') return fail(400, { error: nextRowError.message });
+      if (overrideHandoff && workflowAssigneeId) {
+        // Manual handoff: append a new step beyond the planned chain.
+        const { error: routeError } = await projectClient.from('submittal_routing_steps').insert({
+          submittal_id: id,
+          step_order: currentIdx + 1,
+          assignee: workflowAssigneeId,
+          role: 'member',
+          due_date: stepDueDate,
+          status: 'submitted'
+        });
+        if (routeError) return fail(400, { error: routeError.message });
+      } else if (isApproval && nextRow) {
+        // Auto-advance: arm the next planned step so the assignee sees it as
+        // active and the action_required email points at them.
+        const { error: nextRowError } = await projectClient
+          .from('submittal_routing_steps')
+          .update({ status: 'submitted', due_date: stepDueDate ?? nextRow.due_date })
+          .eq('id', nextRow.id);
+        if (nextRowError && nextRowError.code !== '42501') return fail(400, { error: nextRowError.message });
+      }
     }
 
     const metadata = {
@@ -479,12 +539,12 @@ export const actions: Actions = {
       revision: existing.revision ?? 0,
       previousStatus: existing.status,
       status: nextSubmittalStatus,
-      decision,
+      decision: allowWorkflowWrite ? decision : existing.decision,
       notes: existing.notes,
       attachmentCount: attachments.length
     };
 
-    if (sendEmails && existing.status !== nextSubmittalStatus) {
+    if (sendEmails && allowWorkflowWrite && existing.status !== nextSubmittalStatus) {
       await notifyProjectEvent(event, {
         projectId: access.project.id,
         actorId: access.user.id,
@@ -524,7 +584,10 @@ export const actions: Actions = {
           metadata
         }).catch((error) => console.error('[notifications] submittal action-required notification failed:', error));
       }
-    } else if (sendEmails && ((decision && decision !== (existing.decision ?? '')) || attachmentCountChanged)) {
+    } else if (
+      sendEmails &&
+      ((allowWorkflowWrite && decision && decision !== (existing.decision ?? '')) || attachmentCountChanged)
+    ) {
       await notifyProjectEvent(event, {
         projectId: access.project.id,
         actorId: access.user.id,

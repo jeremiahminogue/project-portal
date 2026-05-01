@@ -29,6 +29,26 @@ export const load: PageServerLoad = async (event) => {
   ]);
   const access = event.locals.supabase ? await requireProjectAccess(event, slug) : null;
   const role = access && !isProjectAccessError(access) ? access.role : null;
+  const userId = access && !isProjectAccessError(access) ? access.user.id : null;
+
+  // Mirror the submittal load: surface the project's designated RFI managers
+  // so the UI can (a) show "Goes to {manager} for assignment" when no BIC is
+  // picked, (b) gate the assignment/manager/distribution writes to the
+  // manager + admin path, and (c) light up the inbox affordances for the
+  // current user if they hold the flag.
+  let rfiManagerIds: string[] = [];
+  let isRfiManager = false;
+  if (event.locals.supabase && access && !isProjectAccessError(access)) {
+    const { data: managers } = await event.locals.supabase
+      .from('project_members')
+      .select('user_id')
+      .eq('project_id', access.project.id)
+      .eq('is_rfi_manager', true);
+    rfiManagerIds = (managers ?? [])
+      .map((row: { user_id: string | null }) => row.user_id)
+      .filter((id): id is string => Boolean(id));
+    isRfiManager = rfiManagerIds.includes(access.user.id);
+  }
 
   return {
     project,
@@ -37,9 +57,12 @@ export const load: PageServerLoad = async (event) => {
     files,
     communicationAccess: {
       role,
+      userId,
       canCreate: role ? projectRoleCapabilities[role].canCreateCommunication : !event.locals.supabase,
       canReview: role ? projectRoleCapabilities[role].canReviewCommunication : !event.locals.supabase,
-      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase
+      canAttachFiles: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase,
+      isRfiManager,
+      rfiManagerIds
     }
   };
 };
@@ -79,6 +102,21 @@ async function defaultRfiManagerId(
   projectId: string,
   userId: string
 ) {
+  // Prefer a project member tagged as `is_rfi_manager`. Multiple managers
+  // are allowed (vacation coverage); we just take the first one returned.
+  // Falls back to the requesting user if they're a member, then to the
+  // first project admin, so a project that hasn't designated a manager yet
+  // still has somewhere to land the RFI.
+  const { data: designated, error: designatedError } = await client
+    .from('project_members')
+    .select('user_id')
+    .eq('project_id', projectId)
+    .eq('is_rfi_manager', true)
+    .limit(1)
+    .maybeSingle();
+  if (designatedError) throw new Error(designatedError.message);
+  if (designated?.user_id) return designated.user_id;
+
   const currentUserError = await assertProjectMember(client, projectId, userId, 'RFI manager');
   if (!currentUserError) return userId;
 
@@ -153,7 +191,7 @@ export const actions: Actions = {
     const suggestedSolution = formOptional(form, 'suggestedSolution');
     const reference = formOptional(form, 'reference');
     const dueDate = formOptional(form, 'dueDate');
-    const assignedTo = formOptional(form, 'assignedTo');
+    const requestedAssignedTo = formOptional(form, 'assignedTo');
     const assignedOrg = formOptional(form, 'assignedOrg');
     const requestedRfiManagerId = formOptional(form, 'rfiManagerId');
     const distributionIds = formStringArray(form, 'distributionIds');
@@ -167,8 +205,8 @@ export const actions: Actions = {
         return fail(400, { error: error instanceof Error ? error.message : 'Could not create the next RFI number.' });
       }
     }
-    if (assignedTo) {
-      const assigneeError = await assertProjectMember(projectClient, access.project.id, assignedTo, 'Assignee');
+    if (requestedAssignedTo) {
+      const assigneeError = await assertProjectMember(projectClient, access.project.id, requestedAssignedTo, 'Assignee');
       if (assigneeError) return fail(400, { error: assigneeError });
     }
     const distributionError = await assertProjectMembers(projectClient, access.project.id, distributionIds, 'Distribution recipients');
@@ -186,6 +224,11 @@ export const actions: Actions = {
       const managerError = await assertProjectMember(projectClient, access.project.id, rfiManagerId, 'RFI manager');
       if (managerError) return fail(400, { error: managerError });
     }
+
+    // If the creator didn't pick a BIC, hand it to the manager so they have
+    // a real inbox item to triage. They reassign to the actual answerer
+    // through ?/answerRfi later.
+    const assignedTo = requestedAssignedTo ?? rfiManagerId;
 
     let attachments: ItemAttachment[] = [];
     try {
@@ -329,8 +372,47 @@ export const actions: Actions = {
     if (existingError) return fail(400, { error: existingError.message });
     if (!existing) return fail(404, { error: 'RFI not found.' });
 
+    // ── Authorization gate ────────────────────────────────────
+    //
+    // Three actor classes:
+    //   isAdmin   - admin / superadmin: can do anything.
+    //   isManager - the RFI manager on this row: assigns workflow (BIC,
+    //               manager, distribution, due date) and can also answer.
+    //   isBic     - the current ball-in-court (`assigned_to`): can post a
+    //               response, change status, and add attachments. CANNOT
+    //               reassign or edit distribution / due / manager.
+    // Anyone else with read access gets 403 here so non-actors can't
+    // ghost-write through the form.
+    const isAdmin = access.role === 'admin' || access.role === 'superadmin';
+    const isManager = existing.rfi_manager_id != null && existing.rfi_manager_id === access.user.id;
+    const isBic = existing.assigned_to != null && existing.assigned_to === access.user.id;
+    if (!isAdmin && !isManager && !isBic) {
+      return actionError('Only the assigned reviewer, RFI manager, or a project admin can change this RFI.', 403);
+    }
+    // Only admin + manager can rewrite assignment-shape fields. A BIC who
+    // submits the form with these populated gets a clear 403 rather than a
+    // silent partial save.
+    const allowAssignmentWrite = isAdmin || isManager;
+    const tryingAssignmentWrite =
+      hasAssignmentFields ||
+      hasManagerField ||
+      hasDistributionField ||
+      hasDueDateField;
+    if (!allowAssignmentWrite && tryingAssignmentWrite) {
+      return actionError('Only the RFI manager or a project admin can reassign or change distribution.', 403);
+    }
+    // Admin-only: removing somebody else's attachment. Non-admins can still
+    // add new files; this matches the submittal rule and lets the original
+    // uploader re-attach after an admin clears the bad file.
+    const requestedRemoveIds = new Set(formStringArray(form, 'removeAttachmentIds'));
+    if (!isAdmin && requestedRemoveIds.size > 0) {
+      return actionError('Only a project admin can remove RFI attachments.', 403);
+    }
+
     const attachmentIds = form.getAll('attachmentIds').filter((value): value is string => typeof value === 'string');
-    const removeAttachmentIds = new Set(formStringArray(form, 'removeAttachmentIds'));
+    // Reuse the admin-gated set computed above so a non-admin who somehow
+    // smuggled removeAttachmentIds into the request can never strip files.
+    const removeAttachmentIds = requestedRemoveIds;
     const currentAttachments = normalizeItemAttachments(existing.attachments_json).filter(
       (attachment) => !attachment.id || !removeAttachmentIds.has(attachment.id)
     );

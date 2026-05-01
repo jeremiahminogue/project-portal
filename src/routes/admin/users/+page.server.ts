@@ -318,6 +318,38 @@ export const actions: Actions = {
     };
   },
 
+  updateMembership: async (event) => {
+    await requireSuperadmin(event);
+    const form = await event.request.formData();
+    const userId = formString(form, 'userId');
+    const projectId = formString(form, 'projectId');
+    const role = roleValue(formString(form, 'role'));
+    const isSubmittalManager = checked(form, 'isSubmittalManager');
+    const isRfiManager = checked(form, 'isRfiManager');
+
+    if (!userId || !projectId) return fail(400, { error: 'Choose a user and project before saving access.' });
+
+    const admin = createAdminClient();
+    const { error } = await admin
+      .from('project_members')
+      .update({
+        role,
+        is_submittal_manager: isSubmittalManager,
+        is_rfi_manager: isRfiManager
+      })
+      .eq('project_id', projectId)
+      .eq('user_id', userId);
+
+    if (error) return fail(400, { error: error.message });
+    await writeAdminAudit(event, 'membership.update', 'user', userId, {
+      projectId,
+      role,
+      isSubmittalManager,
+      isRfiManager
+    });
+    return { ok: true, message: 'Membership updated.' };
+  },
+
   removeProject: async (event) => {
     await requireSuperadmin(event);
     const form = await event.request.formData();

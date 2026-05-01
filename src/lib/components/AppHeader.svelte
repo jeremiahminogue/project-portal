@@ -30,12 +30,14 @@
     me,
     project,
     projects = [],
-    slug
+    slug,
+    canManageProjectUsers = false
   }: {
     me?: App.PageData['me'];
     project?: HeaderProject;
     projects?: HeaderProject[];
     slug?: string;
+    canManageProjectUsers?: boolean;
   } = $props();
 
   const initials = $derived(initialsFor(me?.profile, me?.user?.email ?? null));
@@ -69,7 +71,10 @@
           { href: `/projects/${slug}/updates`, label: 'Updates', icon: Newspaper },
           { href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell },
           { href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare },
-          { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }
+          { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users },
+          ...(canManageProjectUsers
+            ? [{ href: `/projects/${slug}/members`, label: 'Members', icon: Shield }]
+            : [])
         ]
       : []
   );

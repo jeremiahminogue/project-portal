@@ -8,6 +8,12 @@
 </script>
 
 {#if !isDocumentViewer}
-  <AppHeader me={data.me} project={data.project} projects={data.projects} slug={data.slug} />
+  <AppHeader
+    me={data.me}
+    project={data.project}
+    projects={data.projects}
+    slug={data.slug}
+    canManageProjectUsers={data.projectAccess?.canManageProjectUsers ?? false}
+  />
 {/if}
 {@render children()}

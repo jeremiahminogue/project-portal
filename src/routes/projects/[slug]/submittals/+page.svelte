@@ -47,6 +47,7 @@
     id?: string;
     order: number;
     assignee: string;
+    assigneeId?: string | null;
     role: string;
     status: string;
     dueDate?: string | null;
@@ -168,6 +169,34 @@
   const isFinalRoutingStep = $derived(
     !!selectedSubmittal?.routingSteps?.length && !nextRoutingStep
   );
+
+  // ── Per-submittal actor gates (mirror server updateSubmittal) ──
+  // isAdmin     - admin / superadmin: anything goes
+  // isBic       - existing.owner === user OR current step assignee === user
+  // isSubmitter - existing.submitted_by === user
+  const currentUserId = $derived(data.communicationAccess?.userId ?? null);
+  const isAdminLike = $derived(
+    data.communicationAccess?.role === 'admin' || data.communicationAccess?.role === 'superadmin'
+  );
+  function isBicFor(submittal: PortalSubmittal | undefined | null) {
+    if (!submittal || !currentUserId) return false;
+    if (submittal.ownerId && submittal.ownerId === currentUserId) return true;
+    const stepIndex = submittal.currentStep ?? 0;
+    const stepAssignee = submittal.routingSteps?.find((step) => step.order === stepIndex)?.assigneeId;
+    return Boolean(stepAssignee && stepAssignee === currentUserId);
+  }
+  function isSubmitterOf(submittal: PortalSubmittal | undefined | null) {
+    if (!submittal || !currentUserId) return false;
+    return Boolean(submittal.submittedById && submittal.submittedById === currentUserId);
+  }
+  const canWorkflowSelected = $derived(
+    Boolean(selectedSubmittal) && (isAdminLike || isBicFor(selectedSubmittal))
+  );
+  const canEditSelected = $derived(
+    Boolean(selectedSubmittal) && (isAdminLike || isSubmitterOf(selectedSubmittal))
+  );
+  const canActOnSelected = $derived(canWorkflowSelected || canEditSelected);
+  const canRemoveAttachments = $derived(isAdminLike);
 
   // ── Reactive resets ──────────────────────────────────────────
   $effect(() => {
@@ -759,7 +788,19 @@
             </div>
           {/if}
 
-          {#if editing && selectedSubmittal.id && canReviewCommunication}
+          {#if !canActOnSelected && selectedSubmittal.id}
+            <div class="readonly-banner">
+              <Eye size={14} />
+              <span>You're viewing this submittal. Only the assigned reviewer, the original submitter, or a project admin can change it.</span>
+            </div>
+          {:else if canEditSelected && !canWorkflowSelected}
+            <div class="readonly-banner">
+              <Eye size={14} />
+              <span>You can edit your submittal details and add files. Only the assigned reviewer or a project admin can move the workflow.</span>
+            </div>
+          {/if}
+
+          {#if editing && selectedSubmittal.id && canEditSelected}
             <form
               class="edit-form"
               method="post"
@@ -808,6 +849,34 @@
                 <textarea class="field min-h-20" name="editNotes">{selectedSubmittal.notes ?? ''}</textarea>
               </label>
 
+              {#if canAttachFiles}
+                <details class="files-actions">
+                  <summary>
+                    <Paperclip size={13} />{canRemoveAttachments ? 'Add or remove files' : 'Add files'}
+                    <small>{selectedAttachments.length} attached</small>
+                  </summary>
+                  {#if canRemoveAttachments && selectedAttachments.some((attachment) => attachment.id)}
+                    <fieldset class="remove-attachments">
+                      <legend>Remove existing files (admin only)</legend>
+                      {#each selectedAttachments.filter((attachment) => attachment.id) as attachment}
+                        <label>
+                          <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
+                          <Trash2 size={12} />
+                          <span>{attachment.name}</span>
+                        </label>
+                      {/each}
+                    </fieldset>
+                  {/if}
+                  <AttachmentFields
+                    projectSlug={data.project?.id ?? ''}
+                    folderName={`Submittal ${selectedSubmittal.number} Attachments`}
+                    idPrefix={`submittal-${selectedSubmittal.id}-edit-attachments`}
+                    uploadLabel="Upload submittal files"
+                    hideExisting
+                  />
+                </details>
+              {/if}
+
               <footer class="form-footer">
                 <button class="btn btn-secondary" type="button" onclick={() => (editing = false)}>Cancel</button>
                 <button class="btn btn-primary" type="submit"><Check size={16} />Save details</button>
@@ -825,7 +894,7 @@
               {#if selectedSubmittal.notes}
                 <div class="meta-wide"><span>Notes</span><strong>{selectedSubmittal.notes}</strong></div>
               {/if}
-              {#if canReviewCommunication}
+              {#if canEditSelected}
                 <button type="button" class="meta-edit" onclick={() => (editing = true)}>
                   <PencilLine size={13} />Edit details
                 </button>
@@ -849,7 +918,7 @@
                         <strong>{step.assignee}</strong>
                         <span>{step.role} - {step.status}{step.dueDate ? ` - Due ${formatDate(step.dueDate)}` : ''}{step.completedAt ? ` - Signed off ${formatDate(step.completedAt)}` : ''}</span>
                         {#if step.response}<p>{step.response}</p>{/if}
-                        {#if isCurrentStep(step) && canReviewCommunication && selectedSubmittal.id && !decisionArmed}
+                        {#if isCurrentStep(step) && canWorkflowSelected && selectedSubmittal.id && !decisionArmed}
                           <div class="step-actions" role="group" aria-label="Decide on this step">
                             <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
                             <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
@@ -862,7 +931,7 @@
                   {/each}
                 </ol>
 
-                {#if !decisionArmed && canReviewCommunication && selectedSubmittal.id && isWorkflowClosed}
+                {#if !decisionArmed && canWorkflowSelected && selectedSubmittal.id && isWorkflowClosed}
                   <div class="step-actions step-actions-loose" role="group" aria-label="Quick decision">
                     <button type="button" class="step-btn approve" onclick={() => armDecision('approved')}><Check size={13} />Approve</button>
                     <button type="button" class="step-btn revise" onclick={() => armDecision('revise_resubmit')}><RotateCcw size={13} />Revise</button>
@@ -944,7 +1013,7 @@
             {/if}
 
             <!-- Action drawer — only when a decision is armed -->
-            {#if decisionArmed && canReviewCommunication && selectedSubmittal.id}
+            {#if decisionArmed && canWorkflowSelected && selectedSubmittal.id}
               <form
                 class="action-drawer"
                 method="post"
@@ -1002,12 +1071,12 @@
                 {#if canAttachFiles}
                   <details class="files-actions">
                     <summary>
-                      <Paperclip size={13} />Add or remove files
+                      <Paperclip size={13} />{canRemoveAttachments ? 'Add or remove files' : 'Add files'}
                       <small>{selectedAttachments.length} attached</small>
                     </summary>
-                    {#if selectedAttachments.some((attachment) => attachment.id)}
+                    {#if canRemoveAttachments && selectedAttachments.some((attachment) => attachment.id)}
                       <fieldset class="remove-attachments">
-                        <legend>Remove existing files</legend>
+                        <legend>Remove existing files (admin only)</legend>
                         {#each selectedAttachments.filter((attachment) => attachment.id) as attachment}
                           <label>
                             <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
@@ -1440,6 +1509,17 @@
   .timeline-step span { color: #4f594f; }
   .timeline-step p { color: #303830; margin-top: 0.15rem; white-space: pre-wrap; }
   .muted { margin: 0; color: #697169; font-size: 0.78rem; font-weight: 750; }
+
+  .readonly-banner {
+    display: inline-flex; align-items: center; gap: 0.45rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid rgba(29, 95, 184, 0.2);
+    border-radius: 0.4rem;
+    background: rgba(29, 95, 184, 0.06);
+    color: #1d4f95;
+    font-size: 0.78rem; font-weight: 800; line-height: 1.4;
+  }
+  .readonly-banner span { overflow-wrap: anywhere; }
 
   /* ── Update / edit forms ── */
   .edit-form {

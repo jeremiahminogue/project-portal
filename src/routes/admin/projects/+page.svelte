@@ -54,7 +54,7 @@
             <td>
               <div class="flex flex-wrap items-center gap-2">
                 <a class="text-sm font-bold text-pe-green-dark" href={`/projects/${project.slug}`}>Open</a>
-                <a class="inline-flex items-center gap-1 text-sm font-bold text-pe-sub" href="/admin/users"><Users size={14} />Members</a>
+                <a class="inline-flex items-center gap-1 text-sm font-bold text-pe-sub" href={`/projects/${project.slug}/members`}><Users size={14} />Members</a>
                 <button class="inline-flex items-center gap-1 text-sm font-bold text-pe-sub" type="button" onclick={() => (editId = editId === project.id ? '' : project.id)}>
                   <Pencil size={14} />Edit
                 </button>

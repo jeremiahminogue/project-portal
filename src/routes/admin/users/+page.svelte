@@ -1,12 +1,23 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
-  import { Copy, Mail, Plus, Send, ShieldCheck, Trash2, UserPlus, X } from '@lucide/svelte';
+  import { Copy, Mail, Pencil, Plus, Send, ShieldCheck, Trash2, UserPlus, X } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
 
   let { data, form } = $props();
   let createOpen = $state(true);
   let deleteUserId = $state('');
+  // Inline edit-membership state. Keyed by `${userId}:${projectId}` so two
+  // users can't have edit panels open against the same project at once.
+  let editingMembership = $state('');
+
+  function membershipKey(userId: string, projectId: string) {
+    return `${userId}:${projectId}`;
+  }
+  function toggleEdit(userId: string, projectId: string) {
+    const key = membershipKey(userId, projectId);
+    editingMembership = editingMembership === key ? '' : key;
+  }
 
   async function copyInviteLink() {
     if (!form?.inviteLink) return;
@@ -116,14 +127,63 @@
 
           <div class="project-chip-list">
             {#each user.projects as project}
-              <form class="project-chip" method="post" action="?/removeProject" use:enhance>
-                <input type="hidden" name="userId" value={user.id} />
-                <input type="hidden" name="projectId" value={project.id} />
-                <span>#{project.slug} - {project.role}</span>
-                <button type="submit" aria-label={`Remove ${user.email} from ${project.name}`}>
-                  <X size={13} />
-                </button>
-              </form>
+              {@const key = membershipKey(user.id, project.id)}
+              <div class="project-chip-row">
+                <div class="project-chip">
+                  <span class="chip-main">#{project.slug} - {project.role}</span>
+                  {#if project.isSubmittalManager}
+                    <span class="chip-flag is-submittal" title="Submittal manager on this project">SM</span>
+                  {/if}
+                  {#if project.isRfiManager}
+                    <span class="chip-flag is-rfi" title="RFI manager on this project">RM</span>
+                  {/if}
+                  <button
+                    type="button"
+                    class="chip-icon"
+                    aria-label={`Edit ${user.email} on ${project.name}`}
+                    title="Edit role + manager flags"
+                    onclick={() => toggleEdit(user.id, project.id)}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <form method="post" action="?/removeProject" use:enhance>
+                    <input type="hidden" name="userId" value={user.id} />
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <button type="submit" class="chip-icon is-danger" aria-label={`Remove ${user.email} from ${project.name}`} title="Remove from project">
+                      <X size={12} />
+                    </button>
+                  </form>
+                </div>
+                {#if editingMembership === key}
+                  <form
+                    class="membership-edit"
+                    method="post"
+                    action="?/updateMembership"
+                    use:enhance={() => async ({ result, update }) => {
+                      await update();
+                      if (result.type === 'success') editingMembership = '';
+                    }}
+                  >
+                    <input type="hidden" name="userId" value={user.id} />
+                    <input type="hidden" name="projectId" value={project.id} />
+                    <label class="me-field">
+                      <span>Role</span>
+                      <select class="field" name="role">
+                        <option value="member" selected={project.role === 'member'}>Member</option>
+                        <option value="admin" selected={project.role === 'admin'}>Admin</option>
+                        <option value="guest" selected={project.role === 'guest'}>Guest</option>
+                        <option value="readonly" selected={project.role === 'readonly'}>Read-only</option>
+                      </select>
+                    </label>
+                    <label class="mini-check"><input type="checkbox" name="isSubmittalManager" checked={project.isSubmittalManager} /> Submittal manager</label>
+                    <label class="mini-check"><input type="checkbox" name="isRfiManager" checked={project.isRfiManager} /> RFI manager</label>
+                    <div class="me-actions">
+                      <button class="btn btn-ghost" type="button" onclick={() => (editingMembership = '')}>Cancel</button>
+                      <button class="btn btn-primary" type="submit">Save</button>
+                    </div>
+                  </form>
+                {/if}
+              </div>
             {:else}
               <span class="empty-projects">No projects assigned</span>
             {/each}
@@ -368,14 +428,20 @@
   .project-chip-list {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.35rem;
+    gap: 0.4rem;
+  }
+
+  .project-chip-row {
+    display: grid;
+    gap: 0.32rem;
+    min-width: 0;
   }
 
   .project-chip {
     display: inline-flex;
     max-width: 100%;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.32rem;
     border: 1px solid rgba(25, 27, 25, 0.1);
     border-radius: 999px;
     background: #f6f7f5;
@@ -385,24 +451,103 @@
     font-weight: 850;
   }
 
-  .project-chip span {
+  .project-chip .chip-main {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    max-width: 14rem;
   }
 
-  .project-chip button {
-    display: grid;
+  .project-chip .chip-flag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.2rem;
+    padding: 0 0.42rem;
+    border-radius: 999px;
+    font-size: 0.62rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+  }
+  .project-chip .chip-flag.is-submittal {
+    background: rgba(20, 146, 52, 0.14);
+    color: #197a31;
+  }
+  .project-chip .chip-flag.is-rfi {
+    background: rgba(29, 95, 184, 0.14);
+    color: #1d4f95;
+  }
+
+  .project-chip form {
+    display: inline-flex;
+    margin: 0;
+    padding: 0;
+  }
+
+  .project-chip .chip-icon {
+    display: inline-flex;
     width: 1.35rem;
     height: 1.35rem;
-    place-items: center;
+    align-items: center;
+    justify-content: center;
+    border: 0;
     border-radius: 999px;
-    color: #667066;
+    background: transparent;
+    color: #4f594f;
+    cursor: pointer;
   }
-
-  .project-chip button:hover {
+  .project-chip .chip-icon:hover {
+    background: #ffffff;
+    color: #1d5fb8;
+  }
+  .project-chip .chip-icon.is-danger:hover {
     background: #fff1f0;
     color: #b42318;
+  }
+
+  .membership-edit {
+    display: grid;
+    grid-template-columns: minmax(8rem, 12rem) auto auto auto;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid rgba(25, 27, 25, 0.12);
+    border-radius: 0.45rem;
+    background: #fff;
+    box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.18);
+  }
+  .membership-edit .me-field {
+    display: grid;
+    gap: 0.18rem;
+    min-width: 0;
+  }
+  .membership-edit .me-field span {
+    color: #4f594f;
+    font-size: 0.66rem;
+    font-weight: 850;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .membership-edit .me-field .field {
+    min-height: 2rem;
+    padding-block: 0.4rem;
+    font-size: 0.78rem;
+  }
+  .membership-edit .me-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+  }
+
+  @media (max-width: 720px) {
+    .membership-edit {
+      grid-template-columns: 1fr 1fr;
+    }
+    .membership-edit .me-actions {
+      grid-column: 1 / -1;
+    }
   }
 
   .empty-projects {

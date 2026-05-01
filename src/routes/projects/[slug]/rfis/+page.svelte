@@ -39,8 +39,24 @@
   const canCreateCommunication = $derived(data.communicationAccess?.canCreate ?? true);
   const canReviewCommunication = $derived(data.communicationAccess?.canReview ?? true);
   const canAttachFiles = $derived(data.communicationAccess?.canAttachFiles ?? true);
-  const canDeleteCommunication = $derived(
+  const currentUserId = $derived(data.communicationAccess?.userId ?? null);
+  const isAdminLike = $derived(
     data.communicationAccess?.role === 'superadmin' || data.communicationAccess?.role === 'admin'
+  );
+  const canDeleteCommunication = $derived(isAdminLike);
+  const canRemoveAttachments = $derived(isAdminLike);
+  const rfiManagerIds = $derived<string[]>(data.communicationAccess?.rfiManagerIds ?? []);
+  const rfiManagerNames = $derived(
+    rfiManagerIds
+      .map((id) => data.directory.find((person) => person.id === id)?.name)
+      .filter((name): name is string => Boolean(name))
+  );
+  const rfiManagerLabel = $derived(
+    rfiManagerNames.length === 0
+      ? 'the RFI manager'
+      : rfiManagerNames.length === 1
+        ? rfiManagerNames[0]
+        : `${rfiManagerNames[0]} (+${rfiManagerNames.length - 1})`
   );
   const openCount = $derived(data.rfis.filter((item) => item.status === 'Open').length);
   const answeredCount = $derived(data.rfis.filter((item) => item.status === 'Answered').length);
@@ -65,6 +81,30 @@
   );
 
   const selectedRfi = $derived(data.rfis.find((item) => (item.id ?? item.number) === activeRfi));
+
+  // Per-RFI actor gates — must match the server gate in answerRfi.
+  //   isManager → can reassign BIC, change manager, distribution, due date.
+  //   isBic     → can answer + attach + change status.
+  //   isAdmin   → can do anything.
+  // Anyone else with read access sees the modal but no form.
+  function isManagerOf(rfi: PortalRfi | undefined | null) {
+    if (!rfi || !currentUserId) return false;
+    return Boolean(rfi.rfiManagerId && rfi.rfiManagerId === currentUserId);
+  }
+  function isBicOf(rfi: PortalRfi | undefined | null) {
+    if (!rfi || !currentUserId) return false;
+    return Boolean(rfi.assignedToId && rfi.assignedToId === currentUserId);
+  }
+  function canRespondTo(rfi: PortalRfi | undefined | null) {
+    if (!rfi || !canReviewCommunication) return false;
+    return isAdminLike || isManagerOf(rfi) || isBicOf(rfi);
+  }
+  function canAssignOn(rfi: PortalRfi | undefined | null) {
+    if (!rfi) return false;
+    return isAdminLike || isManagerOf(rfi);
+  }
+  const canRespondToSelected = $derived(canRespondTo(selectedRfi));
+  const canAssignOnSelected = $derived(canAssignOn(selectedRfi));
 
   $effect(() => {
     if (selectedRfi) responseStatus = selectedRfi.status === 'Closed' ? 'closed' : selectedRfi.status === 'Answered' ? 'answered' : 'open';
@@ -396,7 +436,7 @@
             />
           </div>
 
-          {#if selectedRfi.id && canReviewCommunication}
+          {#if selectedRfi.id && canRespondToSelected}
             <form class="modal-form rfi-modal-form" method="post" action="?/answerRfi" enctype="multipart/form-data" use:enhance={resetOnSuccess(closeRfiModal)}>
               <input type="hidden" name="id" value={selectedRfi.id} />
               <label class="tracking-field">
@@ -407,51 +447,55 @@
                   <option value="closed">Closed</option>
                 </select>
               </label>
-              <label class="tracking-field">
-                <span>RFI manager</span>
-                <select class="field" name="rfiManagerId" aria-label="RFI manager">
-                  <option value="" disabled selected={!selectedRfi.rfiManagerId}>Select manager</option>
-                  {#each data.directory as person}
-                    <option value={person.id} selected={person.id === selectedRfi.rfiManagerId}>{person.name}</option>
-                  {/each}
-                </select>
-              </label>
-              <label class="tracking-field">
-                <span>Ball in court</span>
-                <select class="field" name="assignedTo" aria-label="Ball in Court">
-                  <option value="">Unassigned</option>
-                  {#each data.directory as person}
-                    <option value={person.id} selected={person.id === selectedRfi.assignedToId}>{person.name}</option>
-                  {/each}
-                </select>
-              </label>
-              <label class="tracking-field">
-                <span>Due</span>
-                <input class="field" name="dueDate" type="date" value={selectedRfi.dueDate ?? ''} aria-label="Due date" />
-              </label>
-              <label class="tracking-field">
-                <span>Org</span>
-                <input class="field" name="assignedOrg" value={selectedRfi.assignedOrg ?? ''} placeholder="Org" aria-label="Assigned organization" />
-              </label>
+              {#if canAssignOnSelected}
+                <label class="tracking-field">
+                  <span>RFI manager</span>
+                  <select class="field" name="rfiManagerId" aria-label="RFI manager">
+                    <option value="" disabled selected={!selectedRfi.rfiManagerId}>Select manager</option>
+                    {#each data.directory as person}
+                      <option value={person.id} selected={person.id === selectedRfi.rfiManagerId}>{person.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="tracking-field">
+                  <span>Ball in court</span>
+                  <select class="field" name="assignedTo" aria-label="Ball in Court">
+                    <option value="">Unassigned</option>
+                    {#each data.directory as person}
+                      <option value={person.id} selected={person.id === selectedRfi.assignedToId}>{person.name}</option>
+                    {/each}
+                  </select>
+                </label>
+                <label class="tracking-field">
+                  <span>Due</span>
+                  <input class="field" name="dueDate" type="date" value={selectedRfi.dueDate ?? ''} aria-label="Due date" />
+                </label>
+                <label class="tracking-field">
+                  <span>Org</span>
+                  <input class="field" name="assignedOrg" value={selectedRfi.assignedOrg ?? ''} placeholder="Org" aria-label="Assigned organization" />
+                </label>
+              {/if}
               <label class="tracking-field response-field">
                 <span>Response</span>
                 <textarea class="field min-h-28" name="answer" placeholder="Enter the RFI response, clarification, or status note">{selectedRfi.answer ?? ''}</textarea>
               </label>
-              <label class="tracking-field distribution-field">
-                <span>Distribution</span>
-                <input type="hidden" name="distributionIds" value="" />
-                <select class="field multi-select" name="distributionIds" multiple size={Math.min(5, Math.max(3, data.directory.length))} aria-label="RFI distribution list">
-                  {#each data.directory.filter((person) => person.contactType !== 'external') as person}
-                    <option value={person.id} selected={selectedRfi.distributionIds?.includes(person.id)}>{person.name}</option>
-                  {/each}
-                </select>
-              </label>
+              {#if canAssignOnSelected}
+                <label class="tracking-field distribution-field">
+                  <span>Distribution</span>
+                  <input type="hidden" name="distributionIds" value="" />
+                  <select class="field multi-select" name="distributionIds" multiple size={Math.min(5, Math.max(3, data.directory.length))} aria-label="RFI distribution list">
+                    {#each data.directory.filter((person) => person.contactType !== 'external') as person}
+                      <option value={person.id} selected={selectedRfi.distributionIds?.includes(person.id)}>{person.name}</option>
+                    {/each}
+                  </select>
+                </label>
+              {/if}
               {#if canAttachFiles}
                 <details class="modal-attachment-fields" open>
                   <summary>Files</summary>
-                  {#if selectedRfi.attachments?.some((attachment) => attachment.id)}
+                  {#if canRemoveAttachments && selectedRfi.attachments?.some((attachment) => attachment.id)}
                     <fieldset class="remove-attachments">
-                      <legend>Remove existing files</legend>
+                      <legend>Remove existing files (admin only)</legend>
                       {#each selectedRfi.attachments.filter((attachment) => attachment.id) as attachment}
                         <label>
                           <input name="removeAttachmentIds" type="checkbox" value={attachment.id} />
@@ -474,6 +518,11 @@
                 <button class="btn btn-primary" type="submit"><PencilLine size={16} />Save response</button>
               </div>
             </form>
+          {:else if selectedRfi.id}
+            <div class="rfi-readonly-banner">
+              <Eye size={14} />
+              <span>You're viewing this RFI. Only the assigned reviewer, the RFI manager ({rfiManagerLabel}), or a project admin can update it.</span>
+            </div>
           {/if}
 
           {#if selectedRfi.activity?.length}
@@ -594,6 +643,22 @@
     font-size: 0.82rem;
     line-height: 1.5;
   }
+
+  .rfi-readonly-banner {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin-top: 0.85rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid rgba(29, 95, 184, 0.2);
+    border-radius: 0.4rem;
+    background: rgba(29, 95, 184, 0.06);
+    color: #1d4f95;
+    font-size: 0.78rem;
+    font-weight: 800;
+    line-height: 1.4;
+  }
+  .rfi-readonly-banner span { overflow-wrap: anywhere; }
 
   .item-attachments {
     display: grid;

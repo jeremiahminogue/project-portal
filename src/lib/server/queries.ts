@@ -849,6 +849,8 @@ export type AdminUserRow = {
     slug: string;
     name: string;
     role: string;
+    isSubmittalManager: boolean;
+    isRfiManager: boolean;
   }[];
 };
 
@@ -916,7 +918,9 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
           id: project.id,
           slug: project.id,
           name: project.title,
-          role: 'admin'
+          role: 'admin',
+          isSubmittalManager: true,
+          isRfiManager: true
         }))
       }
     ];
@@ -926,7 +930,9 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
   const [users, profiles, members] = await Promise.all([
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin.from('profiles').select('id, full_name, company, title, is_superadmin'),
-    admin.from('project_members').select('user_id, role, projects:project_id (id, slug, name)')
+    admin
+      .from('project_members')
+      .select('user_id, role, is_submittal_manager, is_rfi_manager, projects:project_id (id, slug, name)')
   ]);
 
   if (users.error) throw new Error(users.error.message);
@@ -943,7 +949,9 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
       id: project.id,
       slug: project.slug,
       name: project.name,
-      role: member.role
+      role: member.role,
+      isSubmittalManager: Boolean(member.is_submittal_manager),
+      isRfiManager: Boolean(member.is_rfi_manager)
     });
     projectsByUser.set(member.user_id, projects);
   }
