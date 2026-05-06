@@ -43,6 +43,7 @@ export type PortalFile = FileEntry & {
   storageKey?: string | null;
   mimeType?: string | null;
   documentKind?: 'drawing' | 'specification' | 'file';
+  linkedItemKinds?: ('rfi' | 'submittal')[];
   sheetNumber?: string | null;
   sheetTitle?: string | null;
   revision?: string | null;
@@ -442,6 +443,50 @@ function cleanStorageName(name: string) {
   return name.replace(/^[a-f0-9]{8}-/i, '');
 }
 
+function isMissingAttachmentLinkTable(error: unknown) {
+  const code = (error as { code?: string } | null)?.code;
+  const message = (error as { message?: string } | null)?.message ?? '';
+  return code === '42P01' || code === '42703' || /relation .*_attachments.* does not exist/i.test(message);
+}
+
+async function linkedAttachmentFileIds(
+  client: NonNullable<App.Locals['supabase']>,
+  table: 'rfi_attachments' | 'submittal_attachments',
+  projectId: string,
+  fileIds: string[]
+) {
+  if (!fileIds.length) return [];
+
+  const { data, error } = await client
+    .from(table)
+    .select('file_id')
+    .eq('project_id', projectId)
+    .in('file_id', fileIds);
+
+  if (error) {
+    if (isMissingAttachmentLinkTable(error)) return [];
+    throw new Error(error.message);
+  }
+
+  return [...new Set((data ?? []).map((row: any) => row.file_id).filter(Boolean) as string[])];
+}
+
+async function linkedItemKindsByFile(
+  client: NonNullable<App.Locals['supabase']>,
+  projectId: string,
+  fileIds: string[]
+) {
+  const byFile = new Map<string, ('rfi' | 'submittal')[]>();
+  const [rfiFileIds, submittalFileIds] = await Promise.all([
+    linkedAttachmentFileIds(client, 'rfi_attachments', projectId, fileIds),
+    linkedAttachmentFileIds(client, 'submittal_attachments', projectId, fileIds)
+  ]);
+
+  for (const fileId of rfiFileIds) byFile.set(fileId, [...(byFile.get(fileId) ?? []), 'rfi']);
+  for (const fileId of submittalFileIds) byFile.set(fileId, [...(byFile.get(fileId) ?? []), 'submittal']);
+  return byFile;
+}
+
 async function getStorageFallbackFiles(slug: string): Promise<PortalFile[] | null> {
   if (!hasObjectStorageConfig()) return null;
 
@@ -512,13 +557,17 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
   const rows = data ?? [];
   const profiles = await profilesByIds(client, rows.map((row: any) => row.uploaded_by));
   const fileIds = rows.map((row: any) => row.id);
-  const { data: pagesData, error: pagesError } = fileIds.length
-    ? await client
-        .from('drawing_pages')
-        .select('id, file_id, page_number, name, sheet_number, sheet_title, revision')
-        .in('file_id', fileIds)
-        .order('page_number', { ascending: true })
-    : { data: [], error: null };
+  const [linkedKinds, pagesResult] = await Promise.all([
+    linkedItemKindsByFile(client, projectId, fileIds),
+    fileIds.length
+      ? client
+          .from('drawing_pages')
+          .select('id, file_id, page_number, name, sheet_number, sheet_title, revision')
+          .in('file_id', fileIds)
+          .order('page_number', { ascending: true })
+      : Promise.resolve({ data: [], error: null })
+  ]);
+  const { data: pagesData, error: pagesError } = pagesResult;
 
   if (pagesError) throw new Error(`getFiles pages failed: ${pagesError.message}`);
   const pagesByFile = new Map<string, DrawingPage[]>();
@@ -551,6 +600,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
       storageKey: row.storage_key,
       mimeType: row.mime_type,
       documentKind: row.document_kind ?? 'file',
+      linkedItemKinds: linkedKinds.get(row.id),
       sheetNumber: row.sheet_number,
       sheetTitle: row.sheet_title,
       revision: row.revision,

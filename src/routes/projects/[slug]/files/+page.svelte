@@ -17,6 +17,13 @@
   } from '@lucide/svelte';
   import FileUploadButton from '$lib/components/FileUploadButton.svelte';
   import PageShell from '$lib/components/PageShell.svelte';
+  import {
+    fileMatchesTool,
+    folderName as libraryFolderName,
+    isDrawingFile,
+    isGeneralDocumentFile,
+    isSpecificationFile
+  } from '$lib/file-library';
   import { formatDate } from '$lib/utils';
 
   let { data } = $props();
@@ -61,11 +68,7 @@
   const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
   const uploadFolder = $derived(defaultUploadFolder);
 
-  const toolFiles = $derived(
-    data.files.filter((file) =>
-      documentTool === 'specifications' ? isSpecification(file) : documentTool === 'documents' ? isGeneralDocument(file) : isDrawing(file)
-    )
-  );
+  const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const filteredFiles = $derived(
     toolFiles.filter((file) => {
       return !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
@@ -95,17 +98,11 @@
   );
 
   function isSpecification(file: (typeof data.files)[number]) {
-    const haystack = `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase();
-    if (file.documentKind === 'specification') return true;
-    if (/\bspec(?:s|ification|ifications)?\b/.test(haystack) || haystack.includes('project manual') || /\bdivision\s+\d{1,2}\b/.test(haystack)) {
-      return true;
-    }
-    if (file.documentKind === 'drawing') return false;
-    return false;
+    return isSpecificationFile(file);
   }
 
   function folderName(file: (typeof data.files)[number]) {
-    return file.path.includes('/') ? file.path.split('/')[0] : 'General';
+    return libraryFolderName(file);
   }
 
   function drawingSheetCount(file: FileRow) {
@@ -113,34 +110,11 @@
   }
 
   function isGeneralDocument(file: (typeof data.files)[number]) {
-    if (isSpecification(file)) return false;
-    const folder = folderName(file).toLowerCase();
-    if (
-      [
-        'documents',
-        'general documents',
-        'meeting notes',
-        'contract',
-        'change order',
-        'close out documents',
-        'estimate info',
-        'notice to proceed',
-        "o&m's",
-        'pictures',
-        'purchase orders',
-        'rfi',
-        'safety',
-        'schedules',
-        'submittals'
-      ].includes(folder)
-    ) {
-      return true;
-    }
-    return file.documentKind === 'file' || file.type !== 'pdf';
+    return isGeneralDocumentFile(file);
   }
 
   function isDrawing(file: (typeof data.files)[number]) {
-    return !isSpecification(file) && !isGeneralDocument(file);
+    return isDrawingFile(file);
   }
 
   function documentNumber(file: (typeof data.files)[number]) {
