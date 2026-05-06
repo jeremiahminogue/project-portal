@@ -40,6 +40,18 @@ test('documents only include general files, not RFI or submittal attachments', a
   assert.equal(
     fileMatchesTool(
       {
+        name: 'OAC Minutes.pdf',
+        path: 'Meeting Minutes/OAC Minutes.pdf',
+        type: 'pdf'
+      },
+      'documents'
+    ),
+    true
+  );
+
+  assert.equal(
+    fileMatchesTool(
+      {
         name: 'Simplex Data Sheet.pdf',
         path: 'Submittal S-002 Attachments/Simplex Data Sheet.pdf',
         type: 'pdf',

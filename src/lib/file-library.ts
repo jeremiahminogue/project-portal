@@ -13,6 +13,7 @@ const generalDocumentFolders = new Set([
   'documents',
   'general documents',
   'meeting notes',
+  'meeting minutes',
   'contract',
   'change order',
   'close out documents',

@@ -67,8 +67,22 @@
   const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
   const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
   const uploadFolder = $derived(defaultUploadFolder);
+  const uploadFolderEditable = $derived(documentTool === 'drawings' || documentTool === 'documents');
+  const uploadFolderLabel = $derived(documentTool === 'documents' ? 'Document folder' : 'Drawing group');
+  const uploadFolderPlaceholder = $derived(
+    documentTool === 'documents' ? 'Meeting Minutes, Contracts, Photos...' : 'General, Civil, Electrical...'
+  );
+  const suggestedDocumentFolders = ['Documents', 'Meeting Minutes', 'Contracts', 'Schedules', 'Photos', 'Safety', 'Close Out Documents'];
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
+  const toolFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
+  const uploadFolderOptions = $derived(
+    documentTool === 'documents'
+      ? uniqueFolderOptions([...suggestedDocumentFolders, ...toolFolderNames])
+      : documentTool === 'drawings'
+        ? toolFolderNames
+        : []
+  );
   const filteredFiles = $derived(
     toolFiles.filter((file) => {
       return !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
@@ -99,6 +113,10 @@
 
   function isSpecification(file: (typeof data.files)[number]) {
     return isSpecificationFile(file);
+  }
+
+  function uniqueFolderOptions(names: string[]) {
+    return [...new Set(names.map((name) => name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
   function folderName(file: (typeof data.files)[number]) {
@@ -554,9 +572,10 @@
           projectSlug={data.project.id}
           folderName={uploadFolder}
           documentKind={uploadDocumentKind}
-          folderEditable={documentTool === 'drawings'}
-          folderLabel="Drawing group"
-          folderPlaceholder="General, Civil, Electrical..."
+          folderEditable={uploadFolderEditable}
+          folderLabel={uploadFolderLabel}
+          folderPlaceholder={uploadFolderPlaceholder}
+          folderOptions={uploadFolderOptions}
         />
       {:else}
         <span class="readonly-chip">Read-only access</span>

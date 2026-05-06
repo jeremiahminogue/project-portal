@@ -216,12 +216,18 @@ test('file uploads carry tool context so specs and documents stay out of drawing
 
   assert.match(uploadButton, /documentKind = 'file'/);
   assert.match(uploadButton, /documentKind,/);
+  assert.match(uploadButton, /folderOptions/);
+  assert.match(uploadButton, /<datalist/);
   assert.match(uploadClient, /form\.set\('documentKind', input\.documentKind \?\? 'file'\)/);
   assert.match(uploadClient, /documentKind: input\.documentKind \?\? 'file'/);
   assert.match(filesPage, /const uploadDocumentKind/);
   assert.match(filesPage, /documentKind=\{uploadDocumentKind\}/);
   assert.match(filesPage, /const defaultUploadFolder/);
   assert.match(filesPage, /const uploadFolder = \$derived\(defaultUploadFolder\)/);
+  assert.match(filesPage, /const uploadFolderEditable/);
+  assert.match(filesPage, /folderEditable=\{uploadFolderEditable\}/);
+  assert.match(filesPage, /Document folder/);
+  assert.match(filesPage, /Meeting Minutes/);
   assert.doesNotMatch(filesPage, /activeFolder/);
   assert.doesNotMatch(filesPage, /Folder filter/);
   assert.doesNotMatch(filesPage, /data\.folders\.find/);

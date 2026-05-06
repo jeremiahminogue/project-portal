@@ -10,6 +10,7 @@
     folderEditable = false,
     folderLabel = 'Folder',
     folderPlaceholder = 'Folder name',
+    folderOptions = [],
     documentKind = 'file'
   }: {
     projectSlug: string;
@@ -18,6 +19,7 @@
     folderEditable?: boolean;
     folderLabel?: string;
     folderPlaceholder?: string;
+    folderOptions?: string[];
     documentKind?: 'drawing' | 'specification' | 'file';
   } = $props();
   let input: HTMLInputElement;
@@ -25,6 +27,15 @@
   let lastIncomingFolderName = $state('');
   let uploading = $state(false);
   let message = $state('');
+
+  const normalizedFolderOptions = $derived(
+    [...new Set(folderOptions.map((option) => option.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
+  );
+  const folderListId = $derived(`folder-options-${cleanId(projectSlug)}-${cleanId(documentKind)}`);
+
+  function cleanId(value: string) {
+    return value.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'project';
+  }
 
   $effect(() => {
     if (folderName !== lastIncomingFolderName) {
@@ -77,7 +88,20 @@
     {#if folderEditable}
       <label class="upload-group-field">
         <span>{folderLabel}</span>
-        <input class="field" bind:value={selectedFolderName} placeholder={folderPlaceholder} disabled={uploading} />
+        <input
+          class="field"
+          bind:value={selectedFolderName}
+          placeholder={folderPlaceholder}
+          disabled={uploading}
+          list={normalizedFolderOptions.length ? folderListId : undefined}
+        />
+        {#if normalizedFolderOptions.length}
+          <datalist id={folderListId}>
+            {#each normalizedFolderOptions as option}
+              <option value={option}></option>
+            {/each}
+          </datalist>
+        {/if}
       </label>
     {/if}
     <button class={`btn btn-primary ${fullWidth && !folderEditable ? 'w-full' : ''}`} type="button" disabled={uploading} onclick={() => input?.click()}>
