@@ -16,6 +16,7 @@ import {
   projectRoleCapabilities,
   requireProjectAccess
 } from '$lib/server/project-access';
+import { isMissingProjectMemberManagerFlagError } from '$lib/server/schema-compat';
 import { getDirectory, getFiles, getProject, getRfis } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -114,8 +115,11 @@ async function defaultRfiManagerId(
     .eq('is_rfi_manager', true)
     .limit(1)
     .maybeSingle();
-  if (designatedError) throw new Error(designatedError.message);
-  if (designated?.user_id) return designated.user_id;
+  if (designatedError) {
+    if (!isMissingProjectMemberManagerFlagError(designatedError)) throw new Error(designatedError.message);
+  } else if (designated?.user_id) {
+    return designated.user_id;
+  }
 
   const currentUserError = await assertProjectMember(client, projectId, userId, 'RFI manager');
   if (!currentUserError) return userId;

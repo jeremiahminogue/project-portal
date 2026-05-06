@@ -59,8 +59,12 @@
       <span class="eyebrow">Project</span>
       <h1>Members</h1>
       <p>
-        Project admins and superadmins can change roles, mark submittal / RFI managers, and remove people from this project.
-        Manager flags drive who reviews unrouted submittals and RFIs.
+        {#if data.managerFlagsAvailable}
+          Project admins and superadmins can change roles, mark submittal / RFI managers, and remove people from this project.
+          Manager flags drive who reviews unrouted submittals and RFIs.
+        {:else}
+          Project admins and superadmins can change roles and remove people from this project.
+        {/if}
       </p>
     </div>
     <a class="btn btn-secondary" href={`/projects/${data.project?.id ?? ''}/directory`}>
@@ -81,7 +85,13 @@
   {#if !data.canManage}
     <div class="readonly-banner">
       <ShieldCheck size={14} />
-      <span>You are viewing the member list. Only a project admin or a superadmin can change roles or manager flags.</span>
+      <span>You are viewing the member list. Only a project admin or a superadmin can change roles{data.managerFlagsAvailable ? ' or manager flags' : ''}.</span>
+    </div>
+  {/if}
+  {#if data.canManage && !data.managerFlagsAvailable}
+    <div class="readonly-banner">
+      <ShieldCheck size={14} />
+      <span>Submittal and RFI manager flags will appear after the database update is applied.</span>
     </div>
   {/if}
 
@@ -113,17 +123,17 @@
 
             <div class="member-flags">
               <StatusPill label={roleLabel(member.role)} />
-              {#if member.isSubmittalManager}
+              {#if data.managerFlagsAvailable && member.isSubmittalManager}
                 <span class="flag is-submittal" title="Receives unrouted submittals">SM</span>
               {/if}
-              {#if member.isRfiManager}
+              {#if data.managerFlagsAvailable && member.isRfiManager}
                 <span class="flag is-rfi" title="Receives unrouted RFIs">RM</span>
               {/if}
             </div>
 
             {#if data.canManage}
               <div class="member-actions">
-                <button class="row-icon-btn" type="button" title="Edit role + flags" aria-label={`Edit ${member.fullName}`} onclick={() => startEdit(member.userId)}>
+                <button class="row-icon-btn" type="button" title={data.managerFlagsAvailable ? 'Edit role + flags' : 'Edit role'} aria-label={`Edit ${member.fullName}`} onclick={() => startEdit(member.userId)}>
                   <Pencil size={14} />
                 </button>
                 <button class="row-icon-btn is-danger" type="button" title="Remove from project" aria-label={`Remove ${member.fullName}`} onclick={() => startRemove(member.userId)}>
@@ -149,16 +159,18 @@
                     <option value="readonly" selected={member.role === 'readonly'}>Read-only</option>
                   </select>
                 </label>
-                <label class="me-check">
-                  <input type="checkbox" name="isSubmittalManager" checked={member.isSubmittalManager} />
-                  <span>Submittal manager</span>
-                  <small>Picks up submittals that arrive without a routing chain.</small>
-                </label>
-                <label class="me-check">
-                  <input type="checkbox" name="isRfiManager" checked={member.isRfiManager} />
-                  <span>RFI manager</span>
-                  <small>Picks up RFIs that arrive without a designated reviewer.</small>
-                </label>
+                {#if data.managerFlagsAvailable}
+                  <label class="me-check">
+                    <input type="checkbox" name="isSubmittalManager" checked={member.isSubmittalManager} />
+                    <span>Submittal manager</span>
+                    <small>Picks up submittals that arrive without a routing chain.</small>
+                  </label>
+                  <label class="me-check">
+                    <input type="checkbox" name="isRfiManager" checked={member.isRfiManager} />
+                    <span>RFI manager</span>
+                    <small>Picks up RFIs that arrive without a designated reviewer.</small>
+                  </label>
+                {/if}
                 <div class="me-actions">
                   <button class="btn btn-ghost" type="button" onclick={() => (editingUserId = '')}>Cancel</button>
                   <button class="btn btn-primary" type="submit">

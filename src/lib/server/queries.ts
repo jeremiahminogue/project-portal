@@ -27,6 +27,7 @@ import { isProductionRuntime } from './env';
 import { loadItemAttachmentLinks, normalizeItemAttachments } from './item-attachments';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
+import { isMissingProjectMemberManagerFlagError, projectMemberManagerFlagsAvailable } from './schema-compat';
 
 type EventLike = Pick<RequestEvent, 'locals'>;
 
@@ -952,6 +953,31 @@ export async function listAdminProjects(): Promise<AdminProjectRow[]> {
   }));
 }
 
+async function listProjectMembersForAdmin(admin: ReturnType<typeof createAdminClient>) {
+  const members = await admin
+    .from('project_members')
+    .select('user_id, role, is_submittal_manager, is_rfi_manager, projects:project_id (id, slug, name)');
+
+  if (!members.error) return members.data ?? [];
+  if (!isMissingProjectMemberManagerFlagError(members.error)) throw new Error(members.error.message);
+
+  const fallback = await admin
+    .from('project_members')
+    .select('user_id, role, projects:project_id (id, slug, name)');
+  if (fallback.error) throw new Error(fallback.error.message);
+
+  return (fallback.data ?? []).map((member: any) => ({
+    ...member,
+    is_submittal_manager: false,
+    is_rfi_manager: false
+  }));
+}
+
+export async function adminProjectMemberManagerFlagsAvailable() {
+  if (!hasSupabaseAdminConfig() && !isProductionRuntime()) return true;
+  return projectMemberManagerFlagsAvailable(createAdminClient());
+}
+
 export async function listAdminUsers(): Promise<AdminUserRow[]> {
   if (!hasSupabaseAdminConfig() && !isProductionRuntime()) {
     return [
@@ -980,18 +1006,15 @@ export async function listAdminUsers(): Promise<AdminUserRow[]> {
   const [users, profiles, members] = await Promise.all([
     admin.auth.admin.listUsers({ page: 1, perPage: 1000 }),
     admin.from('profiles').select('id, full_name, company, title, is_superadmin'),
-    admin
-      .from('project_members')
-      .select('user_id, role, is_submittal_manager, is_rfi_manager, projects:project_id (id, slug, name)')
+    listProjectMembersForAdmin(admin)
   ]);
 
   if (users.error) throw new Error(users.error.message);
   if (profiles.error) throw new Error(profiles.error.message);
-  if (members.error) throw new Error(members.error.message);
 
   const profileById = new Map((profiles.data ?? []).map((profile: any) => [profile.id, profile]));
   const projectsByUser = new Map<string, AdminUserRow['projects']>();
-  for (const member of members.data ?? []) {
+  for (const member of members ?? []) {
     const project = first(member.projects);
     if (!project) continue;
     const projects = projectsByUser.get(member.user_id) ?? [];

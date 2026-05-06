@@ -2,7 +2,8 @@ import { fail } from '@sveltejs/kit';
 import { formString, requireSuperadmin } from '$lib/server/auth';
 import { writeAdminAudit } from '$lib/server/admin-audit';
 import { escapeHtml, sendPortalEmail } from '$lib/server/email';
-import { listAdminProjects, listAdminUsers } from '$lib/server/queries';
+import { adminProjectMemberManagerFlagsAvailable, listAdminProjects, listAdminUsers } from '$lib/server/queries';
+import { isMissingProjectMemberManagerFlagError, stripProjectMemberManagerFlags } from '$lib/server/schema-compat';
 import { createAdminClient } from '$lib/server/supabase-admin';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -115,10 +116,51 @@ async function projectNameFor(admin: ReturnType<typeof createAdminClient>, proje
   return data?.name ?? null;
 }
 
+async function upsertProjectMembership(admin: ReturnType<typeof createAdminClient>, payload: Record<string, unknown>) {
+  const saved = await admin.from('project_members').upsert(payload, { onConflict: 'project_id,user_id' });
+  if (!saved.error) return { error: null, managerFlagsSaved: true };
+  if (!isMissingProjectMemberManagerFlagError(saved.error)) return { error: saved.error, managerFlagsSaved: true };
+
+  const fallback = await admin
+    .from('project_members')
+    .upsert(stripProjectMemberManagerFlags(payload), { onConflict: 'project_id,user_id' });
+  return { error: fallback.error, managerFlagsSaved: false };
+}
+
+async function updateProjectMembership(
+  admin: ReturnType<typeof createAdminClient>,
+  projectId: string,
+  userId: string,
+  payload: Record<string, unknown>
+) {
+  const saved = await admin
+    .from('project_members')
+    .update(payload)
+    .eq('project_id', projectId)
+    .eq('user_id', userId);
+  if (!saved.error) return { error: null, managerFlagsSaved: true };
+  if (!isMissingProjectMemberManagerFlagError(saved.error)) return { error: saved.error, managerFlagsSaved: true };
+
+  const fallback = await admin
+    .from('project_members')
+    .update(stripProjectMemberManagerFlags(payload))
+    .eq('project_id', projectId)
+    .eq('user_id', userId);
+  return { error: fallback.error, managerFlagsSaved: false };
+}
+
+function managerFlagNotice(flagsRequested: boolean, managerFlagsSaved: boolean) {
+  return flagsRequested && !managerFlagsSaved ? ' Manager flags require the database update before they can be saved.' : '';
+}
+
 export const load: PageServerLoad = async (event) => {
   await requireSuperadmin(event);
-  const [users, projects] = await Promise.all([listAdminUsers(), listAdminProjects()]);
-  return { users, projects };
+  const [users, projects, managerFlagsAvailable] = await Promise.all([
+    listAdminUsers(),
+    listAdminProjects(),
+    adminProjectMemberManagerFlagsAvailable()
+  ]);
+  return { users, projects, managerFlagsAvailable };
 };
 
 export const actions: Actions = {
@@ -216,24 +258,23 @@ export const actions: Actions = {
     if (!userId || !projectId) return fail(400, { error: 'Choose a user and project before assigning access.' });
 
     const admin = createAdminClient();
-    const { error } = await admin.from('project_members').upsert(
-      {
-        project_id: projectId,
-        user_id: userId,
-        role,
-        is_submittal_manager: isSubmittalManager,
-        is_rfi_manager: isRfiManager,
-        accepted_at: new Date().toISOString()
-      },
-      { onConflict: 'project_id,user_id' }
-    );
+    const managerFlagsRequested = isSubmittalManager || isRfiManager;
+    const membership = await upsertProjectMembership(admin, {
+      project_id: projectId,
+      user_id: userId,
+      role,
+      is_submittal_manager: isSubmittalManager,
+      is_rfi_manager: isRfiManager,
+      accepted_at: new Date().toISOString()
+    });
 
-    if (error) return fail(400, { error: error.message });
+    if (membership.error) return fail(400, { error: membership.error.message });
     await writeAdminAudit(event, 'membership.upsert', 'user', userId, {
       projectId,
       role,
-      isSubmittalManager,
-      isRfiManager
+      isSubmittalManager: membership.managerFlagsSaved ? isSubmittalManager : false,
+      isRfiManager: membership.managerFlagsSaved ? isRfiManager : false,
+      managerFlagsSaved: membership.managerFlagsSaved
     });
 
     let emailSkipped = false;
@@ -273,7 +314,9 @@ export const actions: Actions = {
 
     return {
       ok: true,
-      message: sendEmail ? (emailSkipped ? 'Access granted. Access email was not sent.' : 'Access granted and email sent.') : 'Access granted.',
+      message:
+        (sendEmail ? (emailSkipped ? 'Access granted. Access email was not sent.' : 'Access granted and email sent.') : 'Access granted.') +
+        managerFlagNotice(managerFlagsRequested, membership.managerFlagsSaved),
       emailSkipped
     };
   },
@@ -330,24 +373,22 @@ export const actions: Actions = {
     if (!userId || !projectId) return fail(400, { error: 'Choose a user and project before saving access.' });
 
     const admin = createAdminClient();
-    const { error } = await admin
-      .from('project_members')
-      .update({
-        role,
-        is_submittal_manager: isSubmittalManager,
-        is_rfi_manager: isRfiManager
-      })
-      .eq('project_id', projectId)
-      .eq('user_id', userId);
+    const managerFlagsRequested = isSubmittalManager || isRfiManager;
+    const membership = await updateProjectMembership(admin, projectId, userId, {
+      role,
+      is_submittal_manager: isSubmittalManager,
+      is_rfi_manager: isRfiManager
+    });
 
-    if (error) return fail(400, { error: error.message });
+    if (membership.error) return fail(400, { error: membership.error.message });
     await writeAdminAudit(event, 'membership.update', 'user', userId, {
       projectId,
       role,
-      isSubmittalManager,
-      isRfiManager
+      isSubmittalManager: membership.managerFlagsSaved ? isSubmittalManager : false,
+      isRfiManager: membership.managerFlagsSaved ? isRfiManager : false,
+      managerFlagsSaved: membership.managerFlagsSaved
     });
-    return { ok: true, message: 'Membership updated.' };
+    return { ok: true, message: `Membership updated.${managerFlagNotice(managerFlagsRequested, membership.managerFlagsSaved)}` };
   },
 
   removeProject: async (event) => {

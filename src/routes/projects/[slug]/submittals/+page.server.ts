@@ -16,6 +16,7 @@ import {
   projectRoleCapabilities,
   requireProjectAccess
 } from '$lib/server/project-access';
+import { isMissingProjectMemberManagerFlagError } from '$lib/server/schema-compat';
 import { getDirectory, getFiles, getProject, getSubmittals } from '$lib/server/queries';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -626,7 +627,12 @@ export const actions: Actions = {
         .eq('project_id', access.project.id)
         .eq('user_id', access.user.id)
         .maybeSingle();
-      if (managerError) return fail(400, { error: managerError.message });
+      if (managerError) {
+        if (isMissingProjectMemberManagerFlagError(managerError)) {
+          return actionError('Only project admins can route submittals until manager flags are configured.', 403);
+        }
+        return fail(400, { error: managerError.message });
+      }
       if (!managerRow?.is_submittal_manager) {
         return actionError('Only submittal managers can route submittals.', 403);
       }

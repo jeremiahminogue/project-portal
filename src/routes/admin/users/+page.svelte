@@ -68,6 +68,11 @@
       </button>
     </div>
   {/if}
+  {#if !data.managerFlagsAvailable}
+    <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+      Submittal and RFI manager flags will appear after the database update is applied.
+    </div>
+  {/if}
 
   {#if createOpen}
     <form class="invite-panel" method="post" action="?/createUser" use:enhance>
@@ -131,17 +136,17 @@
               <div class="project-chip-row">
                 <div class="project-chip">
                   <span class="chip-main">#{project.slug} - {project.role}</span>
-                  {#if project.isSubmittalManager}
+                  {#if data.managerFlagsAvailable && project.isSubmittalManager}
                     <span class="chip-flag is-submittal" title="Submittal manager on this project">SM</span>
                   {/if}
-                  {#if project.isRfiManager}
+                  {#if data.managerFlagsAvailable && project.isRfiManager}
                     <span class="chip-flag is-rfi" title="RFI manager on this project">RM</span>
                   {/if}
                   <button
                     type="button"
                     class="chip-icon"
                     aria-label={`Edit ${user.email} on ${project.name}`}
-                    title="Edit role + manager flags"
+                    title={data.managerFlagsAvailable ? 'Edit role + manager flags' : 'Edit role'}
                     onclick={() => toggleEdit(user.id, project.id)}
                   >
                     <Pencil size={12} />
@@ -175,8 +180,10 @@
                         <option value="readonly" selected={project.role === 'readonly'}>Read-only</option>
                       </select>
                     </label>
-                    <label class="mini-check"><input type="checkbox" name="isSubmittalManager" checked={project.isSubmittalManager} /> Submittal manager</label>
-                    <label class="mini-check"><input type="checkbox" name="isRfiManager" checked={project.isRfiManager} /> RFI manager</label>
+                    {#if data.managerFlagsAvailable}
+                      <label class="mini-check"><input type="checkbox" name="isSubmittalManager" checked={project.isSubmittalManager} /> Submittal manager</label>
+                      <label class="mini-check"><input type="checkbox" name="isRfiManager" checked={project.isRfiManager} /> RFI manager</label>
+                    {/if}
                     <div class="me-actions">
                       <button class="btn btn-ghost" type="button" onclick={() => (editingMembership = '')}>Cancel</button>
                       <button class="btn btn-primary" type="submit">Save</button>
@@ -204,8 +211,10 @@
                 <option value="guest">Guest</option>
                 <option value="readonly">Read-only</option>
               </select>
-              <label class="mini-check" title="User can route incoming submittals on this project"><input type="checkbox" name="isSubmittalManager" /> Submittal manager</label>
-              <label class="mini-check" title="User can manage RFIs on this project"><input type="checkbox" name="isRfiManager" /> RFI manager</label>
+              {#if data.managerFlagsAvailable}
+                <label class="mini-check" title="User can route incoming submittals on this project"><input type="checkbox" name="isSubmittalManager" /> Submittal manager</label>
+                <label class="mini-check" title="User can manage RFIs on this project"><input type="checkbox" name="isRfiManager" /> RFI manager</label>
+              {/if}
               <label class="mini-check"><input type="checkbox" name="sendEmail" /> Email</label>
               <button class="btn btn-secondary" type="submit" aria-label={`Assign project to ${user.email}`}>
                 <Plus size={14} />

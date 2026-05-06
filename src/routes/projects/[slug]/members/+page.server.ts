@@ -8,6 +8,7 @@ import {
   requireProjectAccess,
   type ProjectRole
 } from '$lib/server/project-access';
+import { isMissingProjectMemberManagerFlagError, stripProjectMemberManagerFlags } from '$lib/server/schema-compat';
 import type { Actions, PageServerLoad } from './$types';
 
 const memberRoles = new Set<ProjectRole>(['admin', 'member', 'guest', 'readonly']);
@@ -18,6 +19,10 @@ function roleValue(value: string): ProjectRole {
 
 function checked(form: FormData, name: string) {
   return form.get(name) === 'on';
+}
+
+function managerFlagNotice(flagsRequested: boolean, managerFlagsSaved: boolean) {
+  return flagsRequested && !managerFlagsSaved ? ' Manager flags require the database update before they can be saved.' : '';
 }
 
 type MemberRow = {
@@ -59,6 +64,7 @@ export const load: PageServerLoad = async (event) => {
       members: [] as MemberRow[],
       canManage: false,
       currentUserId: null,
+      managerFlagsAvailable: false,
       accessError: access.message
     };
   }
@@ -70,19 +76,29 @@ export const load: PageServerLoad = async (event) => {
     return {
       members: [] as MemberRow[],
       canManage: false,
-      currentUserId: access.user.id
+      currentUserId: access.user.id,
+      managerFlagsAvailable: false
     };
   }
 
-  const { data: rows, error } = await projectClient
+  let managerFlagsAvailable = true;
+  let memberRows: any = await projectClient
     .from('project_members')
     .select('user_id, role, is_submittal_manager, is_rfi_manager, accepted_at')
     .eq('project_id', access.project.id);
+  if (memberRows.error && isMissingProjectMemberManagerFlagError(memberRows.error)) {
+    managerFlagsAvailable = false;
+    memberRows = await projectClient
+      .from('project_members')
+      .select('user_id, role, accepted_at')
+      .eq('project_id', access.project.id);
+  }
+  const { data: rows, error } = memberRows;
   if (error) throw new Error(`load members failed: ${error.message}`);
 
-  const userIds = (rows ?? [])
+  const userIds = ((rows ?? []) as Array<{ user_id: string | null }>)
     .map((row: { user_id: string | null }) => row.user_id)
-    .filter((id): id is string => Boolean(id));
+    .filter((id: string | null): id is string => Boolean(id));
 
   let profilesById = new Map<string, { id: string; full_name: string | null; email: string | null; company: string | null; title: string | null }>();
   if (userIds.length) {
@@ -94,7 +110,7 @@ export const load: PageServerLoad = async (event) => {
     profilesById = new Map((profiles ?? []).map((profile: any) => [profile.id, profile]));
   }
 
-  const members: MemberRow[] = (rows ?? [])
+  const members: MemberRow[] = ((rows ?? []) as any[])
     .map((row: any) => {
       const profile = profilesById.get(row.user_id);
       return {
@@ -109,7 +125,7 @@ export const load: PageServerLoad = async (event) => {
         title: profile?.title ?? null
       };
     })
-    .sort((a, b) => {
+    .sort((a: MemberRow, b: MemberRow) => {
       // Admins first, then alphabetical by name. Keeps managers at the top
       // of the list since they're usually project admins as well.
       const roleScore = (role: ProjectRole) => (role === 'admin' ? 0 : role === 'member' ? 1 : role === 'guest' ? 2 : 3);
@@ -121,7 +137,8 @@ export const load: PageServerLoad = async (event) => {
   return {
     members,
     canManage: projectRoleCapabilities[access.role].canManageProjectUsers,
-    currentUserId: access.user.id
+    currentUserId: access.user.id,
+    managerFlagsAvailable
   };
 };
 
@@ -150,27 +167,39 @@ export const actions: Actions = {
       return fail(400, { error: 'You cannot demote yourself out of project admin.' });
     }
 
-    const { error } = await projectClient
+    const managerFlagsRequested = isSubmittalManager || isRfiManager;
+    let managerFlagsSaved = true;
+    const payload = {
+      role,
+      is_submittal_manager: isSubmittalManager,
+      is_rfi_manager: isRfiManager
+    };
+    let result = await projectClient
       .from('project_members')
-      .update({
-        role,
-        is_submittal_manager: isSubmittalManager,
-        is_rfi_manager: isRfiManager
-      })
+      .update(payload)
       .eq('project_id', access.project.id)
       .eq('user_id', userId);
-    if (error) return fail(400, { error: error.message });
+    if (result.error && isMissingProjectMemberManagerFlagError(result.error)) {
+      managerFlagsSaved = false;
+      result = await projectClient
+        .from('project_members')
+        .update(stripProjectMemberManagerFlags(payload))
+        .eq('project_id', access.project.id)
+        .eq('user_id', userId);
+    }
+    if (result.error) return fail(400, { error: result.error.message });
 
     await writeAdminAudit(event, 'membership.update', 'user', userId, {
       projectId: access.project.id,
       slug: access.project.slug,
       role,
-      isSubmittalManager,
-      isRfiManager,
+      isSubmittalManager: managerFlagsSaved ? isSubmittalManager : false,
+      isRfiManager: managerFlagsSaved ? isRfiManager : false,
+      managerFlagsSaved,
       via: 'project-members-page'
     });
 
-    return { ok: true, message: 'Member updated.' };
+    return { ok: true, message: `Member updated.${managerFlagNotice(managerFlagsRequested, managerFlagsSaved)}` };
   },
 
   removeMember: async (event) => {
