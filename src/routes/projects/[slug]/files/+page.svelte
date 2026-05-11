@@ -78,11 +78,9 @@
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const toolFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
-  const existingFolderNames = $derived(uniqueFolderOptions(data.folders.map((folder) => folder.name)));
-  const existingDocumentFolderNames = $derived(existingFolderNames.filter((name) => folderLooksLikeGeneralDocument(name)));
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
-      ? uniqueFolderOptions([...suggestedDocumentFolders, ...existingDocumentFolderNames, ...toolFolderNames])
+      ? uniqueFolderOptions([...suggestedDocumentFolders, ...toolFolderNames])
       : documentTool === 'drawings'
         ? toolFolderNames
         : []
@@ -125,18 +123,6 @@
 
   function folderName(file: (typeof data.files)[number]) {
     return libraryFolderName(file);
-  }
-
-  function folderLooksLikeGeneralDocument(name: string) {
-    return fileMatchesTool(
-      {
-        name: 'Document.pdf',
-        path: `${name}/Document.pdf`,
-        type: 'pdf',
-        documentKind: 'file'
-      },
-      'documents'
-    );
   }
 
   function drawingSheetCount(file: FileRow) {
