@@ -3,6 +3,8 @@
   import { UploadCloud } from '@lucide/svelte';
   import { uploadProjectFile } from '$lib/client/project-file-upload';
 
+  const CUSTOM_FOLDER_VALUE = '__custom-folder__';
+
   let {
     projectSlug,
     folderName = '',
@@ -24,22 +26,52 @@
   } = $props();
   let input: HTMLInputElement;
   let selectedFolderName = $state('');
+  let folderSelectValue = $state('');
+  let customFolderName = $state('');
   let lastIncomingFolderName = $state('');
   let uploading = $state(false);
+  let draggingFiles = $state(false);
   let message = $state('');
 
   const normalizedFolderOptions = $derived(
     [...new Set(folderOptions.map((option) => option.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   );
-  const folderListId = $derived(`folder-options-${cleanId(projectSlug)}-${cleanId(documentKind)}`);
+  const selectedUploadFolderName = $derived(
+    normalizedFolderOptions.length
+      ? folderSelectValue === CUSTOM_FOLDER_VALUE
+        ? customFolderName
+        : folderSelectValue
+      : selectedFolderName
+  );
 
-  function cleanId(value: string) {
-    return value.replace(/[^a-z0-9_-]+/gi, '-').replace(/^-+|-+$/g, '') || 'project';
+  function syncFolderSelection(value: string) {
+    selectedFolderName = value;
+    if (!normalizedFolderOptions.length) {
+      folderSelectValue = '';
+      customFolderName = '';
+      return;
+    }
+
+    if (!value || normalizedFolderOptions.includes(value)) {
+      folderSelectValue = value;
+      customFolderName = '';
+      return;
+    }
+
+    folderSelectValue = CUSTOM_FOLDER_VALUE;
+    customFolderName = value;
+  }
+
+  function hasDraggedFiles(event: DragEvent) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return false;
+    if (transfer.items?.length) return Array.from(transfer.items).some((item) => item.kind === 'file');
+    return transfer.files.length > 0;
   }
 
   $effect(() => {
     if (folderName !== lastIncomingFolderName) {
-      selectedFolderName = folderName;
+      syncFolderSelection(folderName);
       lastIncomingFolderName = folderName;
     }
   });
@@ -48,7 +80,7 @@
     const result = await uploadProjectFile({
       projectSlug,
       file,
-      folderName: selectedFolderName.trim(),
+      folderName: selectedUploadFolderName.trim(),
       documentKind,
       onPortalFallback: () => {
         message = `Direct upload was blocked by the browser; finishing ${file.name} through the portal...`;
@@ -80,27 +112,61 @@
   function onChange() {
     void upload(Array.from(input.files ?? []));
   }
+
+  function onDragEnter(event: DragEvent) {
+    if (uploading || !hasDraggedFiles(event)) return;
+    draggingFiles = true;
+  }
+
+  function onDragOver(event: DragEvent) {
+    if (uploading || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'copy';
+    draggingFiles = true;
+  }
+
+  function onDragLeave(event: DragEvent) {
+    const currentTarget = event.currentTarget as HTMLElement;
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (!relatedTarget || !currentTarget.contains(relatedTarget)) draggingFiles = false;
+  }
+
+  function onDrop(event: DragEvent) {
+    if (uploading || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    draggingFiles = false;
+    void upload(Array.from(event.dataTransfer?.files ?? []));
+  }
 </script>
 
-<div class={`upload-button-shell ${fullWidth ? 'full-width' : ''}`}>
+<div
+  class={`upload-button-shell ${fullWidth ? 'full-width' : ''}`}
+  class:dragging-files={draggingFiles}
+  role="group"
+  aria-label="File upload"
+  ondragenter={onDragEnter}
+  ondragover={onDragOver}
+  ondragleave={onDragLeave}
+  ondrop={onDrop}
+>
   <input bind:this={input} class="sr-only" type="file" multiple onchange={onChange} />
   <div class={`upload-control-row ${folderEditable ? 'with-folder' : ''} ${fullWidth ? 'full-width' : ''}`}>
     {#if folderEditable}
       <label class="upload-group-field">
         <span>{folderLabel}</span>
-        <input
-          class="field"
-          bind:value={selectedFolderName}
-          placeholder={folderPlaceholder}
-          disabled={uploading}
-          list={normalizedFolderOptions.length ? folderListId : undefined}
-        />
         {#if normalizedFolderOptions.length}
-          <datalist id={folderListId}>
+          <select class="field" bind:value={folderSelectValue} disabled={uploading} aria-label={folderLabel}>
+            <option value="">No folder</option>
             {#each normalizedFolderOptions as option}
-              <option value={option}></option>
+              <option value={option}>{option}</option>
             {/each}
-          </datalist>
+            <option value={CUSTOM_FOLDER_VALUE}>New folder...</option>
+          </select>
+          {#if folderSelectValue === CUSTOM_FOLDER_VALUE}
+            <input class="field" bind:value={customFolderName} placeholder={folderPlaceholder} disabled={uploading} />
+          {/if}
+        {:else}
+          <input class="field" bind:value={selectedFolderName} placeholder={folderPlaceholder} disabled={uploading} />
         {/if}
       </label>
     {/if}
@@ -119,10 +185,21 @@
     display: grid;
     gap: 0.35rem;
     justify-items: end;
+    border: 1px solid transparent;
+    border-radius: 0.45rem;
+    padding: 0.2rem;
+    transition:
+      border-color 140ms ease,
+      background-color 140ms ease;
   }
 
   .upload-button-shell.full-width {
     justify-items: stretch;
+  }
+
+  .upload-button-shell.dragging-files {
+    border-color: rgba(24, 165, 58, 0.45);
+    background: rgba(24, 165, 58, 0.08);
   }
 
   .upload-control-row {
@@ -156,12 +233,17 @@
     font-weight: 850;
   }
 
-  .upload-group-field input {
+  .upload-group-field input,
+  .upload-group-field select {
     min-height: 2.1rem;
     border-radius: 0.28rem;
     padding: 0.42rem 0.55rem;
     font-size: 0.8rem;
     font-weight: 750;
+  }
+
+  .upload-group-field select {
+    cursor: pointer;
   }
 
   .upload-message {

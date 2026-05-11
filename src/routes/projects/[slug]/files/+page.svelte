@@ -16,6 +16,7 @@
     X
   } from '@lucide/svelte';
   import FileUploadButton from '$lib/components/FileUploadButton.svelte';
+  import { uploadProjectFile } from '$lib/client/project-file-upload';
   import PageShell from '$lib/components/PageShell.svelte';
   import {
     fileMatchesTool,
@@ -42,6 +43,7 @@
   let busy = $state(false);
   let notice = $state('');
   let selectedPageIds = $state<string[]>([]);
+  let dropGroupId = $state('');
 
   type FileRow = (typeof data.files)[number];
   type PageRow = NonNullable<FileRow['pages']>[number];
@@ -76,9 +78,11 @@
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const toolFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
+  const existingFolderNames = $derived(uniqueFolderOptions(data.folders.map((folder) => folder.name)));
+  const existingDocumentFolderNames = $derived(existingFolderNames.filter((name) => folderLooksLikeGeneralDocument(name)));
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
-      ? uniqueFolderOptions([...suggestedDocumentFolders, ...toolFolderNames])
+      ? uniqueFolderOptions([...suggestedDocumentFolders, ...existingDocumentFolderNames, ...toolFolderNames])
       : documentTool === 'drawings'
         ? toolFolderNames
         : []
@@ -121,6 +125,18 @@
 
   function folderName(file: (typeof data.files)[number]) {
     return libraryFolderName(file);
+  }
+
+  function folderLooksLikeGeneralDocument(name: string) {
+    return fileMatchesTool(
+      {
+        name: 'Document.pdf',
+        path: `${name}/Document.pdf`,
+        type: 'pdf',
+        documentKind: 'file'
+      },
+      'documents'
+    );
   }
 
   function drawingSheetCount(file: FileRow) {
@@ -247,6 +263,67 @@
 
   function groupCanRename(group: FileGroup) {
     return Boolean(group.folderId || group.files.some((file) => !fileIsStorageOnly(file)));
+  }
+
+  function groupCanReceiveDrops(group: FileGroup) {
+    return canUploadFiles && !busy && renameGroupId !== groupRenameKey(group);
+  }
+
+  function groupUploadFolderName(group: FileGroup) {
+    return group.name === 'General' && !group.folderId ? '' : group.name;
+  }
+
+  function hasDraggedFiles(event: DragEvent) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return false;
+    if (transfer.items?.length) return Array.from(transfer.items).some((item) => item.kind === 'file');
+    return transfer.files.length > 0;
+  }
+
+  function markGroupDrop(event: DragEvent, group: FileGroup) {
+    if (!groupCanReceiveDrops(group) || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'copy';
+    dropGroupId = groupRenameKey(group);
+  }
+
+  function clearGroupDrop(event: DragEvent, group: FileGroup) {
+    const currentTarget = event.currentTarget as HTMLElement;
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (relatedTarget && currentTarget.contains(relatedTarget)) return;
+    if (dropGroupId === groupRenameKey(group)) dropGroupId = '';
+  }
+
+  async function uploadFilesToGroup(files: File[], group: FileGroup) {
+    if (!files.length) return;
+    busy = true;
+    notice = '';
+    const folder = groupUploadFolderName(group);
+    try {
+      for (const file of files) {
+        notice = `Uploading ${file.name} to ${group.name}...`;
+        const result = await uploadProjectFile({
+          projectSlug: data.project.id,
+          file,
+          folderName: folder,
+          documentKind: uploadDocumentKind
+        });
+        notice = result.warning ? `${result.name} uploaded. ${result.warning}` : `${result.name} uploaded.`;
+      }
+      notice = files.length === 1 ? notice : `${files.length} files uploaded to ${group.name}.`;
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Upload failed.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  function dropFilesOnGroup(event: DragEvent, group: FileGroup) {
+    if (!groupCanReceiveDrops(group) || !hasDraggedFiles(event)) return;
+    event.preventDefault();
+    dropGroupId = '';
+    void uploadFilesToGroup(Array.from(event.dataTransfer?.files ?? []), group);
   }
 
   function groupPagesSelected(group: FileGroup) {
@@ -650,7 +727,16 @@
           </thead>
           <tbody>
             {#each groupedFiles as group}
-              <tr class="group-row" class:collapsed-row={groupIsCollapsed(group.name)}>
+              <tr
+                class="group-row"
+                class:collapsed-row={groupIsCollapsed(group.name)}
+                class:drop-target={groupCanReceiveDrops(group)}
+                class:drop-active={dropGroupId === groupRenameKey(group)}
+                ondragenter={(event) => markGroupDrop(event, group)}
+                ondragover={(event) => markGroupDrop(event, group)}
+                ondragleave={(event) => clearGroupDrop(event, group)}
+                ondrop={(event) => dropFilesOnGroup(event, group)}
+              >
                 <td class="group-control-cell">
                   <button
                     class="group-toggle"
@@ -1124,6 +1210,17 @@
 
   .collapsed-row td {
     border-bottom-color: #d8ddd7;
+  }
+
+  .drawings-table .group-row.drop-target td {
+    transition:
+      background-color 140ms ease,
+      box-shadow 140ms ease;
+  }
+
+  .drawings-table .group-row.drop-active td {
+    background: #eaf8ee !important;
+    box-shadow: inset 0 2px 0 rgba(24, 165, 58, 0.72), inset 0 -2px 0 rgba(24, 165, 58, 0.72);
   }
 
   .drawings-table th,
