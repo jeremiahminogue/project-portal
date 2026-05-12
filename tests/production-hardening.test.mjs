@@ -108,6 +108,11 @@ test('admin access email does not include plaintext temporary passwords', () => 
   assert.match(users, /hashed_token/);
   assert.match(users, /token_hash/);
   assert.match(users, /'\/reset-password'/);
+  assert.match(usersUi, /function highestAccess/);
+  assert.match(usersUi, /Portal admin/);
+  assert.match(usersUi, /Project admin/);
+  assert.match(usersUi, /Project access/);
+  assert.match(usersUi, /Admin console/);
 });
 
 test('admin page loads enforce superadmin access directly', () => {

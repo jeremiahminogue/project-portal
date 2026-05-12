@@ -19,6 +19,27 @@
     editingMembership = editingMembership === key ? '' : key;
   }
 
+  function roleLabel(role: string) {
+    if (role === 'admin') return 'Project admin';
+    if (role === 'member') return 'Member';
+    if (role === 'guest') return 'Guest';
+    if (role === 'readonly') return 'Read-only';
+    return role || 'Member';
+  }
+
+  function highestAccess(user: (typeof data.users)[number]) {
+    if (user.isSuperadmin) return { label: 'Portal admin', detail: 'Full admin console access', tone: 'superadmin' };
+    if (user.projects.some((project) => project.role === 'admin')) return { label: 'Project admin', detail: 'Can manage assigned projects', tone: 'admin' };
+    if (user.projects.some((project) => project.role === 'member')) return { label: 'Member', detail: 'Can work assigned projects', tone: 'member' };
+    if (user.projects.some((project) => project.role === 'guest')) return { label: 'Guest', detail: 'Limited project collaboration', tone: 'guest' };
+    if (user.projects.some((project) => project.role === 'readonly')) return { label: 'Read-only', detail: 'View and download only', tone: 'readonly' };
+    return { label: 'No access', detail: 'No project assignments', tone: 'none' };
+  }
+
+  function projectCountLabel(count: number) {
+    return `${count} project${count === 1 ? '' : 's'}`;
+  }
+
   async function copyInviteLink() {
     if (!form?.inviteLink) return;
     await navigator.clipboard?.writeText(form.inviteLink);
@@ -117,6 +138,7 @@
 
     <div class="user-grid">
       {#each data.users as user}
+        {@const access = highestAccess(user)}
         <article class="user-card">
           <div class="user-card-head">
             <div class="min-w-0">
@@ -124,24 +146,52 @@
               <a href={`mailto:${user.email}`}>{user.email}</a>
               <p>{user.company ?? 'No company'} {user.title ? `- ${user.title}` : ''}</p>
             </div>
-            <div class="user-status">
-              <StatusPill label={user.emailConfirmed ? 'Confirmed' : 'Pending'} />
-              <StatusPill label={user.isSuperadmin ? 'Superadmin' : 'User'} />
+            <div class="access-summary">
+              <span class={`access-level ${access.tone}`}>
+                <ShieldCheck size={14} />
+                {access.label}
+              </span>
+              <span class="access-detail">{access.detail}</span>
             </div>
           </div>
 
-          <div class="project-chip-list">
+          <div class="user-access-meta" aria-label={`Access summary for ${user.email}`}>
+            <div>
+              <span class="meta-label">Sign-in</span>
+              <StatusPill label={user.emailConfirmed ? 'Confirmed' : 'Pending'} />
+            </div>
+            <div>
+              <span class="meta-label">Project access</span>
+              <strong>{projectCountLabel(user.projectCount)}</strong>
+            </div>
+            <div>
+              <span class="meta-label">Admin console</span>
+              <strong>{user.isSuperadmin ? 'Yes' : 'No'}</strong>
+            </div>
+          </div>
+
+          <div class="project-access-list">
+            <div class="project-access-title">
+              <span>Project access</span>
+              <span>{projectCountLabel(user.projectCount)}</span>
+            </div>
             {#each user.projects as project}
               {@const key = membershipKey(user.id, project.id)}
-              <div class="project-chip-row">
-                <div class="project-chip">
-                  <span class="chip-main">#{project.slug} - {project.role}</span>
+              <div class="project-access-row">
+                <div class="project-access-main">
+                  <strong>#{project.slug}</strong>
+                  <span>{project.name}</span>
+                </div>
+                <div class="project-access-badges">
+                  <span class={`role-badge ${project.role}`}>{roleLabel(project.role)}</span>
                   {#if data.managerFlagsAvailable && project.isSubmittalManager}
-                    <span class="chip-flag is-submittal" title="Submittal manager on this project">SM</span>
+                    <span class="manager-badge is-submittal" title="Submittal manager on this project">Submittals</span>
                   {/if}
                   {#if data.managerFlagsAvailable && project.isRfiManager}
-                    <span class="chip-flag is-rfi" title="RFI manager on this project">RM</span>
+                    <span class="manager-badge is-rfi" title="RFI manager on this project">RFIs</span>
                   {/if}
+                </div>
+                <div class="project-access-actions">
                   <button
                     type="button"
                     class="chip-icon"
@@ -149,13 +199,13 @@
                     title={data.managerFlagsAvailable ? 'Edit role + manager flags' : 'Edit role'}
                     onclick={() => toggleEdit(user.id, project.id)}
                   >
-                    <Pencil size={12} />
+                    <Pencil size={13} />
                   </button>
                   <form method="post" action="?/removeProject" use:enhance>
                     <input type="hidden" name="userId" value={user.id} />
                     <input type="hidden" name="projectId" value={project.id} />
                     <button type="submit" class="chip-icon is-danger" aria-label={`Remove ${user.email} from ${project.name}`} title="Remove from project">
-                      <X size={12} />
+                      <X size={13} />
                     </button>
                   </form>
                 </div>
@@ -192,7 +242,7 @@
                 {/if}
               </div>
             {:else}
-              <span class="empty-projects">No projects assigned</span>
+              <div class="empty-projects">No projects assigned</div>
             {/each}
           </div>
 
@@ -427,73 +477,193 @@
     font-weight: 750;
   }
 
-  .user-status {
-    display: flex;
-    flex-direction: column;
-    align-items: end;
-    gap: 0.3rem;
-  }
-
-  .project-chip-list {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.4rem;
-  }
-
-  .project-chip-row {
+  .access-summary {
     display: grid;
+    justify-items: end;
+    gap: 0.2rem;
+    min-width: 9rem;
+  }
+
+  .access-level,
+  .role-badge,
+  .manager-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    font-weight: 900;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .access-level {
+    gap: 0.32rem;
+    min-height: 1.75rem;
+    padding: 0.36rem 0.7rem;
+    font-size: 0.76rem;
+  }
+
+  .access-level.superadmin {
+    background: rgba(20, 146, 52, 0.14);
+    color: #176d2e;
+  }
+
+  .access-level.admin {
+    background: rgba(29, 95, 184, 0.13);
+    color: #1e518e;
+  }
+
+  .access-level.member {
+    background: rgba(25, 27, 25, 0.09);
+    color: #303730;
+  }
+
+  .access-level.guest,
+  .access-level.readonly,
+  .access-level.none {
+    background: rgba(91, 99, 91, 0.12);
+    color: #5b635b;
+  }
+
+  .access-detail {
+    color: #6c746c;
+    font-size: 0.72rem;
+    font-weight: 750;
+    text-align: right;
+  }
+
+  .user-access-meta {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.5rem;
+    border: 1px solid rgba(25, 27, 25, 0.08);
+    border-radius: 0.45rem;
+    background: #f8faf8;
+    padding: 0.6rem;
+  }
+
+  .user-access-meta div {
+    display: grid;
+    align-content: start;
+    gap: 0.22rem;
+    min-width: 0;
+  }
+
+  .meta-label {
+    color: #6b746b;
+    font-size: 0.66rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .user-access-meta strong {
+    color: #252a25;
+    font-size: 0.82rem;
+    font-weight: 900;
+  }
+
+  .project-access-list {
+    display: grid;
+    gap: 0.45rem;
+  }
+
+  .project-access-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.8rem;
+    color: #4f594f;
+    font-size: 0.72rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .project-access-title span:last-child {
+    color: #717971;
+    font-size: 0.68rem;
+  }
+
+  .project-access-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid rgba(25, 27, 25, 0.09);
+    border-radius: 0.45rem;
+    background: #fff;
+    padding: 0.55rem;
+  }
+
+  .project-access-main {
+    display: grid;
+    min-width: 0;
+  }
+
+  .project-access-main strong {
+    color: #191b19;
+    font-size: 0.82rem;
+    font-weight: 900;
+  }
+
+  .project-access-main span {
+    overflow: hidden;
+    color: #626a62;
+    font-size: 0.74rem;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .project-access-badges,
+  .project-access-actions {
+    display: inline-flex;
+    align-items: center;
     gap: 0.32rem;
     min-width: 0;
   }
 
-  .project-chip {
-    display: inline-flex;
-    max-width: 100%;
-    align-items: center;
-    gap: 0.32rem;
-    border: 1px solid rgba(25, 27, 25, 0.1);
-    border-radius: 999px;
-    background: #f6f7f5;
-    padding: 0.26rem 0.32rem 0.26rem 0.55rem;
-    color: #252a25;
-    font-size: 0.72rem;
-    font-weight: 850;
+  .role-badge,
+  .manager-badge {
+    min-height: 1.45rem;
+    padding: 0.28rem 0.52rem;
+    font-size: 0.66rem;
   }
 
-  .project-chip .chip-main {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 14rem;
+  .role-badge.admin {
+    background: rgba(29, 95, 184, 0.13);
+    color: #1e518e;
   }
 
-  .project-chip .chip-flag {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 1.2rem;
-    padding: 0 0.42rem;
-    border-radius: 999px;
-    font-size: 0.62rem;
-    font-weight: 900;
-    letter-spacing: 0.04em;
+  .role-badge.member {
+    background: rgba(20, 146, 52, 0.12);
+    color: #176d2e;
   }
-  .project-chip .chip-flag.is-submittal {
-    background: rgba(20, 146, 52, 0.14);
+
+  .role-badge.guest,
+  .role-badge.readonly {
+    background: rgba(91, 99, 91, 0.12);
+    color: #5b635b;
+  }
+
+  .manager-badge.is-submittal {
+    background: rgba(20, 146, 52, 0.12);
     color: #197a31;
   }
-  .project-chip .chip-flag.is-rfi {
-    background: rgba(29, 95, 184, 0.14);
+
+  .manager-badge.is-rfi {
+    background: rgba(29, 95, 184, 0.12);
     color: #1d4f95;
   }
 
-  .project-chip form {
+  .project-access-actions form {
     display: inline-flex;
     margin: 0;
     padding: 0;
   }
 
-  .project-chip .chip-icon {
+  .chip-icon {
     display: inline-flex;
     width: 1.35rem;
     height: 1.35rem;
@@ -505,17 +675,20 @@
     color: #4f594f;
     cursor: pointer;
   }
-  .project-chip .chip-icon:hover {
+
+  .chip-icon:hover {
     background: #ffffff;
     color: #1d5fb8;
   }
-  .project-chip .chip-icon.is-danger:hover {
+
+  .chip-icon.is-danger:hover {
     background: #fff1f0;
     color: #b42318;
   }
 
   .membership-edit {
     display: grid;
+    grid-column: 1 / -1;
     grid-template-columns: minmax(8rem, 12rem) auto auto auto;
     gap: 0.4rem;
     align-items: center;
@@ -636,6 +809,8 @@
 
     .invite-grid,
     .user-grid,
+    .user-access-meta,
+    .project-access-row,
     .assign-form,
     .delete-user-form div {
       grid-template-columns: 1fr;
@@ -645,9 +820,16 @@
       grid-column: auto;
     }
 
-    .user-status {
-      align-items: start;
-      flex-direction: row;
+    .access-summary {
+      justify-items: start;
+    }
+
+    .access-detail {
+      text-align: left;
+    }
+
+    .project-access-badges,
+    .project-access-actions {
       flex-wrap: wrap;
     }
   }
