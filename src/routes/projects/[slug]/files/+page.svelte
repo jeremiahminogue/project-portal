@@ -93,9 +93,10 @@
   const toolFolderNames = $derived(
     uniqueFolderOptions([...toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General'), ...toolFolders.map((folder) => folder.name)])
   );
+  const documentUploadFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
-      ? toolFolderNames
+      ? documentUploadFolderNames
       : documentTool === 'drawings'
         ? toolFolderNames
         : []

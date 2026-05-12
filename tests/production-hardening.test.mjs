@@ -226,7 +226,8 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(filesPage, /const defaultUploadFolder/);
   assert.match(filesPage, /const uploadFolder = \$derived\(defaultUploadFolder\)/);
   assert.match(filesPage, /const uploadFolderEditable/);
-  assert.match(filesPage, /documentTool === 'documents'\s*\?\s*toolFolderNames/);
+  assert.match(filesPage, /const documentUploadFolderNames/);
+  assert.match(filesPage, /documentTool === 'documents'\s*\?\s*documentUploadFolderNames/);
   assert.doesNotMatch(filesPage, /suggestedDocumentFolders/);
   assert.doesNotMatch(filesPage, /const existingDocumentFolderNames/);
   assert.match(filesPage, /function dropFilesOnGroup/);
