@@ -1,5 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { basicDrawingAnalysis, normalizeDocumentKind, type DocumentKind } from './drawing-ocr';
+import { folderIdFor } from './file-folders';
 import { analyzeDrawingUploadSafely, shouldAnalyzeInline, shouldIndexPdfPages } from './ocr-processing';
 import { getObject, responseBody } from './object-storage';
 import { databaseClientForProjectAccess, type ProjectAccess } from './project-access';
@@ -16,56 +17,6 @@ type RegisterUploadedFileInput = {
   tags?: unknown;
   bytes?: Uint8Array;
 };
-
-function cleanFolderName(value: string) {
-  return value
-    .trim()
-    .replace(/[\\/]+/g, '-')
-    .replace(/\s+/g, ' ')
-    .slice(0, 160);
-}
-
-async function folderIdFor(projectId: string, folderName: string, userId: string, client: App.Locals['supabase']) {
-  const name = cleanFolderName(folderName);
-  if (!client || !name) return null;
-
-  const { data: existing, error: existingError } = await client
-    .from('files')
-    .select('id')
-    .eq('project_id', projectId)
-    .eq('is_folder', true)
-    .eq('name', name)
-    .maybeSingle();
-
-  if (existingError) throw new Error(existingError.message);
-  if (existing?.id) return existing.id as string;
-
-  const { data: caseMatch, error: caseMatchError } = await client
-    .from('files')
-    .select('id')
-    .eq('project_id', projectId)
-    .eq('is_folder', true)
-    .ilike('name', name)
-    .limit(1)
-    .maybeSingle();
-
-  if (caseMatchError) throw new Error(caseMatchError.message);
-  if (caseMatch?.id) return caseMatch.id as string;
-
-  const { data: created, error: createError } = await client
-    .from('files')
-    .insert({
-      project_id: projectId,
-      name,
-      is_folder: true,
-      uploaded_by: userId
-    })
-    .select('id')
-    .single();
-
-  if (createError) throw new Error(createError.message);
-  return created.id as string;
-}
 
 async function objectBytes(storageKey: string) {
   const object = await getObject(storageKey);
@@ -128,7 +79,7 @@ export async function registerUploadedFile({
         reason: pendingAnalysis.documentKind === 'drawing' ? ('deferred_size' as const) : undefined
       };
   const analysis = ocr.analysis;
-  const parentFolderId = await folderIdFor(access.project.id, folderName, access.user.id, client);
+  const parentFolderId = await folderIdFor(client, access.project.id, folderName, access.user.id, analysis.documentKind);
   const filePayload = {
     project_id: access.project.id,
     parent_folder_id: parentFolderId,

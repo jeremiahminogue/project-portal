@@ -531,7 +531,7 @@ async function getStorageFallbackFolders(slug: string): Promise<FolderEntry[] | 
   }
 
   return [...counts.entries()]
-    .map(([name, fileCount]) => ({ name, fileCount }))
+    .map(([name, fileCount]) => ({ name, fileCount, documentKind: null }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -626,7 +626,7 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
 
   const { data: folders, error } = await client
     .from('files')
-    .select('id, name')
+    .select('id, name, document_kind')
     .eq('project_id', projectId)
     .eq('is_folder', true)
     .order('name');
@@ -654,7 +654,8 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
     merged.set(folder.name, {
       id: folder.id,
       name: folder.name,
-      fileCount: counts.get(folder.id) ?? 0
+      fileCount: counts.get(folder.id) ?? 0,
+      documentKind: folder.document_kind ?? null
     });
   }
   for (const folder of (await getStorageFallbackFolders(slug)) ?? []) {
@@ -662,7 +663,8 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
     merged.set(folder.name, {
       id: existing?.id,
       name: folder.name,
-      fileCount: (existing?.fileCount ?? 0) + folder.fileCount
+      fileCount: (existing?.fileCount ?? 0) + folder.fileCount,
+      documentKind: existing?.documentKind ?? folder.documentKind ?? null
     });
   }
 

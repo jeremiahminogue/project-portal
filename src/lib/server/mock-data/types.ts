@@ -116,6 +116,7 @@ export interface FolderEntry {
   id?: string;
   name: string;
   fileCount: number;
+  documentKind?: 'drawing' | 'specification' | 'file' | string | null;
 }
 
 export interface ChatMessage {

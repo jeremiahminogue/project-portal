@@ -43,6 +43,10 @@ function isCommunicationFolder(file: FileLibraryItem) {
   return folder === 'rfi' || folder === 'rfis' || folder === 'submittal' || folder === 'submittals' || /^rfi\b.*\battachments$/.test(folder) || /^submittal\b.*\battachments$/.test(folder);
 }
 
+function hasDrawingTag(file: FileLibraryItem) {
+  return file.tags?.some((tag) => /^drawings?$/i.test(tag.trim())) ?? false;
+}
+
 export function isItemAssociatedFile(file: FileLibraryItem) {
   if ((file.linkedItemKinds?.length ?? 0) > 0) return true;
   if (file.tags?.some((tag) => tag.toLowerCase() === 'attachment')) return true;
@@ -51,6 +55,7 @@ export function isItemAssociatedFile(file: FileLibraryItem) {
 
 export function isSpecificationFile(file: FileLibraryItem) {
   if (isItemAssociatedFile(file) && file.documentKind !== 'specification') return false;
+  if (file.documentKind !== 'specification' && hasDrawingTag(file)) return false;
   const haystack = `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase();
   if (file.documentKind === 'specification') return true;
   if (/\bspec(?:s|ification|ifications)?\b/.test(haystack) || haystack.includes('project manual') || /\bdivision\s+\d{1,2}\b/.test(haystack)) {
@@ -71,6 +76,7 @@ export function isGeneralDocumentFile(file: FileLibraryItem) {
 export function isDrawingFile(file: FileLibraryItem) {
   if (file.documentKind === 'drawing') return true;
   if (isItemAssociatedFile(file)) return false;
+  if (hasDrawingTag(file)) return true;
   return !isSpecificationFile(file) && !isGeneralDocumentFile(file);
 }
 

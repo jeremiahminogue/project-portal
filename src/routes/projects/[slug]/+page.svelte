@@ -1,6 +1,7 @@
 <script lang="ts">
   import { CalendarDays, FileText, FolderOpen, MessageSquare, Users } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
+  import { fileMatchesTool } from '$lib/file-library';
   import { formatDate, relativeTime } from '$lib/utils';
 
   let { data } = $props();
@@ -8,6 +9,11 @@
   const openSubmittals = $derived(data.submittals.filter((item) => !['Approved', 'Rejected'].includes(item.status)));
   const openRfis = $derived(data.rfis.filter((item) => item.status === 'Open'));
   const nextActivities = $derived(data.schedule.slice(0, 6));
+  const drawingCount = $derived(
+    data.files
+      .filter((file) => fileMatchesTool(file, 'drawings'))
+      .reduce((total, file) => total + Math.max(file.pages?.length ?? 0, 1), 0)
+  );
 </script>
 
 <svelte:head>
@@ -45,8 +51,8 @@
     </a>
     <a href={`/projects/${data.slug}/files`}>
       <FolderOpen size={19} />
-      <span>Files</span>
-      <strong>{data.files.length}</strong>
+      <span>Drawings</span>
+      <strong>{drawingCount}</strong>
     </a>
     <a href={`/projects/${data.slug}/directory`}>
       <Users size={19} />

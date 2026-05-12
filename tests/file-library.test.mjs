@@ -110,3 +110,17 @@ test('linked drawings and specifications keep their library category', async () 
     true
   );
 });
+
+test('explicit drawing tags keep mixed drawing/spec folders in drawings', async () => {
+  const { fileMatchesTool } = await loadFileLibraryModule();
+
+  const file = {
+    name: 'Events Ctr Shop Drawings (Rev A).pdf',
+    path: 'Drawings & Specs/Events Ctr Shop Drawings (Rev A).pdf',
+    type: 'pdf',
+    tags: ['drawings', 'revA']
+  };
+
+  assert.equal(fileMatchesTool(file, 'drawings'), true);
+  assert.equal(fileMatchesTool(file, 'specifications'), false);
+});

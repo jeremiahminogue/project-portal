@@ -8,7 +8,9 @@
     Copy,
     Download,
     FileText,
+    FolderPlus,
     Link,
+    MoveRight,
     Pencil,
     RefreshCw,
     Search,
@@ -43,7 +45,12 @@
   let busy = $state(false);
   let notice = $state('');
   let selectedPageIds = $state<string[]>([]);
+  let selectedFileIds = $state<string[]>([]);
   let dropGroupId = $state('');
+  const GENERAL_FOLDER_VALUE = '__general__';
+  let showNewFolderForm = $state(false);
+  let newFolderName = $state('');
+  let moveTargetFolderId = $state(GENERAL_FOLDER_VALUE);
 
   type FileRow = (typeof data.files)[number];
   type PageRow = NonNullable<FileRow['pages']>[number];
@@ -77,7 +84,14 @@
   const suggestedDocumentFolders = ['Documents', 'Meeting Minutes', 'Contracts', 'Schedules', 'Photos', 'Safety', 'Close Out Documents'];
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
-  const toolFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
+  const toolFolders = $derived(
+    data.folders
+      .filter((folder) => folder.name !== 'General' && folderMatchesCurrentTool(folder))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  );
+  const toolFolderNames = $derived(
+    uniqueFolderOptions([...toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General'), ...toolFolders.map((folder) => folder.name)])
+  );
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
       ? uniqueFolderOptions([...suggestedDocumentFolders, ...toolFolderNames])
@@ -90,14 +104,21 @@
       return !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
     })
   );
+  const folderRowsByName = $derived(new Map(data.folders.map((folder) => [folder.name.toLowerCase(), folder])));
   const groupedFiles = $derived(
-    [...new Set(filteredFiles.map((file) => folderName(file)))]
+    uniqueFolderOptions([
+      ...filteredFiles.map((file) => folderName(file)),
+      ...toolFolders
+        .filter((folder) => !query || folder.name.toLowerCase().includes(query.toLowerCase()))
+        .map((folder) => folder.name)
+    ])
       .sort((a, b) => a.localeCompare(b))
       .map((name) => {
         const files = filteredFiles.filter((file) => folderName(file) === name);
+        const folderRow = folderRowsByName.get(name.toLowerCase());
         return {
           name,
-          folderId: files.find((file) => file.parentFolderId)?.parentFolderId ?? '',
+          folderId: folderRow?.id ?? files.find((file) => file.parentFolderId)?.parentFolderId ?? '',
           files,
           count: documentTool === 'drawings' ? files.reduce((total, file) => total + drawingSheetCount(file), 0) : files.length
         };
@@ -109,9 +130,18 @@
       : []
   );
   const selectedVisiblePageCount = $derived(visibleDrawingPages.filter(({ page }) => selectedPageIds.includes(page.id)).length);
+  const selectedVisibleFileIds = $derived(
+    documentTool === 'drawings'
+      ? selectedFileIds.filter((id) => filteredFiles.some((file) => file.id === id && !(file.pages?.length)))
+      : []
+  );
+  const selectedDrawingFileIds = $derived(
+    [...new Set([...visibleDrawingPages.filter(({ page }) => selectedPageIds.includes(page.id)).map(({ file }) => file.id), ...selectedVisibleFileIds])]
+  );
   const allVisiblePagesSelected = $derived(
     visibleDrawingPages.length > 0 && visibleDrawingPages.every(({ page }) => selectedPageIds.includes(page.id))
   );
+  const moveFolderOptions = $derived(toolFolders.filter(hasFolderId));
 
   function isSpecification(file: (typeof data.files)[number]) {
     return isSpecificationFile(file);
@@ -121,8 +151,18 @@
     return [...new Set(names.map((name) => name.trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
   }
 
+  function hasFolderId(folder: (typeof data.folders)[number]): folder is (typeof data.folders)[number] & { id: string } {
+    return typeof folder.id === 'string' && folder.id.length > 0;
+  }
+
   function folderName(file: (typeof data.files)[number]) {
     return libraryFolderName(file);
+  }
+
+  function folderMatchesCurrentTool(folder: (typeof data.folders)[number]) {
+    const folderKey = folder.name.toLowerCase();
+    if (toolFiles.some((file) => folderName(file).toLowerCase() === folderKey)) return true;
+    return folder.documentKind === uploadDocumentKind && folder.fileCount === 0;
   }
 
   function drawingSheetCount(file: FileRow) {
@@ -206,6 +246,10 @@
     return selectedPageIds.includes(pageId);
   }
 
+  function fileSelected(fileId: string) {
+    return selectedFileIds.includes(fileId);
+  }
+
   function filePagesSelected(file: (typeof data.files)[number]) {
     const ids = filePageIds(file);
     return ids.length > 0 && ids.every((id) => selectedPageIds.includes(id));
@@ -249,6 +293,12 @@
 
   function groupCanRename(group: FileGroup) {
     return Boolean(group.folderId || group.files.some((file) => !fileIsStorageOnly(file)));
+  }
+
+  function toggleFileSelection(fileId: string, checked: boolean) {
+    selectedFileIds = checked
+      ? [...new Set([...selectedFileIds, fileId])]
+      : selectedFileIds.filter((id) => id !== fileId);
   }
 
   function groupCanReceiveDrops(group: FileGroup) {
@@ -324,6 +374,71 @@
       : selectedPageIds.filter((id) => !ids.includes(id));
   }
 
+  async function createFolder() {
+    const name = newFolderName.trim();
+    if (!name) return;
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch('/api/files/folders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectSlug: data.project.id,
+          name,
+          documentKind: uploadDocumentKind
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Folder could not be created.');
+      if (typeof result.id === 'string' && result.id.length > 0) moveTargetFolderId = result.id;
+      notice = 'Folder created.';
+      newFolderName = '';
+      showNewFolderForm = false;
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Folder could not be created.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function moveSelectedDrawings() {
+    if (!selectedDrawingFileIds.length) return;
+    const folder = moveFolderOptions.find((option) => option.id === moveTargetFolderId);
+    const moveToGeneral = moveTargetFolderId === GENERAL_FOLDER_VALUE;
+    if (!moveToGeneral && !folder?.id) {
+      notice = 'Choose a folder first.';
+      return;
+    }
+
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch('/api/files/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectSlug: data.project.id,
+          fileIds: selectedDrawingFileIds,
+          folderId: moveToGeneral ? null : folder?.id,
+          documentKind: uploadDocumentKind
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Drawings could not be moved.');
+      const destination = moveToGeneral ? 'General' : folder?.name;
+      notice = `Moved ${result.moved ?? selectedDrawingFileIds.length} drawing set${(result.moved ?? selectedDrawingFileIds.length) === 1 ? '' : 's'} to ${destination}.`;
+      selectedPageIds = [];
+      selectedFileIds = [];
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Drawings could not be moved.';
+    } finally {
+      busy = false;
+    }
+  }
+
   function startRenameGroup(group: FileGroup) {
     if (!groupCanRename(group)) {
       notice = 'This group has no registered files to move into a renamed folder yet.';
@@ -368,6 +483,7 @@
           projectSlug: data.project.id,
           folderId: group.folderId,
           name,
+          documentKind: uploadDocumentKind,
           fileIds: group.folderId ? [] : group.files.filter((file) => !fileIsStorageOnly(file)).map((file) => file.id)
         })
       });
@@ -657,6 +773,54 @@
           <Search size={16} />
           <input bind:value={query} placeholder="Search" />
         </div>
+        {#if canModifyFiles && documentTool === 'drawings'}
+          <div class="folder-tools">
+            {#if showNewFolderForm}
+              <form
+                class="folder-inline-form"
+                onsubmit={(event) => {
+                  event.preventDefault();
+                  void createFolder();
+                }}
+              >
+                <input class="field compact folder-name-field" bind:value={newFolderName} placeholder="Folder name" aria-label="New folder name" />
+                <button class="mini-button" type="submit" disabled={busy || !newFolderName.trim()}>
+                  <Check size={14} />
+                  Create
+                </button>
+                <button
+                  class="icon-row-button quiet"
+                  type="button"
+                  disabled={busy}
+                  onclick={() => {
+                    showNewFolderForm = false;
+                    newFolderName = '';
+                  }}
+                  aria-label="Cancel new folder"
+                >
+                  <X size={15} />
+                </button>
+              </form>
+            {:else}
+              <button class="mini-button" type="button" disabled={busy} onclick={() => (showNewFolderForm = true)}>
+                <FolderPlus size={14} />
+                New folder
+              </button>
+            {/if}
+            {#if selectedDrawingFileIds.length}
+              <select class="field compact folder-select" bind:value={moveTargetFolderId} aria-label="Move selected drawings to folder">
+                <option value={GENERAL_FOLDER_VALUE}>General</option>
+                {#each moveFolderOptions as folder}
+                  <option value={folder.id}>{folder.name}</option>
+                {/each}
+              </select>
+              <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedDrawings}>
+                <MoveRight size={14} />
+                Move
+              </button>
+            {/if}
+          </div>
+        {/if}
         <span class="result-count">{filteredFiles.length} shown</span>
         {#if documentTool === 'drawings' && selectedPageIds.length}
           <div class="bulk-actions" aria-label="Selected drawing page actions">
@@ -795,7 +959,12 @@
               </tr>
 
               {#if !groupIsCollapsed(group.name)}
-                {#if documentTool === 'drawings'}
+                {#if !group.files.length}
+                  <tr class="empty-folder-row">
+                    <td class="select-cell"></td>
+                    <td colspan="6">No {toolTitle.toLowerCase()} in this folder yet.</td>
+                  </tr>
+                {:else if documentTool === 'drawings'}
                   {#each group.files as file}
                     {#if file.pages?.length}
                       {#each file.pages as pageRow}
@@ -868,7 +1037,14 @@
                       {/each}
                     {:else}
                       <tr class="page-row sheet-row">
-                        <td class="select-cell"></td>
+                        <td class="select-cell">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${file.name}`}
+                            checked={fileSelected(file.id)}
+                            onchange={(event) => toggleFileSelection(file.id, event.currentTarget.checked)}
+                          />
+                        </td>
                         <td class="sheet-number-cell">
                           {#if renameId === file.id}
                             <input class="field sheet-edit-number" bind:value={renameFileNumber} aria-label="Drawing number" />
@@ -1052,6 +1228,27 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .log-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .folder-tools,
+  .folder-inline-form {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .folder-name-field {
+    width: min(13rem, 100%);
+  }
+
+  .folder-select {
+    width: min(12rem, 100%);
+  }
+
   .drawings-table {
     min-width: 0;
     table-layout: fixed;
@@ -1196,6 +1393,13 @@
 
   .collapsed-row td {
     border-bottom-color: #d8ddd7;
+  }
+
+  .empty-folder-row td {
+    background: #fbfcfb;
+    color: #6b746b;
+    font-size: 0.78rem;
+    font-weight: 750;
   }
 
   .drawings-table .group-row.drop-target td {
