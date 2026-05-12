@@ -41,6 +41,19 @@ async function drawingPdf(pages) {
   return new Uint8Array(await pdf.save());
 }
 
+async function drawingPdfWithUnlabeledTitleBlock({ sheetNumber, sheetTitle, noise }) {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const page = pdf.addPage([792, 612]);
+  page.drawText('SHEET INDEX', { x: 50, y: 560, size: 14, font });
+  page.drawText('FA-001 JCI CONTACTS', { x: 50, y: 535, size: 10, font });
+  page.drawText(noise, { x: 565, y: 185, size: 10, font });
+  page.drawText(sheetTitle, { x: 565, y: 90, size: 10, font });
+  page.drawText('DRAWING NUMBER', { x: 565, y: 55, size: 8, font });
+  page.drawText(sheetNumber, { x: 565, y: 40, size: 14, font });
+  return new Uint8Array(await pdf.save());
+}
+
 async function withoutPdfjsStandardFontWarning(callback) {
   const originalWarn = console.warn;
   console.warn = (...args) => {
@@ -103,10 +116,26 @@ test('drawing OCR does not read title words as revisions', async () => {
   );
 });
 
+test('drawing OCR ignores title-block legend snippets when picking sheet titles', async () => {
+  const { analyzeDrawingUpload } = await loadDrawingOcrModule();
+  const bytes = await drawingPdfWithUnlabeledTitleBlock({
+    sheetNumber: 'FA-501',
+    sheetTitle: 'FIRE ALARM RISER DIAGRAM',
+    noise: 'ORG BLU YEL'
+  });
+
+  const analysis = await withoutPdfjsStandardFontWarning(() =>
+    analyzeDrawingUpload(bytes, 'Ag Palace Fire Alarm.pdf', 'application/pdf', 'AG Palace')
+  );
+
+  assert.equal(analysis.sheetTitle, 'FIRE ALARM RISER DIAGRAM');
+  assert.equal(analysis.pages[0].sheetTitle, 'FIRE ALARM RISER DIAGRAM');
+});
+
 test('drawing OCR keeps full-page raster fallback for scanned title blocks', () => {
   const source = readFileSync(new URL('../src/lib/server/drawing-ocr.ts', import.meta.url), 'utf8');
   assert.match(source, /needsTitleBlockOcr/);
-  assert.match(source, /recognizeImage\(new Uint8Array\(canvas\.toBuffer\('image\/png'\)\)\)/);
+  assert.match(source, /recognizeImage\(new Uint8Array\(canvas\.toBuffer\('image\/png'\)\),/);
   assert.match(source, /needsOcr\(text, lines, sheetNumber, sheetTitle\) \|\| needsTitleBlockOcr/);
 });
 

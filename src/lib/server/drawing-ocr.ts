@@ -47,9 +47,54 @@ const DISCIPLINE_PREFIXES = new Set([
   'X'
 ]);
 const SHEET_NUMBER_PATTERN = /\b(?:AD|AS|CS|EL|FA|FP|FS|ID|[ACEGIMPSTX])[-\s_.]?[0-9OILSZ]{1,4}(?:[.\-\s_]?[0-9OILSZ]{1,3})?[A-Z]?\b/gi;
+const SHEET_TITLE_LABEL_PATTERN = /\b(?:sheet|drawing)\s*(?:title|name)\b|\btitle\b/i;
+const COLOR_OR_LEGEND_TOKENS = new Set([
+  'BLK',
+  'BLU',
+  'BLUE',
+  'BRN',
+  'BROWN',
+  'GRN',
+  'GREEN',
+  'ORG',
+  'ORANGE',
+  'PNK',
+  'RED',
+  'VIO',
+  'VIOLET',
+  'WHT',
+  'WHITE',
+  'YEL',
+  'YELLOW'
+]);
 
 function cleanText(value: string) {
   return value.replace(/\s+/g, ' ').trim();
+}
+
+function tokensFromLine(line: string) {
+  return cleanText(line)
+    .toUpperCase()
+    .split(/[^A-Z0-9]+/)
+    .filter(Boolean);
+}
+
+function likelyAbbreviationRun(line: string) {
+  const tokens = tokensFromLine(line);
+  if (tokens.length < 2) return false;
+  const colorTokens = tokens.filter((token) => COLOR_OR_LEGEND_TOKENS.has(token)).length;
+  if (colorTokens >= 2) return true;
+  return tokens.length >= 3 && tokens.every((token) => /^\d+$/.test(token) || /^[A-Z]{1,4}\d{0,2}$/.test(token));
+}
+
+function likelyNonSheetTitleLine(line: string) {
+  const cleaned = cleanText(line);
+  if (!cleaned) return true;
+  if (/^(?:ref|refs|reference|note|notes)\.?$/i.test(cleaned)) return true;
+  if (/\b(?:key notes?|general notes?|sheet index|sheet list)\b/i.test(cleaned)) return true;
+  if (/\b(?:maximum|minimum)\b.*\b(?:sensor|height|top|bottom|mm)\b/i.test(cleaned)) return true;
+  if (/^\d+[\s"'.(]/.test(cleaned)) return true;
+  return likelyAbbreviationRun(cleaned);
 }
 
 function normalizeSheetNumber(value: string | null) {
@@ -80,6 +125,7 @@ function usableTitleLine(line: string) {
   if (/^(sheet|drawing|number|title|date|scale|project|revision|rev\.?|checked|drawn|approved)\b/i.test(cleaned)) return false;
   if (/\b(pueblo|electric|engineer|architect|contractor|copyright|www\.|@)\b/i.test(cleaned)) return false;
   if (/^\d+$/.test(cleaned)) return false;
+  if (likelyNonSheetTitleLine(cleaned)) return false;
   return /[A-Za-z]{3,}/.test(cleaned);
 }
 
@@ -304,24 +350,50 @@ function likelyProjectTitle(line: string) {
   return /\b(notification upgrade|fire alarm system)\b/i.test(cleaned);
 }
 
+function titleCandidate(line: string, sheetNumber: string | null) {
+  const stripped = stripSheetNumber(line.replace(SHEET_TITLE_LABEL_PATTERN, ' '), sheetNumber);
+  return usableTitleLine(stripped) && !likelyProjectTitle(stripped) ? stripped : null;
+}
+
+function titleCandidateScore(title: string, index: number, totalLines: number, bonus = 0) {
+  let score = bonus;
+  if (index > totalLines * 0.5) score += 3;
+  if (index > totalLines * 0.72) score += 4;
+  if (/^[A-Z0-9][A-Z0-9\s&/#.'()+-]+$/.test(title)) score += 1;
+  if (title.split(/\s+/).length >= 2) score += 1;
+  if (likelyProjectTitle(title)) score -= 8;
+  if (likelyNonSheetTitleLine(title)) score -= 12;
+  return score;
+}
+
 function extractSheetTitle(lines: string[], sheetNumber: string | null) {
   for (const line of lines) {
     const inlineTitle = titleAfterSheetNumber(line, sheetNumber);
     if (inlineTitle) return inlineTitle;
   }
 
-  const labelIndex = lines.findIndex((line) => /\b(sheet|drawing)\s*title\b/i.test(line));
-  if (labelIndex >= 0) {
-    for (const line of lines.slice(labelIndex, labelIndex + 5)) {
-      const stripped = stripSheetNumber(line.replace(/\b(sheet|drawing)\s*title\b/i, ''), sheetNumber);
-      if (usableTitleLine(stripped) && !likelyProjectTitle(stripped)) return stripped;
-    }
-  }
+  const candidates: { title: string; score: number }[] = [];
+  const addCandidate = (line: string, index: number, bonus = 0) => {
+    const title = titleCandidate(line, sheetNumber);
+    if (!title) return;
+    candidates.push({
+      title,
+      score: titleCandidateScore(title, index, lines.length, bonus)
+    });
+  };
 
-  for (const line of lines) {
-    const stripped = stripSheetNumber(line, sheetNumber);
-    if (usableTitleLine(stripped) && !likelyProjectTitle(stripped)) return stripped;
-  }
+  lines.forEach((line, index) => {
+    if (!SHEET_TITLE_LABEL_PATTERN.test(line)) return;
+    for (let offset = 0; offset <= 6; offset += 1) {
+      const candidateIndex = index + offset;
+      const candidateLine = lines[candidateIndex];
+      if (candidateLine) addCandidate(candidateLine, candidateIndex, 24 - offset * 3);
+    }
+  });
+
+  lines.forEach((line, index) => addCandidate(line, index));
+  candidates.sort((a, b) => b.score - a.score || b.title.length - a.title.length);
+  if (candidates[0] && candidates[0].score >= 0) return candidates[0].title;
 
   return null;
 }
@@ -341,9 +413,13 @@ function linesFromText(text: string) {
     .slice(0, 180);
 }
 
-async function recognizeImage(bytes: Uint8Array) {
+async function recognizeImage(bytes: Uint8Array, parameters: Record<string, string> = {}) {
   const tesseract = await import('tesseract.js');
-  const result = await tesseract.default.recognize(Buffer.from(bytes), 'eng');
+  const result = await tesseract.default.recognize(Buffer.from(bytes), 'eng', {
+    preserve_interword_spaces: '1',
+    tessedit_pageseg_mode: '6',
+    ...parameters
+  } as any);
   return String(result.data.text ?? '').slice(0, MAX_PAGE_TEXT);
 }
 
@@ -357,7 +433,7 @@ function needsTitleBlockOcr(titleBlockLines: string[], sheetNumberFromTitleBlock
   return titleBlockLines.length < 3;
 }
 
-function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock' = 'all') {
+function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock' | 'titleCandidate' = 'all') {
   const viewport = page.getViewport({ scale: 1 });
   const width = viewport.width || 1;
   const height = viewport.height || 1;
@@ -372,6 +448,7 @@ function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock'
     .filter((item: { text: string; x: number; y: number }) => {
       if (!item.text) return false;
       if (zone === 'all') return true;
+      if (zone === 'titleCandidate') return item.x > width * 0.5 && item.y < height * 0.38;
       return item.x > width * 0.68 || item.y < height * 0.22 || (item.x > width * 0.52 && item.y < height * 0.34);
     })
     .sort((a: { x: number; y: number }, b: { x: number; y: number }) => b.y - a.y || a.x - b.x);
@@ -401,6 +478,10 @@ function cropCanvas(canvasKit: typeof import('@napi-rs/canvas'), canvas: import(
 }
 
 async function ocrPdfPage(page: any) {
+  return (await ocrPdfPageRegions(page)).text;
+}
+
+async function ocrPdfPageRegions(page: any) {
   try {
     const canvasKit = await import('@napi-rs/canvas');
     globalThis.DOMMatrix ??= canvasKit.DOMMatrix as typeof DOMMatrix;
@@ -412,15 +493,22 @@ async function ocrPdfPage(page: any) {
     const canvas = canvasKit.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const canvasContext = canvas.getContext('2d');
     await page.render({ canvasContext, viewport }).promise;
-    const cropTexts = await Promise.all([
-      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.68, 0, canvas.width * 0.32, canvas.height)),
-      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.54, canvas.height * 0.68, canvas.width * 0.46, canvas.height * 0.32)),
-      recognizeImage(new Uint8Array(canvas.toBuffer('image/png')))
+    const [rightText, titleBlockText, fullPageText] = await Promise.all([
+      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.68, 0, canvas.width * 0.32, canvas.height), {
+        tessedit_pageseg_mode: '11'
+      }),
+      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.5, canvas.height * 0.62, canvas.width * 0.5, canvas.height * 0.38)),
+      recognizeImage(new Uint8Array(canvas.toBuffer('image/png')), {
+        tessedit_pageseg_mode: '11'
+      })
     ]);
-    return cropTexts.join('\n').slice(0, MAX_PAGE_TEXT);
+    return {
+      titleBlockText: titleBlockText.slice(0, MAX_PAGE_TEXT),
+      text: [rightText, titleBlockText, fullPageText].join('\n').slice(0, MAX_PAGE_TEXT)
+    };
   } catch (error) {
     console.error('[files] PDF raster OCR failed:', error);
-    return '';
+    return { titleBlockText: '', text: '' };
   }
 }
 
@@ -502,6 +590,7 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
       const titleBlockLines = positionedLines(textContent, page, 'titleBlock');
+      const titleCandidateLines = positionedLines(textContent, page, 'titleCandidate');
       const positionedFullPageLines = positionedLines(textContent, page, 'all');
       const rawText = textContent.items
         .map((item: unknown) => {
@@ -518,13 +607,20 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       let sheetNumber = titleBlockSheetCandidate?.sheetNumber ?? fullPageSheetCandidate?.sheetNumber ?? filenameFallback.sheetNumber;
       let sheetNumberScore = titleBlockSheetCandidate?.score ?? fullPageSheetCandidate?.score ?? 0;
       let sheetNumberFromTitleBlock = Boolean(titleBlockSheetCandidate);
-      let sheetTitle = extractSheetTitle(titleBlockLines, sheetNumber) ?? extractSheetTitle(lines, sheetNumber) ?? filenameFallback.sheetTitle;
+      const lowerPageLines = lines.slice(Math.floor(lines.length * 0.55));
+      let sheetTitle =
+        extractSheetTitle(titleCandidateLines, sheetNumber) ??
+        extractSheetTitle(titleBlockLines, sheetNumber) ??
+        extractSheetTitle(lowerPageLines, sheetNumber) ??
+        filenameFallback.sheetTitle;
       let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
 
       if (needsOcr(text, lines, sheetNumber, sheetTitle) || needsTitleBlockOcr(titleBlockLines, sheetNumberFromTitleBlock, sheetTitle)) {
-        const ocrText = await ocrPdfPage(page);
+        const ocr = await ocrPdfPageRegions(page);
+        const ocrText = ocr.text;
         if (ocrText) {
           const ocrLines = linesFromText(ocrText);
+          const ocrTitleLines = linesFromText(ocr.titleBlockText);
           const ocrSheetCandidate = bestSheetNumberCandidate(ocrLines);
           if (
             ocrSheetCandidate?.sheetNumber &&
@@ -534,8 +630,8 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
             sheetNumberScore = ocrSheetCandidate.score;
             sheetNumberFromTitleBlock = false;
           }
-          sheetTitle = extractSheetTitle(ocrLines, sheetNumber) ?? sheetTitle;
-          revision = extractRevision(ocrLines) ?? revision;
+          sheetTitle = extractSheetTitle(ocrTitleLines, sheetNumber) ?? sheetTitle;
+          revision = extractRevision(ocrTitleLines) ?? extractRevision(ocrLines) ?? revision;
           text = [text, ocrText].filter(Boolean).join('\n\n').slice(0, MAX_PAGE_TEXT);
           lines = [...lines, ...ocrLines].slice(0, 180);
         }
