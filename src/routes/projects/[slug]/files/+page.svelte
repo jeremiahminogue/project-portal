@@ -78,14 +78,11 @@
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
   const folderOrganizationEnabled = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
-  const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
+  const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : '');
   const uploadFolder = $derived(defaultUploadFolder);
   const uploadFolderEditable = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadFolderLabel = $derived(documentTool === 'documents' ? 'Document folder' : 'Drawing group');
-  const uploadFolderPlaceholder = $derived(
-    documentTool === 'documents' ? 'Meeting Minutes, Contracts, Photos...' : 'General, Civil, Electrical...'
-  );
-  const suggestedDocumentFolders = ['Documents', 'Meeting Minutes', 'Contracts', 'Schedules', 'Photos', 'Safety', 'Close Out Documents'];
+  const uploadFolderPlaceholder = $derived(documentTool === 'documents' ? 'New document folder' : 'General, Civil, Electrical...');
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const toolFolders = $derived(
@@ -98,7 +95,7 @@
   );
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
-      ? uniqueFolderOptions([...suggestedDocumentFolders, ...toolFolderNames])
+      ? toolFolderNames
       : documentTool === 'drawings'
         ? toolFolderNames
         : []
