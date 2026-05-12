@@ -262,6 +262,37 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(reindex, /classifyDocument/);
 });
 
+test('documents and drawings support folder deletion and manual ordering', () => {
+  const filesPage = file('src/routes/projects/[slug]/files/+page.svelte');
+  const reorderRoute = file('src/routes/api/files/reorder/+server.ts');
+  const deleteFolderRoute = file('src/routes/api/files/folders/[id]/+server.ts');
+  const moveRoute = file('src/routes/api/files/move/+server.ts');
+  const ingest = file('src/lib/server/file-ingest.ts');
+  const queries = file('src/lib/server/queries.ts');
+  const folderHelpers = file('src/lib/server/file-folders.ts');
+  const migration = file('supabase/migrations/0018_file_folder_ordering.sql');
+
+  assert.match(filesPage, /folderOrganizationEnabled/);
+  assert.match(filesPage, /selectedMovableFileIds/);
+  assert.match(filesPage, /aria-label="Select all visible documents"/);
+  assert.match(filesPage, /function dropFilesOnFile/);
+  assert.match(filesPage, /draggable=\{folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly\(file\)\}/);
+  assert.match(filesPage, /\/api\/files\/reorder/);
+  assert.match(filesPage, /\/api\/files\/folders\/\$\{encodeURIComponent\(group\.folderId\)\}/);
+  assert.match(filesPage, /group-edit-button danger/);
+  assert.match(reorderRoute, /orderedFileIds/);
+  assert.match(reorderRoute, /sort_order: \(index \+ 1\) \* 100/);
+  assert.match(deleteFolderRoute, /export const DELETE/);
+  assert.match(deleteFolderRoute, /parent_folder_id: null/);
+  assert.match(deleteFolderRoute, /\.delete\(\)/);
+  assert.match(moveRoute, /nextFileSortOrder/);
+  assert.match(moveRoute, /sort_order: nextOrder/);
+  assert.match(ingest, /sort_order: await nextFileSortOrder/);
+  assert.match(queries, /\.order\('sort_order', \{ ascending: true \}\)/);
+  assert.match(folderHelpers, /export async function nextFileSortOrder/);
+  assert.match(migration, /add column if not exists sort_order integer not null default 0/);
+});
+
 test('production hardening migration adds review RLS and audit log', () => {
   const migration = file('supabase/migrations/0006_production_hardening.sql');
   assert.match(migration, /can_project_write/);

@@ -47,7 +47,10 @@
   let selectedPageIds = $state<string[]>([]);
   let selectedFileIds = $state<string[]>([]);
   let dropGroupId = $state('');
+  let orderDropFileId = $state('');
+  let draggingFileIds = $state<string[]>([]);
   const GENERAL_FOLDER_VALUE = '__general__';
+  const INTERNAL_FILE_DRAG_TYPE = 'application/x-project-portal-file-ids';
   let showNewFolderForm = $state(false);
   let newFolderName = $state('');
   let moveTargetFolderId = $state(GENERAL_FOLDER_VALUE);
@@ -73,6 +76,7 @@
   const canUploadFiles = $derived(Boolean(data.fileAccess?.canUpload));
   const canDeleteFiles = $derived(Boolean(data.fileAccess?.canDelete));
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
+  const folderOrganizationEnabled = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
   const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : '');
   const uploadFolder = $derived(defaultUploadFolder);
@@ -132,14 +136,27 @@
   const selectedVisiblePageCount = $derived(visibleDrawingPages.filter(({ page }) => selectedPageIds.includes(page.id)).length);
   const selectedVisibleFileIds = $derived(
     documentTool === 'drawings'
-      ? selectedFileIds.filter((id) => filteredFiles.some((file) => file.id === id && !(file.pages?.length)))
+      ? selectedFileIds.filter((id) => filteredFiles.some((file) => file.id === id && !(file.pages?.length) && !fileIsStorageOnly(file)))
       : []
   );
   const selectedDrawingFileIds = $derived(
-    [...new Set([...visibleDrawingPages.filter(({ page }) => selectedPageIds.includes(page.id)).map(({ file }) => file.id), ...selectedVisibleFileIds])]
+    [
+      ...new Set([
+        ...visibleDrawingPages.filter(({ file, page }) => !fileIsStorageOnly(file) && selectedPageIds.includes(page.id)).map(({ file }) => file.id),
+        ...selectedVisibleFileIds
+      ])
+    ]
   );
+  const visibleDocumentFiles = $derived(documentTool === 'documents' ? filteredFiles.filter((file) => !fileIsStorageOnly(file)) : []);
+  const selectedDocumentFileIds = $derived(
+    documentTool === 'documents' ? selectedFileIds.filter((id) => visibleDocumentFiles.some((file) => file.id === id)) : []
+  );
+  const selectedMovableFileIds = $derived(documentTool === 'drawings' ? selectedDrawingFileIds : selectedDocumentFileIds);
   const allVisiblePagesSelected = $derived(
     visibleDrawingPages.length > 0 && visibleDrawingPages.every(({ page }) => selectedPageIds.includes(page.id))
+  );
+  const allVisibleDocumentsSelected = $derived(
+    visibleDocumentFiles.length > 0 && visibleDocumentFiles.every((file) => selectedFileIds.includes(file.id))
   );
   const moveFolderOptions = $derived(toolFolders.filter(hasFolderId));
 
@@ -275,6 +292,13 @@
       : selectedPageIds.filter((id) => !ids.includes(id));
   }
 
+  function toggleVisibleDocuments(checked: boolean) {
+    const ids = visibleDocumentFiles.map((file) => file.id);
+    selectedFileIds = checked
+      ? [...new Set([...selectedFileIds, ...ids])]
+      : selectedFileIds.filter((id) => !ids.includes(id));
+  }
+
   function groupIsCollapsed(name: string) {
     return collapsedGroups.includes(name);
   }
@@ -302,7 +326,7 @@
   }
 
   function groupCanReceiveDrops(group: FileGroup) {
-    return canUploadFiles && !busy && renameGroupId !== groupRenameKey(group);
+    return (canUploadFiles || (canModifyFiles && folderOrganizationEnabled)) && !busy && renameGroupId !== groupRenameKey(group);
   }
 
   function groupUploadFolderName(group: FileGroup) {
@@ -316,8 +340,118 @@
     return transfer.files.length > 0;
   }
 
+  function hasInternalFileDrag(event: DragEvent) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return draggingFileIds.length > 0;
+    return Array.from(transfer.types ?? []).includes(INTERNAL_FILE_DRAG_TYPE) || draggingFileIds.length > 0;
+  }
+
+  function draggedFileIds(event: DragEvent) {
+    const raw = event.dataTransfer?.getData(INTERNAL_FILE_DRAG_TYPE);
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
+      } catch {
+        return draggingFileIds;
+      }
+    }
+    return draggingFileIds;
+  }
+
+  function movableFileIds(ids: string[]) {
+    const visibleIds = new Set(filteredFiles.filter((file) => !fileIsStorageOnly(file)).map((file) => file.id));
+    return [...new Set(ids)].filter((id) => visibleIds.has(id));
+  }
+
+  function dragIdsForFile(file: FileRow) {
+    const selectedIds = selectedMovableFileIds.includes(file.id) ? selectedMovableFileIds : [file.id];
+    return movableFileIds(selectedIds);
+  }
+
+  function startFileDrag(event: DragEvent, file: FileRow) {
+    if (!folderOrganizationEnabled || !canModifyFiles || fileIsStorageOnly(file)) return;
+    const ids = dragIdsForFile(file);
+    if (!ids.length || !event.dataTransfer) return;
+    draggingFileIds = ids;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(INTERNAL_FILE_DRAG_TYPE, JSON.stringify(ids));
+    event.dataTransfer.setData('text/plain', ids.join(','));
+  }
+
+  function endFileDrag() {
+    draggingFileIds = [];
+    dropGroupId = '';
+    orderDropFileId = '';
+  }
+
+  function folderPayloadForGroup(group: FileGroup) {
+    if (group.folderId) return { folderId: group.folderId };
+    if (group.name === 'General') return { folderId: null };
+    return { folderName: group.name };
+  }
+
+  function orderedFileIdsForDrop(group: FileGroup, movingIds: string[], beforeFileId = '') {
+    const ids = movableFileIds(movingIds);
+    const currentIds = group.files
+      .filter((file) => !fileIsStorageOnly(file))
+      .map((file) => file.id)
+      .filter((id) => !ids.includes(id));
+    const insertAt = beforeFileId && !ids.includes(beforeFileId) ? currentIds.indexOf(beforeFileId) : -1;
+    if (insertAt >= 0) {
+      currentIds.splice(insertAt, 0, ...ids);
+      return currentIds;
+    }
+    return [...currentIds, ...ids];
+  }
+
+  function groupForFile(file: FileRow) {
+    return groupedFiles.find((group) => group.files.some((candidate) => candidate.id === file.id));
+  }
+
+  async function reorderFilesInGroup(fileIds: string[], group: FileGroup, orderedFileIds?: string[]) {
+    const ids = movableFileIds(fileIds);
+    if (!ids.length) return;
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch('/api/files/reorder', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectSlug: data.project.id,
+          fileIds: ids,
+          orderedFileIds,
+          documentKind: uploadDocumentKind,
+          ...folderPayloadForGroup(group)
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Files could not be organized.');
+      const moved = result.moved ?? ids.length;
+      notice = orderedFileIds?.length
+        ? `Updated ${group.name} order.`
+        : `Moved ${moved} file${moved === 1 ? '' : 's'} to ${group.name}.`;
+      selectedPageIds = [];
+      selectedFileIds = [];
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Files could not be organized.';
+    } finally {
+      busy = false;
+      endFileDrag();
+    }
+  }
+
   function markGroupDrop(event: DragEvent, group: FileGroup) {
-    if (!groupCanReceiveDrops(group) || !hasDraggedFiles(event)) return;
+    if (!groupCanReceiveDrops(group)) return;
+    if (folderOrganizationEnabled && canModifyFiles && hasInternalFileDrag(event)) {
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'move';
+      dropGroupId = groupRenameKey(group);
+      return;
+    }
+    if (!canUploadFiles || !hasDraggedFiles(event)) return;
     event.preventDefault();
     event.dataTransfer!.dropEffect = 'copy';
     dropGroupId = groupRenameKey(group);
@@ -328,6 +462,43 @@
     const relatedTarget = event.relatedTarget as Node | null;
     if (relatedTarget && currentTarget.contains(relatedTarget)) return;
     if (dropGroupId === groupRenameKey(group)) dropGroupId = '';
+  }
+
+  function markFileOrderDrop(event: DragEvent, file: FileRow) {
+    if (!folderOrganizationEnabled || !canModifyFiles || busy || fileIsStorageOnly(file) || !hasInternalFileDrag(event)) return;
+    const ids = draggedFileIds(event);
+    if (ids.includes(file.id)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer!.dropEffect = 'move';
+    orderDropFileId = file.id;
+    const group = groupForFile(file);
+    if (group) dropGroupId = groupRenameKey(group);
+  }
+
+  function clearFileOrderDrop(event: DragEvent, file: FileRow) {
+    const currentTarget = event.currentTarget as HTMLElement;
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (relatedTarget && currentTarget.contains(relatedTarget)) return;
+    if (orderDropFileId === file.id) orderDropFileId = '';
+  }
+
+  function dropFilesOnFile(event: DragEvent, file: FileRow) {
+    if (!folderOrganizationEnabled || !canModifyFiles || busy || fileIsStorageOnly(file) || !hasInternalFileDrag(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const ids = movableFileIds(draggedFileIds(event));
+    if (!ids.length || ids.includes(file.id)) {
+      endFileDrag();
+      return;
+    }
+    const group = groupForFile(file);
+    if (!group) {
+      endFileDrag();
+      return;
+    }
+    const orderedFileIds = orderedFileIdsForDrop(group, ids, file.id);
+    void reorderFilesInGroup(ids, group, orderedFileIds);
   }
 
   async function uploadFilesToGroup(files: File[], group: FileGroup) {
@@ -356,7 +527,19 @@
   }
 
   function dropFilesOnGroup(event: DragEvent, group: FileGroup) {
-    if (!groupCanReceiveDrops(group) || !hasDraggedFiles(event)) return;
+    if (!groupCanReceiveDrops(group)) return;
+    if (folderOrganizationEnabled && canModifyFiles && hasInternalFileDrag(event)) {
+      event.preventDefault();
+      const ids = movableFileIds(draggedFileIds(event));
+      if (!ids.length) {
+        endFileDrag();
+        return;
+      }
+      const orderedFileIds = orderedFileIdsForDrop(group, ids);
+      void reorderFilesInGroup(ids, group, orderedFileIds);
+      return;
+    }
+    if (!canUploadFiles || !hasDraggedFiles(event)) return;
     event.preventDefault();
     dropGroupId = '';
     void uploadFilesToGroup(Array.from(event.dataTransfer?.files ?? []), group);
@@ -372,6 +555,22 @@
     selectedPageIds = checked
       ? [...new Set([...selectedPageIds, ...ids])]
       : selectedPageIds.filter((id) => !ids.includes(id));
+  }
+
+  function groupFileIds(group: FileGroup) {
+    return group.files.filter((file) => !fileIsStorageOnly(file)).map((file) => file.id);
+  }
+
+  function groupFilesSelected(group: FileGroup) {
+    const ids = groupFileIds(group);
+    return ids.length > 0 && ids.every((id) => selectedFileIds.includes(id));
+  }
+
+  function toggleGroupFiles(group: FileGroup, checked: boolean) {
+    const ids = groupFileIds(group);
+    selectedFileIds = checked
+      ? [...new Set([...selectedFileIds, ...ids])]
+      : selectedFileIds.filter((id) => !ids.includes(id));
   }
 
   async function createFolder() {
@@ -403,8 +602,8 @@
     }
   }
 
-  async function moveSelectedDrawings() {
-    if (!selectedDrawingFileIds.length) return;
+  async function moveSelectedFiles() {
+    if (!selectedMovableFileIds.length) return;
     const folder = moveFolderOptions.find((option) => option.id === moveTargetFolderId);
     const moveToGeneral = moveTargetFolderId === GENERAL_FOLDER_VALUE;
     if (!moveToGeneral && !folder?.id) {
@@ -420,20 +619,22 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           projectSlug: data.project.id,
-          fileIds: selectedDrawingFileIds,
+          fileIds: selectedMovableFileIds,
           folderId: moveToGeneral ? null : folder?.id,
           documentKind: uploadDocumentKind
         })
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error ?? 'Drawings could not be moved.');
+      if (!response.ok) throw new Error(result.error ?? 'Files could not be moved.');
       const destination = moveToGeneral ? 'General' : folder?.name;
-      notice = `Moved ${result.moved ?? selectedDrawingFileIds.length} drawing set${(result.moved ?? selectedDrawingFileIds.length) === 1 ? '' : 's'} to ${destination}.`;
+      const moved = result.moved ?? selectedMovableFileIds.length;
+      const label = documentTool === 'drawings' ? 'drawing set' : 'file';
+      notice = `Moved ${moved} ${label}${moved === 1 ? '' : 's'} to ${destination}.`;
       selectedPageIds = [];
       selectedFileIds = [];
       await invalidateAll();
     } catch (error) {
-      notice = error instanceof Error ? error.message : 'Drawings could not be moved.';
+      notice = error instanceof Error ? error.message : 'Files could not be moved.';
     } finally {
       busy = false;
     }
@@ -566,6 +767,33 @@
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'Delete failed.';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function deleteFolder(group: FileGroup) {
+    if (!group.folderId) return;
+    const ok = confirm(`Delete the "${group.name}" folder? Files inside it will move to General.`);
+    if (!ok) return;
+
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch(
+        `/api/files/folders/${encodeURIComponent(group.folderId)}?projectSlug=${encodeURIComponent(data.project.id)}`,
+        { method: 'DELETE' }
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Folder could not be deleted.');
+      const moved = result.moved ?? 0;
+      notice = moved ? `Folder deleted. ${moved} file${moved === 1 ? '' : 's'} moved to General.` : 'Folder deleted.';
+      collapsedGroups = collapsedGroups.filter((name) => name !== group.name);
+      selectedPageIds = [];
+      selectedFileIds = [];
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Folder could not be deleted.';
     } finally {
       busy = false;
     }
@@ -773,7 +1001,7 @@
           <Search size={16} />
           <input bind:value={query} placeholder="Search" />
         </div>
-        {#if canModifyFiles && documentTool === 'drawings'}
+        {#if canModifyFiles && folderOrganizationEnabled}
           <div class="folder-tools">
             {#if showNewFolderForm}
               <form
@@ -807,14 +1035,14 @@
                 New folder
               </button>
             {/if}
-            {#if selectedDrawingFileIds.length}
-              <select class="field compact folder-select" bind:value={moveTargetFolderId} aria-label="Move selected drawings to folder">
+            {#if selectedMovableFileIds.length}
+              <select class="field compact folder-select" bind:value={moveTargetFolderId} aria-label="Move selected files to folder">
                 <option value={GENERAL_FOLDER_VALUE}>General</option>
                 {#each moveFolderOptions as folder}
                   <option value={folder.id}>{folder.name}</option>
                 {/each}
               </select>
-              <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedDrawings}>
+              <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedFiles}>
                 <MoveRight size={14} />
                 Move
               </button>
@@ -865,6 +1093,14 @@
                     disabled={!visibleDrawingPages.length}
                     onchange={(event) => toggleVisiblePages(event.currentTarget.checked)}
                   />
+                {:else if documentTool === 'documents'}
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible documents"
+                    checked={allVisibleDocumentsSelected}
+                    disabled={!visibleDocumentFiles.length}
+                    onchange={(event) => toggleVisibleDocuments(event.currentTarget.checked)}
+                  />
                 {/if}
               </th>
               <th>{documentTool === 'specifications' ? 'Section' : documentTool === 'documents' ? 'File' : 'Number'}</th>
@@ -908,6 +1144,14 @@
                       disabled={!groupPageIds(group).length}
                       onchange={(event) => toggleGroupPages(group, event.currentTarget.checked)}
                     />
+                  {:else if documentTool === 'documents'}
+                    <input
+                      type="checkbox"
+                      aria-label={`Select all documents in ${group.name}`}
+                      checked={groupFilesSelected(group)}
+                      disabled={!groupFileIds(group).length}
+                      onchange={(event) => toggleGroupFiles(group, event.currentTarget.checked)}
+                    />
                   {/if}
                 </td>
                 <td class="group-name-cell" colspan="5">
@@ -947,6 +1191,12 @@
                           <span>Edit</span>
                         </button>
                       {/if}
+                      {#if canModifyFiles && group.folderId}
+                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.name} folder`}>
+                          <Trash2 size={12} />
+                          <span>Delete</span>
+                        </button>
+                      {/if}
                       {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
                         <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.name} group`}>
                           <RefreshCw size={12} />
@@ -968,7 +1218,19 @@
                   {#each group.files as file}
                     {#if file.pages?.length}
                       {#each file.pages as pageRow}
-                        <tr class="page-row sheet-row" class:editing-row={renamePageId === pageRow.id}>
+                        <tr
+                          class="page-row sheet-row"
+                          class:editing-row={renamePageId === pageRow.id}
+                          class:dragging-row={draggingFileIds.includes(file.id)}
+                          class:order-drop-target={orderDropFileId === file.id}
+                          draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                          ondragstart={(event) => startFileDrag(event, file)}
+                          ondragend={endFileDrag}
+                          ondragenter={(event) => markFileOrderDrop(event, file)}
+                          ondragover={(event) => markFileOrderDrop(event, file)}
+                          ondragleave={(event) => clearFileOrderDrop(event, file)}
+                          ondrop={(event) => dropFilesOnFile(event, file)}
+                        >
                           <td class="select-cell">
                             <input
                               type="checkbox"
@@ -1036,12 +1298,24 @@
                         </tr>
                       {/each}
                     {:else}
-                      <tr class="page-row sheet-row">
+                      <tr
+                        class="page-row sheet-row"
+                        class:dragging-row={draggingFileIds.includes(file.id)}
+                        class:order-drop-target={orderDropFileId === file.id}
+                        draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                        ondragstart={(event) => startFileDrag(event, file)}
+                        ondragend={endFileDrag}
+                        ondragenter={(event) => markFileOrderDrop(event, file)}
+                        ondragover={(event) => markFileOrderDrop(event, file)}
+                        ondragleave={(event) => clearFileOrderDrop(event, file)}
+                        ondrop={(event) => dropFilesOnFile(event, file)}
+                      >
                         <td class="select-cell">
                           <input
                             type="checkbox"
                             aria-label={`Select ${file.name}`}
                             checked={fileSelected(file.id)}
+                            disabled={fileIsStorageOnly(file)}
                             onchange={(event) => toggleFileSelection(file.id, event.currentTarget.checked)}
                           />
                         </td>
@@ -1124,8 +1398,27 @@
                   {/each}
                 {:else}
                   {#each group.files as file}
-                    <tr>
+                    <tr
+                      class:dragging-row={draggingFileIds.includes(file.id)}
+                      class:order-drop-target={orderDropFileId === file.id}
+                      draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                      ondragstart={(event) => startFileDrag(event, file)}
+                      ondragend={endFileDrag}
+                      ondragenter={(event) => markFileOrderDrop(event, file)}
+                      ondragover={(event) => markFileOrderDrop(event, file)}
+                      ondragleave={(event) => clearFileOrderDrop(event, file)}
+                      ondrop={(event) => dropFilesOnFile(event, file)}
+                    >
                       <td class="select-cell">
+                        {#if documentTool === 'documents'}
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${file.name}`}
+                            checked={fileSelected(file.id)}
+                            disabled={fileIsStorageOnly(file)}
+                            onchange={(event) => toggleFileSelection(file.id, event.currentTarget.checked)}
+                          />
+                        {/if}
                       </td>
                       <td>
                         {#if renameId === file.id}
@@ -1375,6 +1668,15 @@
     line-height: 1;
   }
 
+  .group-edit-button.danger {
+    border-color: rgba(180, 35, 24, 0.2);
+    color: #b42318;
+  }
+
+  .group-edit-button.danger:hover {
+    background: #fff1ef;
+  }
+
   .group-edit-button:disabled {
     cursor: wait;
     opacity: 0.55;
@@ -1411,6 +1713,23 @@
   .drawings-table .group-row.drop-active td {
     background: #eaf8ee !important;
     box-shadow: inset 0 2px 0 rgba(24, 165, 58, 0.72), inset 0 -2px 0 rgba(24, 165, 58, 0.72);
+  }
+
+  .drawings-table tr[draggable='true'] td {
+    cursor: grab;
+  }
+
+  .drawings-table tr[draggable='true']:active td {
+    cursor: grabbing;
+  }
+
+  .drawings-table tr.dragging-row td {
+    opacity: 0.58;
+  }
+
+  .drawings-table tr.order-drop-target td {
+    background: #fff7f2 !important;
+    box-shadow: inset 0 2px 0 rgba(255, 106, 42, 0.8);
   }
 
   .drawings-table th,

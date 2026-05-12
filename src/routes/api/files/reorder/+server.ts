@@ -11,21 +11,22 @@ export const POST: RequestHandler = async (event) => {
   const body = await event.request.json().catch(() => null);
   const projectSlug = typeof body?.projectSlug === 'string' ? body.projectSlug : '';
   const fileIds = stringArray(body?.fileIds);
+  const orderedFileIds = stringArray(body?.orderedFileIds);
   const folderId = typeof body?.folderId === 'string' ? body.folderId.trim() : '';
   const folderName = cleanFolderName(body?.folderName);
   const documentKind = typeof body?.documentKind === 'string' ? body.documentKind : 'file';
 
   if (!projectSlug) return json({ error: 'Project is required.' }, { status: 400 });
   if (fileIds.length === 0) return json({ error: 'Select at least one file to move.' }, { status: 400 });
-  if (fileIds.some((id) => id.startsWith('storage:'))) {
+  if ([...fileIds, ...orderedFileIds].some((id) => id.startsWith('storage:'))) {
     return json({ error: 'Storage-only files need to be registered before they can be moved.' }, { status: 400 });
   }
 
-  const access = await requireProjectAccess(event, projectSlug, { writable: true, action: 'move files' });
+  const access = await requireProjectAccess(event, projectSlug, { writable: true, action: 'reorder files' });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
 
   const client = databaseClientForProjectAccess(event, access);
-  if (!client) return json({ moved: fileIds.length, folderId: folderId || null });
+  if (!client) return json({ moved: fileIds.length, ordered: orderedFileIds.length });
 
   try {
     let targetFolderId: string | null = null;
@@ -45,27 +46,33 @@ export const POST: RequestHandler = async (event) => {
       targetFolderId = await folderIdFor(client, access.project.id, folderName, access.user.id, documentKind);
     }
 
-    let moved = 0;
-    let nextOrder = await nextFileSortOrder(client, access.project.id, targetFolderId);
-    for (const fileId of fileIds) {
-      const { data, error } = await client
-        .from('files')
-        .update({ parent_folder_id: targetFolderId, sort_order: nextOrder })
-        .eq('project_id', access.project.id)
-        .eq('is_folder', false)
-        .eq('id', fileId)
-        .select('id')
-        .maybeSingle();
-
-      if (error) return json({ error: error.message }, { status: 500 });
-      if (data?.id) {
-        moved += 1;
+    if (orderedFileIds.length) {
+      for (const [index, fileId] of orderedFileIds.entries()) {
+        const { error } = await client
+          .from('files')
+          .update({ parent_folder_id: targetFolderId, sort_order: (index + 1) * 100 })
+          .eq('id', fileId)
+          .eq('project_id', access.project.id)
+          .eq('is_folder', false);
+        if (error) return json({ error: error.message }, { status: 500 });
+      }
+    } else {
+      let nextOrder = await nextFileSortOrder(client, access.project.id, targetFolderId);
+      for (const fileId of fileIds) {
+        const { error } = await client
+          .from('files')
+          .update({ parent_folder_id: targetFolderId, sort_order: nextOrder })
+          .eq('id', fileId)
+          .eq('project_id', access.project.id)
+          .eq('is_folder', false);
+        if (error) return json({ error: error.message }, { status: 500 });
         nextOrder += 100;
       }
     }
 
-    return json({ moved, folderId: targetFolderId });
+    return json({ moved: fileIds.length, ordered: orderedFileIds.length, folderId: targetFolderId });
   } catch (error) {
-    return json({ error: error instanceof Error ? error.message : 'Files could not be moved.' }, { status: 500 });
+    return json({ error: error instanceof Error ? error.message : 'Files could not be reordered.' }, { status: 500 });
   }
 };
+

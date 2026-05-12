@@ -74,3 +74,23 @@ export async function folderIdFor(
   if (createError) throw new Error(createError.message);
   return created.id as string;
 }
+
+export async function nextFileSortOrder(
+  client: NonNullable<App.Locals['supabase']>,
+  projectId: string,
+  parentFolderId: string | null
+) {
+  let query = client
+    .from('files')
+    .select('sort_order')
+    .eq('project_id', projectId)
+    .eq('is_folder', false)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+
+  query = parentFolderId ? query.eq('parent_folder_id', parentFolderId) : query.is('parent_folder_id', null);
+  const { data, error } = await query.maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return Number(data?.sort_order ?? 0) + 100;
+}

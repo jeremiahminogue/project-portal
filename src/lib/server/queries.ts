@@ -51,6 +51,7 @@ export type PortalFile = FileEntry & {
   pageCount?: number;
   ocrStatus?: 'pending' | 'indexed' | 'partial' | 'failed' | 'skipped';
   pages?: DrawingPage[];
+  sortOrder?: number | null;
 };
 
 export type DrawingPage = {
@@ -548,10 +549,11 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
     .from('files')
     .select(
       `id, name, size_bytes, mime_type, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
-      document_kind, sheet_number, sheet_title, revision, page_count, ocr_status`
+      document_kind, sheet_number, sheet_title, revision, page_count, ocr_status, sort_order`
     )
     .eq('project_id', projectId)
     .eq('is_folder', false)
+    .order('sort_order', { ascending: true })
     .order('updated_at', { ascending: false });
 
   if (error) throw new Error(`getFiles failed: ${error.message}`);
@@ -607,6 +609,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
       revision: row.revision,
       pageCount: row.page_count ?? 1,
       ocrStatus: row.ocr_status ?? 'pending',
+      sortOrder: row.sort_order ?? null,
       pages: pagesByFile.get(row.id) ?? []
     };
   });

@@ -110,6 +110,7 @@ export interface FileEntry {
   updatedAt: string;
   uploadedBy: string;
   tags?: string[];
+  sortOrder?: number | null;
 }
 
 export interface FolderEntry {

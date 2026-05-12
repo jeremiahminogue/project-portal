@@ -1,6 +1,6 @@
 import type { RequestEvent } from '@sveltejs/kit';
 import { basicDrawingAnalysis, normalizeDocumentKind, type DocumentKind } from './drawing-ocr';
-import { folderIdFor } from './file-folders';
+import { folderIdFor, nextFileSortOrder } from './file-folders';
 import { analyzeDrawingUploadSafely, shouldAnalyzeInline, shouldIndexPdfPages } from './ocr-processing';
 import { getObject, responseBody } from './object-storage';
 import { databaseClientForProjectAccess, type ProjectAccess } from './project-access';
@@ -111,7 +111,14 @@ export async function registerUploadedFile({
 
   const fileWrite = existing?.id
     ? await client.from('files').update(filePayload).eq('id', existing.id).select('id, name, storage_key').single()
-    : await client.from('files').insert(filePayload).select('id, name, storage_key').single();
+    : await client
+        .from('files')
+        .insert({
+          ...filePayload,
+          sort_order: await nextFileSortOrder(client, access.project.id, parentFolderId)
+        })
+        .select('id, name, storage_key')
+        .single();
 
   if (fileWrite.error) throw new Error(fileWrite.error.message);
   const data = fileWrite.data;
