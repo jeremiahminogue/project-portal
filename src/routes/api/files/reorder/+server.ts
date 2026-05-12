@@ -1,6 +1,7 @@
 import { json } from '@sveltejs/kit';
 import { cleanFolderName, folderIdFor, nextFileSortOrder } from '$lib/server/file-folders';
 import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { isMissingFileSortOrderError } from '$lib/server/schema-compat';
 import type { RequestHandler } from './$types';
 
 function stringArray(value: unknown) {
@@ -27,6 +28,8 @@ export const POST: RequestHandler = async (event) => {
 
   const client = databaseClientForProjectAccess(event, access);
   if (!client) return json({ moved: fileIds.length, ordered: orderedFileIds.length });
+  const db = client;
+  const projectId = access.project.id;
 
   try {
     let targetFolderId: string | null = null;
@@ -35,7 +38,7 @@ export const POST: RequestHandler = async (event) => {
         .from('files')
         .select('id')
         .eq('id', folderId)
-        .eq('project_id', access.project.id)
+        .eq('project_id', projectId)
         .eq('is_folder', true)
         .maybeSingle();
 
@@ -43,30 +46,47 @@ export const POST: RequestHandler = async (event) => {
       if (!folder) return json({ error: 'Folder not found.' }, { status: 404 });
       targetFolderId = folder.id as string;
     } else if (folderName) {
-      targetFolderId = await folderIdFor(client, access.project.id, folderName, access.user.id, documentKind);
+      targetFolderId = await folderIdFor(db, projectId, folderName, access.user.id, documentKind);
+    }
+
+    let writeSortOrder = true;
+    async function updateFile(fileId: string, payload: { parent_folder_id: string | null; sort_order?: number }) {
+      const { error } = await db
+        .from('files')
+        .update(payload)
+        .eq('id', fileId)
+        .eq('project_id', projectId)
+        .eq('is_folder', false);
+
+      if (isMissingFileSortOrderError(error) && 'sort_order' in payload) {
+        writeSortOrder = false;
+        const fallbackPayload = { parent_folder_id: payload.parent_folder_id };
+        return db
+          .from('files')
+          .update(fallbackPayload)
+          .eq('id', fileId)
+          .eq('project_id', projectId)
+          .eq('is_folder', false);
+      }
+
+      return { error };
     }
 
     if (orderedFileIds.length) {
       for (const [index, fileId] of orderedFileIds.entries()) {
-        const { error } = await client
-          .from('files')
-          .update({ parent_folder_id: targetFolderId, sort_order: (index + 1) * 100 })
-          .eq('id', fileId)
-          .eq('project_id', access.project.id)
-          .eq('is_folder', false);
+        const payload: { parent_folder_id: string | null; sort_order?: number } = { parent_folder_id: targetFolderId };
+        if (writeSortOrder) payload.sort_order = (index + 1) * 100;
+        const { error } = await updateFile(fileId, payload);
         if (error) return json({ error: error.message }, { status: 500 });
       }
     } else {
-      let nextOrder = await nextFileSortOrder(client, access.project.id, targetFolderId);
+      let nextOrder = await nextFileSortOrder(db, projectId, targetFolderId);
       for (const fileId of fileIds) {
-        const { error } = await client
-          .from('files')
-          .update({ parent_folder_id: targetFolderId, sort_order: nextOrder })
-          .eq('id', fileId)
-          .eq('project_id', access.project.id)
-          .eq('is_folder', false);
+        const payload: { parent_folder_id: string | null; sort_order?: number } = { parent_folder_id: targetFolderId };
+        if (nextOrder !== null) payload.sort_order = nextOrder;
+        const { error } = await updateFile(fileId, payload);
         if (error) return json({ error: error.message }, { status: 500 });
-        nextOrder += 100;
+        if (nextOrder !== null) nextOrder += 100;
       }
     }
 
@@ -75,4 +95,3 @@ export const POST: RequestHandler = async (event) => {
     return json({ error: error instanceof Error ? error.message : 'Files could not be reordered.' }, { status: 500 });
   }
 };
-

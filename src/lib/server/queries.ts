@@ -27,7 +27,7 @@ import { isProductionRuntime } from './env';
 import { loadItemAttachmentLinks, normalizeItemAttachments } from './item-attachments';
 import { encodeStorageId, hasObjectStorageConfig, listProjectObjects } from './object-storage';
 import { createAdminClient, hasSupabaseAdminConfig } from './supabase-admin';
-import { isMissingProjectMemberManagerFlagError, projectMemberManagerFlagsAvailable } from './schema-compat';
+import { isMissingFileSortOrderError, isMissingProjectMemberManagerFlagError, projectMemberManagerFlagsAvailable } from './schema-compat';
 
 type EventLike = Pick<RequestEvent, 'locals'>;
 
@@ -539,31 +539,36 @@ async function getStorageFallbackFolders(slug: string): Promise<FolderEntry[] | 
 export async function getFiles(event: EventLike, slug: string): Promise<PortalFile[]> {
   const client = supabase(event);
   if (!client) return (await getStorageFallbackFiles(slug)) ?? mockFiles;
+  const db = client;
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
 
-  const { data: folderRows } = await client.from('files').select('id, name').eq('project_id', projectId).eq('is_folder', true);
+  const { data: folderRows } = await db.from('files').select('id, name').eq('project_id', projectId).eq('is_folder', true);
   const folderById = new Map((folderRows ?? []).map((folder: any) => [folder.id, folder.name]));
 
-  const { data, error } = await client
-    .from('files')
-    .select(
-      `id, name, size_bytes, mime_type, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
-      document_kind, sheet_number, sheet_title, revision, page_count, ocr_status, sort_order`
-    )
-    .eq('project_id', projectId)
-    .eq('is_folder', false)
-    .order('sort_order', { ascending: true })
-    .order('updated_at', { ascending: false });
+  const selectColumns = `id, name, size_bytes, mime_type, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
+      document_kind, sheet_number, sheet_title, revision, page_count, ocr_status`;
+  async function loadRows(includeSortOrder: boolean) {
+    let query = db
+      .from('files')
+      .select(includeSortOrder ? `${selectColumns}, sort_order` : selectColumns)
+      .eq('project_id', projectId)
+      .eq('is_folder', false);
 
-  if (error) throw new Error(`getFiles failed: ${error.message}`);
-  const rows = data ?? [];
+    query = includeSortOrder ? query.order('sort_order', { ascending: true }) : query;
+    return query.order('updated_at', { ascending: false });
+  }
+
+  let filesResult = await loadRows(true);
+  if (isMissingFileSortOrderError(filesResult.error)) filesResult = await loadRows(false);
+  if (filesResult.error) throw new Error(`getFiles failed: ${filesResult.error.message}`);
+  const rows = filesResult.data ?? [];
   const profiles = await profilesByIds(client, rows.map((row: any) => row.uploaded_by));
   const fileIds = rows.map((row: any) => row.id);
   const [linkedKinds, pagesResult] = await Promise.all([
-    linkedItemKindsByFile(client, projectId, fileIds),
+    linkedItemKindsByFile(db, projectId, fileIds),
     fileIds.length
-      ? client
+      ? db
           .from('drawing_pages')
           .select('id, file_id, page_number, name, sheet_number, sheet_title, revision')
           .in('file_id', fileIds)

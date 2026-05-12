@@ -1,4 +1,5 @@
 import { normalizeDocumentKind, type DocumentKind } from './drawing-ocr';
+import { isMissingFileSortOrderError } from './schema-compat';
 
 export function cleanFolderName(value: unknown) {
   return String(value ?? '')
@@ -91,6 +92,7 @@ export async function nextFileSortOrder(
   query = parentFolderId ? query.eq('parent_folder_id', parentFolderId) : query.is('parent_folder_id', null);
   const { data, error } = await query.maybeSingle();
 
+  if (isMissingFileSortOrderError(error)) return null;
   if (error) throw new Error(error.message);
   return Number(data?.sort_order ?? 0) + 100;
 }

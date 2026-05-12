@@ -270,6 +270,7 @@ test('documents and drawings support folder deletion and manual ordering', () =>
   const ingest = file('src/lib/server/file-ingest.ts');
   const queries = file('src/lib/server/queries.ts');
   const folderHelpers = file('src/lib/server/file-folders.ts');
+  const schemaCompat = file('src/lib/server/schema-compat.ts');
   const migration = file('supabase/migrations/0018_file_folder_ordering.sql');
 
   assert.match(filesPage, /folderOrganizationEnabled/);
@@ -281,15 +282,20 @@ test('documents and drawings support folder deletion and manual ordering', () =>
   assert.match(filesPage, /\/api\/files\/folders\/\$\{encodeURIComponent\(group\.folderId\)\}/);
   assert.match(filesPage, /group-edit-button danger/);
   assert.match(reorderRoute, /orderedFileIds/);
-  assert.match(reorderRoute, /sort_order: \(index \+ 1\) \* 100/);
+  assert.match(reorderRoute, /payload\.sort_order = \(index \+ 1\) \* 100/);
+  assert.match(reorderRoute, /isMissingFileSortOrderError\(error\)/);
   assert.match(deleteFolderRoute, /export const DELETE/);
   assert.match(deleteFolderRoute, /parent_folder_id: null/);
   assert.match(deleteFolderRoute, /\.delete\(\)/);
   assert.match(moveRoute, /nextFileSortOrder/);
-  assert.match(moveRoute, /sort_order: nextOrder/);
-  assert.match(ingest, /sort_order: await nextFileSortOrder/);
+  assert.match(moveRoute, /updatePayload\.sort_order = nextOrder/);
+  assert.match(ingest, /await nextFileSortOrder/);
+  assert.match(ingest, /nextSortOrder === null \? \{\} : \{ sort_order: nextSortOrder \}/);
   assert.match(queries, /\.order\('sort_order', \{ ascending: true \}\)/);
+  assert.match(queries, /isMissingFileSortOrderError\(filesResult\.error\)/);
   assert.match(folderHelpers, /export async function nextFileSortOrder/);
+  assert.match(folderHelpers, /isMissingFileSortOrderError\(error\)/);
+  assert.match(schemaCompat, /export function isMissingFileSortOrderError/);
   assert.match(migration, /add column if not exists sort_order integer not null default 0/);
 });
 

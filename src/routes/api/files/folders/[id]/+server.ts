@@ -36,15 +36,17 @@ export const DELETE: RequestHandler = async (event) => {
   const childIds = (children ?? []).map((child: { id: string }) => child.id);
   let nextOrder = await nextFileSortOrder(client, access.project.id, null);
   for (const fileId of childIds) {
+    const updatePayload: { parent_folder_id: null; sort_order?: number } = { parent_folder_id: null };
+    if (nextOrder !== null) updatePayload.sort_order = nextOrder;
     const { error } = await client
       .from('files')
-      .update({ parent_folder_id: null, sort_order: nextOrder })
+      .update(updatePayload)
       .eq('id', fileId)
       .eq('project_id', access.project.id)
       .eq('is_folder', false);
 
     if (error) return json({ error: error.message }, { status: 500 });
-    nextOrder += 100;
+    if (nextOrder !== null) nextOrder += 100;
   }
 
   const { error: deleteError } = await client

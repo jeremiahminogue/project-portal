@@ -108,6 +108,7 @@ export async function registerUploadedFile({
     .maybeSingle();
 
   if (existingError) throw new Error(existingError.message);
+  const nextSortOrder = existing?.id ? null : await nextFileSortOrder(client, access.project.id, parentFolderId);
 
   const fileWrite = existing?.id
     ? await client.from('files').update(filePayload).eq('id', existing.id).select('id, name, storage_key').single()
@@ -115,7 +116,7 @@ export async function registerUploadedFile({
         .from('files')
         .insert({
           ...filePayload,
-          sort_order: await nextFileSortOrder(client, access.project.id, parentFolderId)
+          ...(nextSortOrder === null ? {} : { sort_order: nextSortOrder })
         })
         .select('id, name, storage_key')
         .single();

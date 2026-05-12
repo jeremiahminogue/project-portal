@@ -48,9 +48,11 @@ export const POST: RequestHandler = async (event) => {
     let moved = 0;
     let nextOrder = await nextFileSortOrder(client, access.project.id, targetFolderId);
     for (const fileId of fileIds) {
+      const updatePayload: { parent_folder_id: string | null; sort_order?: number } = { parent_folder_id: targetFolderId };
+      if (nextOrder !== null) updatePayload.sort_order = nextOrder;
       const { data, error } = await client
         .from('files')
-        .update({ parent_folder_id: targetFolderId, sort_order: nextOrder })
+        .update(updatePayload)
         .eq('project_id', access.project.id)
         .eq('is_folder', false)
         .eq('id', fileId)
@@ -60,7 +62,7 @@ export const POST: RequestHandler = async (event) => {
       if (error) return json({ error: error.message }, { status: 500 });
       if (data?.id) {
         moved += 1;
-        nextOrder += 100;
+        if (nextOrder !== null) nextOrder += 100;
       }
     }
 
