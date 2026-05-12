@@ -21,6 +21,17 @@ function cleanSheetNumber(value: unknown) {
   return cleaned ? cleaned.slice(0, 32) : null;
 }
 
+function cleanRevision(value: unknown) {
+  if (typeof value !== 'string') return undefined;
+  const cleaned = value
+    .trim()
+    .replace(/[\\/]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .toUpperCase()
+    .slice(0, 16);
+  return cleaned || null;
+}
+
 function pageName(sheetNumber: string | null, sheetTitle: string | null, fallback: string) {
   if (sheetNumber && sheetTitle) return `${sheetNumber} - ${sheetTitle}`;
   return sheetNumber ?? sheetTitle ?? fallback;
@@ -32,7 +43,7 @@ export const PATCH: RequestHandler = async (event) => {
 
   const { data: page, error: pageError } = await client
     .from('drawing_pages')
-    .select('id, file_id, project_id, page_number, name')
+    .select('id, file_id, project_id, page_number, name, revision')
     .eq('id', event.params.pageId)
     .eq('file_id', event.params.id)
     .maybeSingle();
@@ -58,9 +69,11 @@ export const PATCH: RequestHandler = async (event) => {
   const requestedName = cleanName(body?.name);
   const requestedSheetNumber = cleanSheetNumber(body?.sheetNumber);
   const requestedSheetTitle = cleanName(body?.sheetTitle) || null;
+  const requestedRevision = cleanRevision(body?.revision);
   const parsed = parseSheetName(requestedName || `${requestedSheetNumber ?? ''} ${requestedSheetTitle ?? ''}`.trim());
   const sheetNumber = requestedSheetNumber ?? parsed.sheetNumber;
   const sheetTitle = requestedSheetTitle ?? parsed.sheetTitle;
+  const revision = requestedRevision !== undefined ? requestedRevision : (parsed.revision ?? page.revision);
   const name = requestedName || pageName(sheetNumber, sheetTitle, page.name);
   if (!name) return json({ error: 'Page name is required.' }, { status: 400 });
 
@@ -70,7 +83,7 @@ export const PATCH: RequestHandler = async (event) => {
       name,
       sheet_number: sheetNumber,
       sheet_title: sheetTitle ?? name,
-      revision: parsed.revision
+      revision
     })
     .eq('id', event.params.pageId)
     .select('id, name, sheet_number, sheet_title, revision')

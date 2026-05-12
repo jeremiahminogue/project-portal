@@ -214,6 +214,8 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   const uploadUrlRoute = file('src/routes/api/files/upload-url/+server.ts');
   const registerRoute = file('src/routes/api/files/+server.ts');
   const uploadRoute = file('src/routes/api/files/upload/+server.ts');
+  const fileRoute = file('src/routes/api/files/[id]/+server.ts');
+  const pageRoute = file('src/routes/api/files/[id]/pages/[pageId]/+server.ts');
   const uploadSession = file('src/lib/server/upload-session.ts');
   const ingest = file('src/lib/server/file-ingest.ts');
   const drawingOcr = file('src/lib/server/drawing-ocr.ts');
@@ -256,7 +258,11 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.match(filesPage, /body: JSON\.stringify\(\{ force: true, documentKind: 'drawing' \}\)/);
   assert.match(filesPage, /renameFileNumber/);
   assert.match(filesPage, /renameFileTitle/);
+  assert.match(filesPage, /renameFileRevision/);
+  assert.match(filesPage, /renamePageRevision/);
   assert.match(filesPage, /Specification section/);
+  assert.match(fileRoute, /updates\.revision/);
+  assert.match(pageRoute, /function cleanRevision/);
   assert.match(uploadUrlRoute, /normalizeDocumentKind/);
   assert.match(registerRoute, /session\.documentKind/);
   assert.match(uploadRoute, /formString\(form, 'documentKind'\)/);

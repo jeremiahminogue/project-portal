@@ -59,6 +59,7 @@ test('drawing OCR preserves dashed sheet numbers from names', async () => {
   assert.equal(parseSheetName('C-1.0 OVERALL SITE PLAN.pdf').sheetNumber, 'C-1.0');
   assert.equal(parseSheetName('C_3.4 DRAINAGE PLAN.pdf').sheetNumber, 'C-3.4');
   assert.equal(parseSheetName('E101 LIGHTING PLAN.pdf').sheetNumber, 'E-101');
+  assert.equal(parseSheetName('FA-001 JCI CONTACTS Rev. A.pdf').revision, 'A');
 });
 
 test('drawing OCR prefers title block metadata over sheet index entries', async () => {
@@ -82,6 +83,23 @@ test('drawing OCR prefers title block metadata over sheet index entries', async 
       ['C-1.0', 'OVERALL SITE PLAN'],
       ['C-1.1', 'OVERALL UTILITY PLAN']
     ]
+  );
+});
+
+test('drawing OCR does not read title words as revisions', async () => {
+  const { analyzeDrawingUpload } = await loadDrawingOcrModule();
+  const bytes = await drawingPdf([
+    ['FA-201', 'FIRE ALARM RISER'],
+    ['FA-702', 'REF. NOTES']
+  ]);
+
+  const analysis = await withoutPdfjsStandardFontWarning(() =>
+    analyzeDrawingUpload(bytes, 'Ag Palace Fire Alarm.pdf', 'application/pdf', 'AG Palace')
+  );
+
+  assert.deepEqual(
+    analysis.pages.map((page) => page.revision),
+    [null, null]
   );
 });
 

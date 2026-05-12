@@ -145,11 +145,77 @@ function analysisFromPages(
   };
 }
 
+const REVISION_HEADER_TOKENS = new Set([
+  'DATE',
+  'DESC',
+  'DESCRIPTION',
+  'DRAWN',
+  'BY',
+  'NO',
+  'NUMBER',
+  'ISSUE',
+  'ISSUED',
+  'REV',
+  'REVISION',
+  'SHEET',
+  'TITLE'
+]);
+
+function normalizeRevisionToken(value: string | null | undefined) {
+  const token = cleanText(String(value ?? ''))
+    .replace(/^[^A-Z0-9]+|[^A-Z0-9]+$/gi, '')
+    .toUpperCase();
+  if (!token || token.length > 4 || REVISION_HEADER_TOKENS.has(token)) return null;
+  if (/^\d{1,2}$/.test(token)) return token;
+  if (/^[A-H]$/.test(token)) return token;
+  if (/^[A-Z]\d{1,2}$/.test(token)) return token;
+  if (/^\d{1,2}[A-Z]$/.test(token)) return token;
+  if (/^(?:ASI|CCD|PR|SK|RFI)\d{1,2}$/.test(token)) return token;
+  return null;
+}
+
+function extractInlineRevision(line: string) {
+  const patterns = [
+    /\brevision[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+    /\brev\.?[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+    /\brev\.?([A-Z0-9]{1,4})\b/i,
+    /\bR[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+    /\bR([0-9]{1,2}|[A-H])\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = line.match(pattern);
+    const revision = normalizeRevisionToken(match?.[1]);
+    if (revision) return revision;
+  }
+  return null;
+}
+
+function lineLooksLikeRevisionLabel(line: string) {
+  return /\b(?:revision|rev\.?)\b/i.test(line) || /^R$/i.test(cleanText(line));
+}
+
+function firstStandaloneRevisionToken(line: string) {
+  for (const token of line.split(/[^A-Za-z0-9]+/)) {
+    const revision = normalizeRevisionToken(token);
+    if (revision) return revision;
+  }
+  return null;
+}
+
 function extractRevision(lines: string[]) {
   for (const line of lines) {
-    const match = line.match(/\b(?:revision|rev\.?|r)[\s:#-]*([A-Z0-9]{1,4})\b/i);
-    if (match?.[1]) return match[1].toUpperCase();
+    const revision = extractInlineRevision(line);
+    if (revision) return revision;
   }
+
+  const labelIndex = lines.findIndex(lineLooksLikeRevisionLabel);
+  if (labelIndex >= 0) {
+    for (const line of lines.slice(labelIndex + 1, labelIndex + 4)) {
+      const revision = firstStandaloneRevisionToken(line);
+      if (revision) return revision;
+    }
+  }
+
   return null;
 }
 

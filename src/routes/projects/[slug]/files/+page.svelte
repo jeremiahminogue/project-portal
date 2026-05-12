@@ -39,9 +39,11 @@
   let renameName = $state('');
   let renameFileNumber = $state('');
   let renameFileTitle = $state('');
+  let renameFileRevision = $state('');
   let renamePageId = $state('');
   let renamePageSheetNumber = $state('');
   let renamePageSheetTitle = $state('');
+  let renamePageRevision = $state('');
   let busy = $state(false);
   let notice = $state('');
   let selectedPageIds = $state<string[]>([]);
@@ -204,12 +206,32 @@
     return file.name.replace(/\.[^.]+$/, '').replaceAll('_', ' ');
   }
 
+  function revisionLabel(value: string | null | undefined) {
+    return value?.trim() || '0';
+  }
+
+  function revisionFromText(value: string) {
+    const patterns = [
+      /\brevision[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+      /\brev\.?[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+      /\brev\.?([A-Z0-9]{1,4})\b/i,
+      /\bR[\s:#._-]+([A-Z0-9]{1,4})\b/i,
+      /\bR([0-9]{1,2}|[A-H])\b/i
+    ];
+    for (const pattern of patterns) {
+      const token = value.match(pattern)?.[1]?.toUpperCase();
+      if (token && (/^\d{1,2}$/.test(token) || /^[A-H]$/.test(token) || /^[A-Z]\d{1,2}$/.test(token) || /^\d{1,2}[A-Z]$/.test(token))) {
+        return token;
+      }
+    }
+    return null;
+  }
+
   function revisionFor(file: (typeof data.files)[number]) {
     if (file.revision) return file.revision;
     const tag = file.tags?.find((value) => /^rev(?:ision)?[:\s-]/i.test(value));
     if (tag) return tag.replace(/^rev(?:ision)?[:\s-]*/i, '').trim() || '0';
-    const match = file.name.match(/\b(?:rev(?:ision)?|r)[\s._-]*([A-Z0-9]+)\b/i);
-    return match?.[1] ?? '0';
+    return revisionFromText(file.name) ?? '0';
   }
 
   function fileHasStorage(file: (typeof data.files)[number]) {
@@ -654,6 +676,7 @@
     renameName = file.name;
     renameFileNumber = documentNumber(file);
     renameFileTitle = documentTitle(file);
+    renameFileRevision = file.revision ?? '';
     notice = '';
   }
 
@@ -661,6 +684,7 @@
     renamePageId = page.id;
     renamePageSheetNumber = page.sheetNumber ?? `Page ${page.pageNumber}`;
     renamePageSheetTitle = page.sheetTitle ?? page.name;
+    renamePageRevision = page.revision ?? '';
     notice = '';
   }
 
@@ -711,7 +735,8 @@
         body: JSON.stringify({
           name: renameName.trim(),
           sheetNumber: renameFileNumber.trim(),
-          sheetTitle: renameFileTitle.trim()
+          sheetTitle: renameFileTitle.trim(),
+          revision: renameFileRevision.trim()
         })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Rename failed.');
@@ -719,6 +744,7 @@
       renameName = '';
       renameFileNumber = '';
       renameFileTitle = '';
+      renameFileRevision = '';
       notice = 'Name updated.';
       await invalidateAll();
     } catch (error) {
@@ -738,11 +764,13 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sheetNumber: renamePageSheetNumber.trim(),
-          sheetTitle: renamePageSheetTitle.trim()
+          sheetTitle: renamePageSheetTitle.trim(),
+          revision: renamePageRevision.trim()
         })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Page rename failed.');
       renamePageId = '';
+      renamePageRevision = '';
       notice = 'Sheet page updated.';
       await invalidateAll();
     } catch (error) {
@@ -1255,7 +1283,13 @@
                               </span>
                             {/if}
                           </td>
-                          <td>{pageRow.revision ?? revisionFor(file)}</td>
+                          <td>
+                            {#if renamePageId === pageRow.id}
+                              <input class="field revision-edit" bind:value={renamePageRevision} placeholder="0" aria-label="Revision" />
+                            {:else}
+                              {revisionLabel(pageRow.revision)}
+                            {/if}
+                          </td>
                           <td>{formatDate(file.updatedAt)}</td>
                           <td>
                             {#if fileHasStorage(file) && fileIsPdf(file)}
@@ -1270,7 +1304,16 @@
                                 <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
                                   <Check size={15} />
                                 </button>
-                                <button class="icon-row-button quiet" type="button" disabled={busy} onclick={() => (renamePageId = '')} aria-label="Cancel drawing page edit">
+                                <button
+                                  class="icon-row-button quiet"
+                                  type="button"
+                                  disabled={busy}
+                                  onclick={() => {
+                                    renamePageId = '';
+                                    renamePageRevision = '';
+                                  }}
+                                  aria-label="Cancel drawing page edit"
+                                >
                                   <X size={15} />
                                 </button>
                               {:else if fileHasStorage(file)}
@@ -1337,7 +1380,13 @@
                             </span>
                           {/if}
                         </td>
-                        <td>{revisionFor(file)}</td>
+                        <td>
+                          {#if renameId === file.id}
+                            <input class="field revision-edit" bind:value={renameFileRevision} placeholder="0" aria-label="Revision" />
+                          {:else}
+                            {revisionFor(file)}
+                          {/if}
+                        </td>
                         <td>{formatDate(file.updatedAt)}</td>
                         <td><span class="set-link">{file.path}</span></td>
                         <td>
@@ -1368,6 +1417,7 @@
                                   renameName = '';
                                   renameFileNumber = '';
                                   renameFileTitle = '';
+                                  renameFileRevision = '';
                                 }}
                                 aria-label="Cancel file edit"
                               >
@@ -1439,7 +1489,15 @@
                           </span>
                         {/if}
                       </td>
-                      <td>{documentTool === 'documents' ? file.type.toUpperCase() : revisionFor(file)}</td>
+                      <td>
+                        {#if documentTool === 'documents'}
+                          {file.type.toUpperCase()}
+                        {:else if renameId === file.id}
+                          <input class="field revision-edit" bind:value={renameFileRevision} placeholder="0" aria-label="Revision" />
+                        {:else}
+                          {revisionFor(file)}
+                        {/if}
+                      </td>
                       <td>{formatDate(file.updatedAt)}</td>
                       <td><span class="set-link">{file.path}</span></td>
                       <td>
@@ -1470,6 +1528,7 @@
                                 renameName = '';
                                 renameFileNumber = '';
                                 renameFileTitle = '';
+                                renameFileRevision = '';
                               }}
                               aria-label="Cancel file edit"
                             >
@@ -1829,7 +1888,8 @@
   }
 
   .sheet-edit-number,
-  .sheet-edit-title {
+  .sheet-edit-title,
+  .revision-edit {
     min-height: 1.95rem;
     border-color: #ff6a2a;
     border-radius: 0.3rem;
@@ -1842,6 +1902,11 @@
   .sheet-edit-title {
     max-width: 30rem;
     font-weight: 750;
+  }
+
+  .revision-edit {
+    width: 4.2rem;
+    text-align: center;
   }
 
   .icon-row-button.success {

@@ -90,9 +90,10 @@ export const PATCH: RequestHandler = async (event) => {
   const name = typeof body?.name === 'string' ? cleanName(body.name) : undefined;
   const sheetNumber = cleanOptionalText(body?.sheetNumber, 80);
   const sheetTitle = cleanOptionalText(body?.sheetTitle, 240);
+  const revision = cleanOptionalText(body?.revision, 16)?.toUpperCase();
   if (typeof name === 'string' && !name) return json({ error: 'Name is required.' }, { status: 400 });
-  if (name === undefined && sheetNumber === undefined && sheetTitle === undefined) {
-    return json({ error: 'Provide a name, number, or title to update.' }, { status: 400 });
+  if (name === undefined && sheetNumber === undefined && sheetTitle === undefined && revision === undefined) {
+    return json({ error: 'Provide a name, number, title, or revision to update.' }, { status: 400 });
   }
 
   const client = databaseClientForProjectAccess(event, access);
@@ -101,16 +102,17 @@ export const PATCH: RequestHandler = async (event) => {
   if (name !== undefined) updates.name = name;
   if (sheetNumber !== undefined) updates.sheet_number = sheetNumber || null;
   if (sheetTitle !== undefined) updates.sheet_title = sheetTitle || null;
+  if (revision !== undefined) updates.revision = revision || null;
 
   const { data, error } = await client
     .from('files')
     .update(updates)
     .eq('id', loaded.file.id)
-    .select('id, name, sheet_number, sheet_title')
+    .select('id, name, sheet_number, sheet_title, revision')
     .single();
 
   if (error) return json({ error: error.message }, { status: 500 });
-  return json({ id: data.id, name: data.name, sheetNumber: data.sheet_number, sheetTitle: data.sheet_title });
+  return json({ id: data.id, name: data.name, sheetNumber: data.sheet_number, sheetTitle: data.sheet_title, revision: data.revision });
 };
 
 export const DELETE: RequestHandler = async (event) => {
