@@ -98,6 +98,7 @@
   const uploadFolderEditable = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadFolderLabel = $derived(documentTool === 'documents' ? 'Document folder' : 'Drawing group');
   const uploadFolderPlaceholder = $derived(documentTool === 'documents' ? 'New document folder' : 'Civil, Electrical...');
+  const fileDetailsBeingEdited = $derived(Boolean(renameId || renamePageId || renameGroupId));
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const toolFolders = $derived(
@@ -476,8 +477,16 @@
     return movableFileIds(selectedIds);
   }
 
+  function fileDragEnabled(file: FileRow) {
+    return folderOrganizationEnabled && canModifyFiles && !fileDetailsBeingEdited && !fileIsStorageOnly(file);
+  }
+
+  function folderDragEnabled(group: FileGroup) {
+    return folderOrganizationEnabled && canModifyFiles && !fileDetailsBeingEdited && Boolean(group.folderId);
+  }
+
   function startFileDrag(event: DragEvent, file: FileRow) {
-    if (!folderOrganizationEnabled || !canModifyFiles || fileIsStorageOnly(file)) return;
+    if (!fileDragEnabled(file)) return;
     const ids = dragIdsForFile(file);
     if (!ids.length || !event.dataTransfer) return;
     draggingFileIds = ids;
@@ -503,7 +512,7 @@
   }
 
   function startFolderDrag(event: DragEvent, group: FileGroup) {
-    if (!folderOrganizationEnabled || !canModifyFiles || !group.folderId || !event.dataTransfer) return;
+    if (!folderDragEnabled(group) || !event.dataTransfer) return;
     draggingFolderId = group.folderId;
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData(INTERNAL_FOLDER_DRAG_TYPE, group.folderId);
@@ -1356,7 +1365,7 @@
                 class:drop-active={dropGroupId === groupRenameKey(group)}
                 class:folder-dragging-row={draggingFolderId === group.folderId}
                 class:nested-group-row={group.depth > 0}
-                draggable={folderOrganizationEnabled && canModifyFiles && Boolean(group.folderId)}
+                draggable={folderDragEnabled(group)}
                 style={`--folder-depth:${Math.min(group.depth, 6)}`}
                 ondragstart={(event) => startFolderDrag(event, group)}
                 ondragend={endFileDrag}
@@ -1468,7 +1477,7 @@
                           class:editing-row={renamePageId === pageRow.id}
                           class:dragging-row={draggingFileIds.includes(file.id)}
                           class:order-drop-target={orderDropFileId === file.id}
-                          draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                          draggable={fileDragEnabled(file)}
                           ondragstart={(event) => startFileDrag(event, file)}
                           ondragend={endFileDrag}
                           ondragenter={(event) => markFileOrderDrop(event, file)}
@@ -1558,7 +1567,7 @@
                         class="page-row sheet-row"
                         class:dragging-row={draggingFileIds.includes(file.id)}
                         class:order-drop-target={orderDropFileId === file.id}
-                        draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                        draggable={fileDragEnabled(file)}
                         ondragstart={(event) => startFileDrag(event, file)}
                         ondragend={endFileDrag}
                         ondragenter={(event) => markFileOrderDrop(event, file)}
@@ -1661,7 +1670,7 @@
                     <tr
                       class:dragging-row={draggingFileIds.includes(file.id)}
                       class:order-drop-target={orderDropFileId === file.id}
-                      draggable={folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly(file)}
+                      draggable={fileDragEnabled(file)}
                       ondragstart={(event) => startFileDrag(event, file)}
                       ondragend={endFileDrag}
                       ondragenter={(event) => markFileOrderDrop(event, file)}

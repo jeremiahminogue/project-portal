@@ -107,8 +107,15 @@ test('admin access email does not include plaintext temporary passwords', () => 
   assert.match(users, /escapeHtml/);
   assert.match(users, /hashed_token/);
   assert.match(users, /token_hash/);
+  assert.match(users, /updateUserProfile/);
+  assert.match(users, /updateUserById/);
   assert.match(users, /'\/reset-password'/);
   assert.match(usersUi, /function highestAccess/);
+  assert.match(usersUi, /user-table/);
+  assert.match(usersUi, /modal-overlay/);
+  assert.match(usersUi, /role="dialog"/);
+  assert.match(usersUi, /name="email"/);
+  assert.match(usersUi, /Edit user/);
   assert.match(usersUi, /Portal admin/);
   assert.match(usersUi, /Project admin/);
   assert.match(usersUi, /Project access/);
@@ -321,7 +328,10 @@ test('documents and drawings support folder deletion and manual ordering', () =>
   assert.match(filesPage, /selectedMovableFileIds/);
   assert.match(filesPage, /aria-label="Select all visible documents"/);
   assert.match(filesPage, /function dropFilesOnFile/);
-  assert.match(filesPage, /draggable=\{folderOrganizationEnabled && canModifyFiles && !fileIsStorageOnly\(file\)\}/);
+  assert.match(filesPage, /function fileDragEnabled/);
+  assert.match(filesPage, /function folderDragEnabled/);
+  assert.match(filesPage, /!fileDetailsBeingEdited/);
+  assert.match(filesPage, /draggable=\{fileDragEnabled\(file\)\}/);
   assert.match(filesPage, /\/api\/files\/reorder/);
   assert.match(filesPage, /\/api\/files\/folders\/\$\{encodeURIComponent\(group\.folderId\)\}/);
   assert.match(filesPage, /group-edit-button danger/);

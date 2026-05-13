@@ -321,6 +321,67 @@ export const actions: Actions = {
     };
   },
 
+  updateUserProfile: async (event) => {
+    const me = await requireSuperadmin(event);
+    const form = await event.request.formData();
+    const userId = formString(form, 'userId');
+    const email = formString(form, 'email').toLowerCase();
+    const fullName = formString(form, 'fullName') || null;
+    const company = formString(form, 'company') || null;
+    const title = formString(form, 'title') || null;
+    const isSuperadmin = checked(form, 'isSuperadmin');
+
+    if (!userId || !email) return fail(400, { error: 'Choose a user before saving.' });
+    if (!email.includes('@')) return fail(400, { error: 'Enter a valid email address.' });
+    if (me.user.id === userId && !isSuperadmin) {
+      return fail(400, { error: 'You cannot remove your own portal admin access.' });
+    }
+
+    const admin = createAdminClient();
+    const authUser = await admin.auth.admin.getUserById(userId);
+    if (authUser.error || !authUser.data.user) {
+      return fail(400, { error: authUser.error?.message ?? 'User not found.' });
+    }
+
+    const existingEmailOwner = await findAuthUserByEmail(admin, email);
+    if (existingEmailOwner && existingEmailOwner.id !== userId) {
+      return fail(400, { error: 'Another portal user already uses that email address.' });
+    }
+
+    const authUpdate = await admin.auth.admin.updateUserById(userId, {
+      email,
+      email_confirm: true,
+      user_metadata: {
+        ...(authUser.data.user.user_metadata ?? {}),
+        full_name: fullName ?? ''
+      }
+    } as never);
+    if (authUpdate.error) return fail(400, { error: authUpdate.error.message });
+
+    const profile = await admin.from('profiles').upsert(
+      {
+        id: userId,
+        email,
+        full_name: fullName,
+        company,
+        title,
+        is_superadmin: isSuperadmin
+      },
+      { onConflict: 'id' }
+    );
+    if (profile.error) return fail(400, { error: profile.error.message });
+
+    await writeAdminAudit(event, 'user.profile_update', 'user', userId, {
+      email,
+      fullName,
+      company,
+      title,
+      isSuperadmin
+    });
+
+    return { ok: true, message: 'User updated.' };
+  },
+
   emailUser: async (event) => {
     await requireSuperadmin(event);
     const form = await event.request.formData();

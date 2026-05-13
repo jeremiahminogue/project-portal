@@ -12,11 +12,7 @@
   const openSubmittals = $derived(data.submittals.filter((item) => !['Approved', 'Rejected'].includes(item.status)));
   const openRfis = $derived(data.rfis.filter((item) => item.status === 'Open'));
   const nextActivities = $derived(data.schedule.slice(0, 6));
-  const drawingCount = $derived(
-    data.files
-      .filter((file) => fileMatchesTool(file, 'drawings'))
-      .reduce((total, file) => total + Math.max(file.pages?.length ?? 0, 1), 0)
-  );
+  const drawingSetCount = $derived(data.files.filter((file) => fileMatchesTool(file, 'drawings')).length);
 </script>
 
 <svelte:head>
@@ -58,8 +54,8 @@
     {/if}
     <a href={`/projects/${data.slug}/files`}>
       <FolderOpen size={19} />
-      <span>Drawings</span>
-      <strong>{drawingCount}</strong>
+      <span>Drawing sets</span>
+      <strong>{drawingSetCount}</strong>
     </a>
     {#if canSeeDirectory}
       <a href={`/projects/${data.slug}/directory`}>

@@ -6,14 +6,27 @@
 
   let { data, form } = $props();
   let createOpen = $state(true);
+  let editingUserId = $state('');
   let deleteUserId = $state('');
-  // Inline edit-membership state. Keyed by `${userId}:${projectId}` so two
-  // users can't have edit panels open against the same project at once.
   let editingMembership = $state('');
+  const editingUser = $derived(data.users.find((user) => user.id === editingUserId) ?? null);
 
   function membershipKey(userId: string, projectId: string) {
     return `${userId}:${projectId}`;
   }
+
+  function toggleUserEdit(userId: string) {
+    editingUserId = editingUserId === userId ? '' : userId;
+    editingMembership = '';
+    deleteUserId = '';
+  }
+
+  function closeUserEdit() {
+    editingUserId = '';
+    editingMembership = '';
+    deleteUserId = '';
+  }
+
   function toggleEdit(userId: string, projectId: string) {
     const key = membershipKey(userId, projectId);
     editingMembership = editingMembership === key ? '' : key;
@@ -38,6 +51,10 @@
 
   function projectCountLabel(count: number) {
     return `${count} project${count === 1 ? '' : 's'}`;
+  }
+
+  function userCompanyTitle(user: (typeof data.users)[number]) {
+    return [user.company, user.title].filter(Boolean).join(' - ') || 'No company or title';
   }
 
   async function copyInviteLink() {
@@ -136,47 +153,99 @@
       <span>{data.users.length} users</span>
     </div>
 
-    <div class="user-grid">
-      {#each data.users as user}
-        {@const access = highestAccess(user)}
-        <article class="user-card">
-          <div class="user-card-head">
-            <div class="min-w-0">
-              <h3>{user.fullName ?? user.email}</h3>
-              <a href={`mailto:${user.email}`}>{user.email}</a>
-              <p>{user.company ?? 'No company'} {user.title ? `- ${user.title}` : ''}</p>
-            </div>
-            <div class="access-summary">
-              <span class={`access-level ${access.tone}`}>
-                <ShieldCheck size={14} />
-                {access.label}
-              </span>
-              <span class="access-detail">{access.detail}</span>
-            </div>
-          </div>
+    <div class="user-table-shell">
+      <table class="user-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Access level</th>
+            <th>Sign-in</th>
+            <th>Projects</th>
+            <th>Admin console</th>
+            <th>Company / title</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each data.users as user}
+            {@const access = highestAccess(user)}
+            <tr class:row-open={editingUserId === user.id}>
+              <td>
+                <div class="user-cell">
+                  <strong>{user.fullName ?? user.email}</strong>
+                  <a href={`mailto:${user.email}`}>{user.email}</a>
+                </div>
+              </td>
+              <td>
+                <span class={`access-level ${access.tone}`}>
+                  <ShieldCheck size={14} />
+                  {access.label}
+                </span>
+                <span class="access-detail">{access.detail}</span>
+              </td>
+              <td><StatusPill label={user.emailConfirmed ? 'Confirmed' : 'Pending'} /></td>
+              <td><strong>{projectCountLabel(user.projectCount)}</strong></td>
+              <td><strong>{user.isSuperadmin ? 'Yes' : 'No'}</strong></td>
+              <td><span class="muted-text">{userCompanyTitle(user)}</span></td>
+              <td>
+                <button class="table-action" type="button" title="Edit user" aria-label={`Edit ${user.email}`} onclick={() => toggleUserEdit(user.id)}>
+                  <Pencil size={15} />
+                  Edit
+                </button>
+              </td>
+            </tr>
 
-          <div class="user-access-meta" aria-label={`Access summary for ${user.email}`}>
-            <div>
-              <span class="meta-label">Sign-in</span>
-              <StatusPill label={user.emailConfirmed ? 'Confirmed' : 'Pending'} />
-            </div>
-            <div>
-              <span class="meta-label">Project access</span>
-              <strong>{projectCountLabel(user.projectCount)}</strong>
-            </div>
-            <div>
-              <span class="meta-label">Admin console</span>
-              <strong>{user.isSuperadmin ? 'Yes' : 'No'}</strong>
-            </div>
-          </div>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+  </section>
 
+  {#if editingUser}
+    <div class="modal-overlay" role="presentation">
+      <div class="user-modal" role="dialog" aria-modal="true" aria-labelledby="user-edit-title">
+        <form
+          class="profile-edit-form"
+          method="post"
+          action="?/updateUserProfile"
+          use:enhance={() => async ({ result, update }) => {
+            await update();
+            if (result.type === 'success') closeUserEdit();
+          }}
+        >
+          <input type="hidden" name="userId" value={editingUser.id} />
+          <div class="editor-heading">
+            <div>
+              <span class="eyebrow">Edit user</span>
+              <h3 id="user-edit-title">{editingUser.fullName ?? editingUser.email}</h3>
+            </div>
+            <button class="chip-icon" type="button" title="Close editor" aria-label="Close user editor" onclick={closeUserEdit}>
+              <X size={16} />
+            </button>
+          </div>
+          <div class="profile-grid">
+            <div class="field-block"><label class="label" for={`email-${editingUser.id}`}>Email</label><input id={`email-${editingUser.id}`} class="field" name="email" type="email" value={editingUser.email} required /></div>
+            <div class="field-block"><label class="label" for={`full-name-${editingUser.id}`}>Full name</label><input id={`full-name-${editingUser.id}`} class="field" name="fullName" value={editingUser.fullName ?? ''} /></div>
+            <div class="field-block"><label class="label" for={`company-${editingUser.id}`}>Company</label><input id={`company-${editingUser.id}`} class="field" name="company" value={editingUser.company ?? ''} /></div>
+            <div class="field-block"><label class="label" for={`title-${editingUser.id}`}>Title</label><input id={`title-${editingUser.id}`} class="field" name="title" value={editingUser.title ?? ''} /></div>
+            <label class="send-toggle portal-admin-toggle" title="Grants full admin console access">
+              <input type="checkbox" name="isSuperadmin" checked={editingUser.isSuperadmin} />
+              <span>Portal admin</span>
+            </label>
+          </div>
+          <div class="editor-actions">
+            <button class="btn btn-primary" type="submit">Save user</button>
+          </div>
+        </form>
+
+        <div class="editor-grid">
           <div class="project-access-list">
             <div class="project-access-title">
               <span>Project access</span>
-              <span>{projectCountLabel(user.projectCount)}</span>
+              <span>{projectCountLabel(editingUser.projectCount)}</span>
             </div>
-            {#each user.projects as project}
-              {@const key = membershipKey(user.id, project.id)}
+            {#each editingUser.projects as project}
+              {@const key = membershipKey(editingUser.id, project.id)}
               <div class="project-access-row">
                 <div class="project-access-main">
                   <strong>#{project.slug}</strong>
@@ -195,16 +264,16 @@
                   <button
                     type="button"
                     class="chip-icon"
-                    aria-label={`Edit ${user.email} on ${project.name}`}
+                    aria-label={`Edit ${editingUser.email} on ${project.name}`}
                     title={data.managerFlagsAvailable ? 'Edit role + manager flags' : 'Edit role'}
-                    onclick={() => toggleEdit(user.id, project.id)}
+                    onclick={() => toggleEdit(editingUser.id, project.id)}
                   >
                     <Pencil size={13} />
                   </button>
                   <form method="post" action="?/removeProject" use:enhance>
-                    <input type="hidden" name="userId" value={user.id} />
+                    <input type="hidden" name="userId" value={editingUser.id} />
                     <input type="hidden" name="projectId" value={project.id} />
-                    <button type="submit" class="chip-icon is-danger" aria-label={`Remove ${user.email} from ${project.name}`} title="Remove from project">
+                    <button type="submit" class="chip-icon is-danger" aria-label={`Remove ${editingUser.email} from ${project.name}`} title="Remove from project">
                       <X size={13} />
                     </button>
                   </form>
@@ -219,7 +288,7 @@
                       if (result.type === 'success') editingMembership = '';
                     }}
                   >
-                    <input type="hidden" name="userId" value={user.id} />
+                    <input type="hidden" name="userId" value={editingUser.id} />
                     <input type="hidden" name="projectId" value={project.id} />
                     <label class="me-field">
                       <span>Role</span>
@@ -246,16 +315,17 @@
             {/each}
           </div>
 
-          <div class="user-card-actions">
+          <div class="user-tools-panel">
             <form class="assign-form" method="post" action="?/assignProject" use:enhance>
-              <input type="hidden" name="userId" value={user.id} />
-              <select class="field" name="projectId" aria-label={`Project for ${user.email}`} required>
+              <input type="hidden" name="userId" value={editingUser.id} />
+              <label class="label" for={`assign-project-${editingUser.id}`}>Grant project access</label>
+              <select id={`assign-project-${editingUser.id}`} class="field" name="projectId" aria-label={`Project for ${editingUser.email}`} required>
                 <option value="">Assign project</option>
                 {#each data.projects as project}
                   <option value={project.id}>#{project.slug} {project.name}</option>
                 {/each}
               </select>
-              <select class="field" name="role" aria-label={`Project role for ${user.email}`}>
+              <select class="field" name="role" aria-label={`Project role for ${editingUser.email}`}>
                 <option value="member">Member</option>
                 <option value="admin">Admin</option>
                 <option value="guest">Guest</option>
@@ -265,42 +335,44 @@
                 <label class="mini-check" title="User can route incoming submittals on this project"><input type="checkbox" name="isSubmittalManager" /> Submittal manager</label>
                 <label class="mini-check" title="User can manage RFIs on this project"><input type="checkbox" name="isRfiManager" /> RFI manager</label>
               {/if}
-              <label class="mini-check"><input type="checkbox" name="sendEmail" /> Email</label>
-              <button class="btn btn-secondary" type="submit" aria-label={`Assign project to ${user.email}`}>
+              <label class="mini-check"><input type="checkbox" name="sendEmail" /> Email user</label>
+              <button class="btn btn-secondary" type="submit" aria-label={`Assign project to ${editingUser.email}`}>
                 <Plus size={14} />
-                Grant
+                Grant access
               </button>
             </form>
 
-            <form method="post" action="?/emailUser" use:enhance>
-              <input type="hidden" name="userId" value={user.id} />
-              <button class="btn btn-ghost email-button" type="submit">
-                <Mail size={15} />
-                Email access
-              </button>
-            </form>
+            <div class="secondary-actions">
+              <form method="post" action="?/emailUser" use:enhance>
+                <input type="hidden" name="userId" value={editingUser.id} />
+                <button class="btn btn-ghost email-button" type="submit">
+                  <Mail size={15} />
+                  Email access
+                </button>
+              </form>
 
-            <button class="btn btn-ghost email-button danger-text" type="button" onclick={() => (deleteUserId = deleteUserId === user.id ? '' : user.id)}>
-              <Trash2 size={15} />
-              Delete user
-            </button>
+              <button class="btn btn-ghost email-button danger-text" type="button" onclick={() => (deleteUserId = deleteUserId === editingUser.id ? '' : editingUser.id)}>
+                <Trash2 size={15} />
+                Delete user
+              </button>
+            </div>
+
+            {#if deleteUserId === editingUser.id}
+              <form class="delete-user-form" method="post" action="?/deleteUser" use:enhance>
+                <input type="hidden" name="userId" value={editingUser.id} />
+                <input type="hidden" name="email" value={editingUser.email} />
+                <label class="label" for={`delete-user-${editingUser.id}`}>Type {editingUser.email} to delete this user</label>
+                <div>
+                  <input id={`delete-user-${editingUser.id}`} class="field" name="confirmEmail" autocomplete="off" />
+                  <button class="btn bg-red-700 text-white hover:bg-red-800" type="submit">Delete</button>
+                </div>
+              </form>
+            {/if}
           </div>
-
-          {#if deleteUserId === user.id}
-            <form class="delete-user-form" method="post" action="?/deleteUser" use:enhance>
-              <input type="hidden" name="userId" value={user.id} />
-              <input type="hidden" name="email" value={user.email} />
-              <label class="label" for={`delete-user-${user.id}`}>Type {user.email} to delete this user</label>
-              <div>
-                <input id={`delete-user-${user.id}`} class="field" name="confirmEmail" autocomplete="off" />
-                <button class="btn bg-red-700 text-white hover:bg-red-800" type="submit">Delete</button>
-              </div>
-            </form>
-          {/if}
-        </article>
-      {/each}
+        </div>
+      </div>
     </div>
-  </section>
+  {/if}
 </PageShell>
 
 <style>
@@ -327,7 +399,7 @@
 
   .invite-panel,
   .invite-link-panel,
-  .user-card {
+  .user-table-shell {
     border: 1px solid rgba(25, 27, 25, 0.1);
     border-radius: 0.5rem;
     background: #fff;
@@ -343,7 +415,11 @@
 
   .invite-panel-title,
   .invite-actions,
-  .invite-link-panel {
+  .invite-link-panel,
+  .directory-toolbar,
+  .editor-heading,
+  .project-access-title,
+  .secondary-actions {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -351,7 +427,8 @@
   }
 
   .invite-panel-title h2,
-  .directory-toolbar h2 {
+  .directory-toolbar h2,
+  .editor-heading h3 {
     margin: 0;
     color: #191b19;
     font-size: 1rem;
@@ -385,7 +462,8 @@
     white-space: nowrap;
   }
 
-  .invite-grid {
+  .invite-grid,
+  .profile-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.75rem;
@@ -400,88 +478,90 @@
     padding: 0.8rem;
   }
 
-  .invite-link-panel div {
+  .invite-link-panel div,
+  .user-cell {
     min-width: 0;
   }
 
   .invite-link-panel strong,
-  .invite-link-panel span {
+  .invite-link-panel span,
+  .user-cell strong,
+  .user-cell a {
     display: block;
   }
 
-  .invite-link-panel strong {
+  .invite-link-panel strong,
+  .user-cell strong {
     color: #191b19;
     font-size: 0.82rem;
     font-weight: 900;
   }
 
-  .invite-link-panel span {
+  .invite-link-panel span,
+  .muted-text,
+  .access-detail,
+  .user-cell a {
     overflow: hidden;
     color: #59615a;
-    font-size: 0.78rem;
-    font-weight: 700;
+    font-size: 0.76rem;
+    font-weight: 750;
     text-overflow: ellipsis;
+  }
+
+  .invite-link-panel span,
+  .muted-text {
     white-space: nowrap;
+  }
+
+  .user-cell a {
+    margin-top: 0.14rem;
+    color: #1d5fb8;
+    font-weight: 800;
+    text-decoration: underline;
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   .directory-toolbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
     margin: 1.2rem 0 0.65rem;
   }
 
-  .user-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.8rem;
+  .user-table-shell {
+    overflow: auto;
   }
 
-  .user-card {
-    display: grid;
-    gap: 0.8rem;
-    padding: 1rem;
+  .user-table {
+    width: 100%;
+    min-width: 980px;
+    border-collapse: collapse;
   }
 
-  .user-card-head {
-    display: flex;
-    align-items: start;
-    justify-content: space-between;
-    gap: 0.8rem;
+  .user-table th,
+  .user-table td {
+    border-bottom: 1px solid rgba(25, 27, 25, 0.08);
+    padding: 0.68rem 0.75rem;
+    text-align: left;
+    vertical-align: middle;
   }
 
-  .user-card h3 {
-    margin: 0;
-    overflow: hidden;
-    color: #191b19;
-    font-size: 0.98rem;
-    font-weight: 900;
-    text-overflow: ellipsis;
+  .user-table th {
+    background: #f4f7f4;
+    color: #4f594f;
+    font-size: 0.68rem;
+    font-weight: 950;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     white-space: nowrap;
   }
 
-  .user-card a {
-    display: block;
-    margin-top: 0.18rem;
-    overflow-wrap: anywhere;
-    color: #1d5fb8;
-    font-size: 0.78rem;
+  .user-table td {
+    color: #252a25;
+    font-size: 0.82rem;
     font-weight: 800;
-    text-decoration: underline;
   }
 
-  .user-card p {
-    margin-top: 0.28rem;
-    color: #606860;
-    font-size: 0.78rem;
-    font-weight: 750;
-  }
-
-  .access-summary {
-    display: grid;
-    justify-items: end;
-    gap: 0.2rem;
-    min-width: 9rem;
+  .user-table tr.row-open > td {
+    background: #f8faf8;
   }
 
   .access-level,
@@ -526,53 +606,91 @@
   }
 
   .access-detail {
-    color: #6c746c;
-    font-size: 0.72rem;
-    font-weight: 750;
-    text-align: right;
+    display: block;
+    margin-top: 0.2rem;
   }
 
-  .user-access-meta {
+  .table-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-height: 2rem;
+    border: 1px solid rgba(25, 27, 25, 0.12);
+    border-radius: 0.35rem;
+    background: #fff;
+    padding: 0.42rem 0.62rem;
+    color: #191b19;
+    font-size: 0.78rem;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .table-action:hover {
+    border-color: rgba(20, 146, 52, 0.35);
+    color: #176d2e;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 0.5rem;
-    border: 1px solid rgba(25, 27, 25, 0.08);
-    border-radius: 0.45rem;
+    place-items: center;
+    padding: 1rem;
+    background: rgba(25, 27, 25, 0.46);
+  }
+
+  .user-modal {
+    display: grid;
+    gap: 0.85rem;
+    width: min(72rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 2rem);
+    overflow: auto;
+    border: 1px solid rgba(25, 27, 25, 0.14);
+    border-radius: 0.55rem;
     background: #f8faf8;
-    padding: 0.6rem;
+    padding: 0.9rem;
+    box-shadow: 0 30px 80px -35px rgba(0, 0, 0, 0.65);
   }
 
-  .user-access-meta div {
+  .profile-edit-form {
     display: grid;
-    align-content: start;
-    gap: 0.22rem;
-    min-width: 0;
+    gap: 0.75rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.45rem;
+    background: #fff;
+    padding: 0.8rem;
   }
 
-  .meta-label {
-    color: #6b746b;
-    font-size: 0.66rem;
-    font-weight: 900;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
+  .portal-admin-toggle {
+    align-self: end;
+    min-height: 2.5rem;
   }
 
-  .user-access-meta strong {
-    color: #252a25;
-    font-size: 0.82rem;
-    font-weight: 900;
+  .editor-actions {
+    display: flex;
+    justify-content: flex-end;
   }
 
-  .project-access-list {
+  .editor-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(19rem, 0.42fr);
+    gap: 0.85rem;
+    align-items: start;
+  }
+
+  .project-access-list,
+  .user-tools-panel {
     display: grid;
     gap: 0.45rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.45rem;
+    background: #fff;
+    padding: 0.75rem;
   }
 
   .project-access-title {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
     color: #4f594f;
     font-size: 0.72rem;
     font-weight: 900;
@@ -665,8 +783,8 @@
 
   .chip-icon {
     display: inline-flex;
-    width: 1.35rem;
-    height: 1.35rem;
+    width: 1.55rem;
+    height: 1.55rem;
     align-items: center;
     justify-content: center;
     border: 0;
@@ -677,7 +795,7 @@
   }
 
   .chip-icon:hover {
-    background: #ffffff;
+    background: #eef3fb;
     color: #1d5fb8;
   }
 
@@ -698,63 +816,41 @@
     background: #fff;
     box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.18);
   }
-  .membership-edit .me-field {
+
+  .membership-edit .me-field,
+  .assign-form {
     display: grid;
-    gap: 0.18rem;
+    gap: 0.36rem;
     min-width: 0;
   }
+
   .membership-edit .me-field span {
     color: #4f594f;
     font-size: 0.66rem;
     font-weight: 850;
-    text-transform: uppercase;
     letter-spacing: 0.03em;
+    text-transform: uppercase;
   }
-  .membership-edit .me-field .field {
+
+  .membership-edit .me-field .field,
+  .assign-form .field {
     min-height: 2rem;
     padding-block: 0.4rem;
     font-size: 0.78rem;
   }
+
   .membership-edit .me-actions {
     display: inline-flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 0.35rem;
     grid-column: 1 / -1;
-    justify-content: flex-end;
-  }
-
-  @media (max-width: 720px) {
-    .membership-edit {
-      grid-template-columns: 1fr 1fr;
-    }
-    .membership-edit .me-actions {
-      grid-column: 1 / -1;
-    }
   }
 
   .empty-projects {
     color: #667066;
     font-size: 0.78rem;
     font-weight: 750;
-  }
-
-  .user-card-actions {
-    display: grid;
-    gap: 0.55rem;
-  }
-
-  .assign-form {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 8rem auto auto;
-    gap: 0.45rem;
-    align-items: center;
-  }
-
-  .assign-form .field {
-    min-height: 2.25rem;
-    border-radius: 0.35rem;
-    padding-block: 0.45rem;
-    font-size: 0.78rem;
   }
 
   .mini-check {
@@ -792,8 +888,13 @@
 
   @media (max-width: 1180px) {
     .invite-grid,
-    .user-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+    .profile-grid,
+    .editor-grid {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .editor-grid {
+      grid-template-columns: 1fr;
     }
   }
 
@@ -802,30 +903,23 @@
     .invite-panel-title,
     .invite-actions,
     .invite-link-panel,
-    .user-card-head {
+    .directory-toolbar,
+    .editor-heading,
+    .secondary-actions {
       align-items: stretch;
       flex-direction: column;
     }
 
     .invite-grid,
-    .user-grid,
-    .user-access-meta,
+    .profile-grid,
     .project-access-row,
-    .assign-form,
+    .membership-edit,
     .delete-user-form div {
       grid-template-columns: 1fr;
     }
 
     .field-block.wide {
       grid-column: auto;
-    }
-
-    .access-summary {
-      justify-items: start;
-    }
-
-    .access-detail {
-      text-align: left;
     }
 
     .project-access-badges,
