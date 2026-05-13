@@ -185,7 +185,7 @@
                   {#if delivery.status === 'failed' || delivery.status === 'skipped'}
                     <form method="post" action="?/retryDelivery" use:enhance>
                       <input type="hidden" name="id" value={delivery.id} />
-                      <button class="mini-button" type="submit"><RefreshCw size={14} />Retry</button>
+                      <button class="mini-button" type="submit" title="Retry notification"><RefreshCw size={14} />Retry</button>
                     </form>
                   {:else}
                     -

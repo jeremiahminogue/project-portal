@@ -12,10 +12,10 @@
       <span class="truncate">{title}</span>
     </div>
     <div class="flex items-center gap-1">
-      <a class="btn btn-ghost min-h-8 px-2" href={downloadSrc} aria-label={`Download ${title}`}>
+      <a class="btn btn-ghost min-h-8 px-2" href={downloadSrc} aria-label={`Download ${title}`} title="Download PDF">
         <Download size={15} />
       </a>
-      <a class="btn btn-ghost min-h-8 px-2" href={src} target="_blank" rel="noreferrer" aria-label={`Open ${title} in a new tab`}>
+      <a class="btn btn-ghost min-h-8 px-2" href={src} target="_blank" rel="noreferrer" aria-label={`Open ${title} in a new tab`} title="Open PDF in new tab">
         <ExternalLink size={15} />
       </a>
     </div>

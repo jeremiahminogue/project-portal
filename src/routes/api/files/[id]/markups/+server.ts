@@ -3,6 +3,7 @@ import {
   databaseClientForCurrentUser,
   databaseClientForProjectAccess,
   isProjectAccessError,
+  projectRoleCapabilities,
   requireProjectAccess
 } from '$lib/server/project-access';
 import type { RequestEvent } from '@sveltejs/kit';
@@ -79,11 +80,11 @@ export const PUT: RequestHandler = async (event) => {
   const pageNumber = markupPageNumber(event);
   if (pageNumber < 0) return json({ error: 'Use a valid markup page number.' }, { status: 400 });
 
-  const access = await requireProjectAccess(event, loaded.projectSlug, {
-    writable: true,
-    action: 'save PDF markups'
-  });
+  const access = await requireProjectAccess(event, loaded.projectSlug, { action: 'save PDF markups' });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+  if (!projectRoleCapabilities[access.role].canMarkupFiles) {
+    return json({ error: 'Not authorized to save PDF markups.' }, { status: 403 });
+  }
 
   const rawBody = await event.request.text();
   if (new TextEncoder().encode(rawBody).byteLength > MAX_MARKUP_JSON_BYTES) {

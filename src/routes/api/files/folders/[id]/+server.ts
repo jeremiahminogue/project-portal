@@ -1,14 +1,17 @@
 import { json } from '@sveltejs/kit';
 import { nextFileSortOrder } from '$lib/server/file-folders';
-import { databaseClientForProjectAccess, isProjectAccessError, requireProjectAccess } from '$lib/server/project-access';
+import { databaseClientForProjectAccess, isProjectAccessError, projectRoleCapabilities, requireProjectAccess } from '$lib/server/project-access';
 import type { RequestHandler } from './$types';
 
 export const DELETE: RequestHandler = async (event) => {
   const projectSlug = event.url.searchParams.get('projectSlug') ?? '';
   if (!projectSlug) return json({ error: 'Project is required.' }, { status: 400 });
 
-  const access = await requireProjectAccess(event, projectSlug, { writable: true, action: 'delete folders' });
+  const access = await requireProjectAccess(event, projectSlug, { action: 'delete folders' });
   if (isProjectAccessError(access)) return json({ error: access.message }, { status: access.status });
+  if (!projectRoleCapabilities[access.role].canDeleteFiles) {
+    return json({ error: 'Only project admins can delete folders.' }, { status: 403 });
+  }
 
   const client = databaseClientForProjectAccess(event, access);
   if (!client) return json({ ok: true, moved: 0 });

@@ -31,7 +31,7 @@
     if (user.isSuperadmin) return { label: 'Portal admin', detail: 'Full admin console access', tone: 'superadmin' };
     if (user.projects.some((project) => project.role === 'admin')) return { label: 'Project admin', detail: 'Can manage assigned projects', tone: 'admin' };
     if (user.projects.some((project) => project.role === 'member')) return { label: 'Member', detail: 'Can work assigned projects', tone: 'member' };
-    if (user.projects.some((project) => project.role === 'guest')) return { label: 'Guest', detail: 'Limited project collaboration', tone: 'guest' };
+    if (user.projects.some((project) => project.role === 'guest')) return { label: 'Guest', detail: 'View, download, and markup', tone: 'guest' };
     if (user.projects.some((project) => project.role === 'readonly')) return { label: 'Read-only', detail: 'View and download only', tone: 'readonly' };
     return { label: 'No access', detail: 'No project assignments', tone: 'none' };
   }

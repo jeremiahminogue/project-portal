@@ -69,7 +69,7 @@
                 }}
               >
                 <input type="hidden" name="subjectId" value={subject.id} />
-                <button class="delete-chat-button" type="submit" aria-label={`Delete ${subject.name}`}>
+                <button class="delete-chat-button" type="submit" aria-label={`Delete ${subject.name}`} title={`Delete ${subject.name}`}>
                   <Trash2 size={15} />
                 </button>
               </form>
@@ -122,7 +122,7 @@
                   }}
                 >
                   <input type="hidden" name="messageId" value={message.id} />
-                  <button class="delete-message-button" type="submit" aria-label="Delete chat message">
+                  <button class="delete-message-button" type="submit" aria-label="Delete chat message" title="Delete chat message">
                     <Trash2 size={14} />
                   </button>
                 </form>

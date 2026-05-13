@@ -541,7 +541,7 @@
           <span class="eyebrow">New submittal</span>
           <h2 id="create-modal-title">Create and route a submittal</h2>
         </div>
-        <button class="icon-row-button" type="button" aria-label="Close" onclick={closeCreateModal}>
+        <button class="icon-row-button" type="button" aria-label="Close" title="Close" onclick={closeCreateModal}>
           <X size={17} />
         </button>
       </header>
@@ -712,7 +712,7 @@
             {/if}
           </div>
         </div>
-        <button class="icon-row-button" type="button" aria-label="Close" onclick={closeSubmittalModal}>
+        <button class="icon-row-button" type="button" aria-label="Close" title="Close" onclick={closeSubmittalModal}>
           <X size={17} />
         </button>
       </header>
@@ -733,7 +733,7 @@
                     <Download size={13} />
                   </a>
                 {/if}
-                <button class="mini-button" type="button" aria-label="Close preview" onclick={() => (activeAttachmentId = '')}>
+                <button class="mini-button" type="button" aria-label="Close preview" title="Close preview" onclick={() => (activeAttachmentId = '')}>
                   <X size={13} />
                 </button>
               </div>
@@ -1035,7 +1035,7 @@
 
                 <div class="drawer-header">
                   <span class="drawer-tag is-{decisionStatus.replace('_','-')}">{decisionLabels[decisionStatus] ?? 'Update'}</span>
-                  <button type="button" class="mini-button" onclick={cancelDecision} aria-label="Cancel decision">
+                  <button type="button" class="mini-button" onclick={cancelDecision} aria-label="Cancel decision" title="Cancel decision">
                     <X size={13} />
                   </button>
                 </div>

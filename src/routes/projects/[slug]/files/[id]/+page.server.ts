@@ -29,6 +29,7 @@ export const load: PageServerLoad = async (event) => {
   const fileAccess = {
     role: access.role,
     canModify: projectRoleCapabilities[access.role].canEditFiles,
+    canMarkup: projectRoleCapabilities[access.role].canMarkupFiles,
     canDownload: projectRoleCapabilities[access.role].canDownloadFiles
   };
 

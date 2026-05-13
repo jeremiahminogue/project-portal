@@ -264,17 +264,17 @@
   <div class="embedpdf-shell">
     <div class="markup-actions" aria-label="PDF markup actions">
       {#if originalDownloadUrl}
-        <a class="markup-button" href={originalDownloadUrl}>
+        <a class="markup-button" href={originalDownloadUrl} title="Download original PDF">
           <Download size={14} />
           Original
         </a>
       {/if}
-      <button class="markup-button" type="button" disabled={!exportCapability || downloading} onclick={downloadWithMarkups}>
+      <button class="markup-button" type="button" disabled={!exportCapability || downloading} onclick={downloadWithMarkups} title="Download PDF with markups">
         <Download size={14} />
         {downloading ? 'Preparing...' : 'With markups'}
       </button>
       {#if editable && markupsUrl}
-        <button class="markup-button primary" type="button" disabled={!annotationCapability || saving} onclick={saveMarkups}>
+        <button class="markup-button primary" type="button" disabled={!annotationCapability || saving} onclick={saveMarkups} title="Save markups to this project">
           <Save size={14} />
           {saving ? 'Saving...' : 'Save markups'}
         </button>

@@ -191,7 +191,7 @@
 
     <div class="flex shrink-0 items-center gap-2">
       {#if me?.isSuperadmin}
-        <a class="btn btn-ghost hidden text-white/86 hover:bg-white/10 hover:text-white sm:inline-flex" href="/admin">
+        <a class="btn btn-ghost hidden text-white/86 hover:bg-white/10 hover:text-white sm:inline-flex" href="/admin" title="Admin panel">
           <Shield size={16} />
           Admin
         </a>

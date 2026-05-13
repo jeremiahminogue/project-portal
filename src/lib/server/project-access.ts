@@ -16,7 +16,7 @@ export const projectRoleDescriptions: Record<ProjectRole, string> = {
   superadmin: 'Pueblo Electric portal owner with access to every project and admin console.',
   admin: 'Project lead who can upload, edit, delete, manage chat, and manage project users.',
   member: 'Internal project contributor who can upload files and work RFIs, submittals, chat, and updates.',
-  guest: 'External collaborator who can view drawings and participate in project communication workflows.',
+  guest: 'External collaborator who can view, download, and save PDF markups without upload or delete access.',
   readonly: 'Viewer who can read and download project information without changing records.'
 };
 
@@ -25,6 +25,7 @@ export const projectRoleCapabilities: Record<
   {
     canViewProject: boolean;
     canDownloadFiles: boolean;
+    canMarkupFiles: boolean;
     canUploadFiles: boolean;
     canEditFiles: boolean;
     canDeleteFiles: boolean;
@@ -42,6 +43,7 @@ export const projectRoleCapabilities: Record<
   superadmin: {
     canViewProject: true,
     canDownloadFiles: true,
+    canMarkupFiles: true,
     canUploadFiles: true,
     canEditFiles: true,
     canDeleteFiles: true,
@@ -58,6 +60,7 @@ export const projectRoleCapabilities: Record<
   admin: {
     canViewProject: true,
     canDownloadFiles: true,
+    canMarkupFiles: true,
     canUploadFiles: true,
     canEditFiles: true,
     canDeleteFiles: true,
@@ -74,6 +77,7 @@ export const projectRoleCapabilities: Record<
   member: {
     canViewProject: true,
     canDownloadFiles: true,
+    canMarkupFiles: true,
     canUploadFiles: true,
     canEditFiles: true,
     canDeleteFiles: false,
@@ -90,6 +94,7 @@ export const projectRoleCapabilities: Record<
   guest: {
     canViewProject: true,
     canDownloadFiles: true,
+    canMarkupFiles: true,
     canUploadFiles: false,
     canEditFiles: false,
     canDeleteFiles: false,
@@ -106,6 +111,7 @@ export const projectRoleCapabilities: Record<
   readonly: {
     canViewProject: true,
     canDownloadFiles: true,
+    canMarkupFiles: false,
     canUploadFiles: false,
     canEditFiles: false,
     canDeleteFiles: false,

@@ -170,7 +170,7 @@
         {/if}
       </label>
     {/if}
-    <button class={`btn btn-primary ${fullWidth && !folderEditable ? 'w-full' : ''}`} type="button" disabled={uploading} onclick={() => input?.click()}>
+    <button class={`btn btn-primary ${fullWidth && !folderEditable ? 'w-full' : ''}`} type="button" disabled={uploading} onclick={() => input?.click()} title="Upload files">
       <UploadCloud size={16} />
       {uploading ? 'Uploading...' : 'Upload files'}
     </button>

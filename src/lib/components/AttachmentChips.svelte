@@ -30,11 +30,12 @@
               target="_blank"
               rel="noreferrer"
               aria-label={`Preview ${attachment.name}`}
+              title={`Preview ${attachment.name}`}
             >
               <Eye size={13} />
               Preview
             </a>
-            <a href={`/api/files/${encodeURIComponent(attachment.id)}/download?download=1`} aria-label={`Download ${attachment.name}`}>
+            <a href={`/api/files/${encodeURIComponent(attachment.id)}/download?download=1`} aria-label={`Download ${attachment.name}`} title={`Download ${attachment.name}`}>
               <Download size={13} />
             </a>
           </span>
@@ -59,7 +60,7 @@
       {/if}
     {/each}
     {#if downloadAllHref && attachments.some((attachment) => attachment.id)}
-      <a class="attachment-chip attachment-download-all" href={downloadAllHref}>
+      <a class="attachment-chip attachment-download-all" href={downloadAllHref} title={downloadAllLabel}>
         <Download size={14} />
         <span>{downloadAllLabel}</span>
       </a>

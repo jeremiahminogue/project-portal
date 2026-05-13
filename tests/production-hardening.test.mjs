@@ -362,11 +362,13 @@ test('project roles have explicit production capabilities', () => {
   const access = file('src/lib/server/project-access.ts');
   const filesPage = file('src/routes/projects/[slug]/files/+page.server.ts');
   assert.match(access, /projectRoleCapabilities/);
+  assert.match(access, /canMarkupFiles/);
   assert.match(access, /canUploadFiles/);
   assert.match(access, /canDeleteChat/);
   assert.match(access, /canManageSchedule/);
   assert.match(access, /canManageDirectory/);
   assert.match(access, /guest:\s*\{[\s\S]*canUploadFiles: false/);
+  assert.match(access, /guest:\s*\{[\s\S]*canMarkupFiles: true/);
   assert.match(access, /readonly:\s*\{[\s\S]*canCreateCommunication: false/);
   assert.match(filesPage, /projectRoleCapabilities\[role\]\.canUploadFiles/);
   assert.match(filesPage, /projectRoleCapabilities\[role\]\.canReindexFiles/);
@@ -407,7 +409,7 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(viewer, /\/api\/files\/\$\{encodeURIComponent\(data\.file\.id\)\}\/pages\/\$\{encodeURIComponent\(activeSheet\.id\)\}/);
   assert.match(viewer, /page=\$\{pageNumber\}/);
   assert.match(viewer, /markupsUrl=\{activeMarkupsUrl\}/);
-  assert.match(viewer, /editable=\{Boolean\(data\.fileAccess\?\.canModify\)\}/);
+  assert.match(viewer, /editable=\{canMarkupActiveSheet\}/);
   assert.match(viewer, /originalDownloadUrl=\{activeDownloadUrl\}/);
   assert.match(viewer, /{:else if isImage}/);
   assert.match(viewer, /Preview is not available for this file type/);
@@ -430,6 +432,7 @@ test('PDF viewer supports saved markup layers and marked-up exports', () => {
   const embedViewer = file('src/lib/components/EmbedPdfViewer.svelte');
   const markupsRoute = file('src/routes/api/files/[id]/markups/+server.ts');
   const migration = file('supabase/migrations/0009_file_markups.sql');
+  const guestMarkupMigration = file('supabase/migrations/0020_guest_file_markups.sql');
   assert.match(embedViewer, /importAnnotations/);
   assert.match(embedViewer, /exportAnnotations/);
   assert.match(embedViewer, /saveAsCopy/);
@@ -451,6 +454,8 @@ test('PDF viewer supports saved markup layers and marked-up exports', () => {
   assert.match(migration, /annotations_json jsonb not null default '\[\]'::jsonb/);
   assert.match(migration, /references files\(id\) on delete cascade/);
   assert.match(migration, /Project members can update file markups/);
+  assert.match(guestMarkupMigration, /role in \('admin', 'member', 'guest'\)/);
+  assert.match(markupsRoute, /canMarkupFiles/);
 });
 
 test('updates can attach project files and files include a documents view', () => {

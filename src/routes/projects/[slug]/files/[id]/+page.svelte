@@ -62,6 +62,7 @@
   const titleRegionEndpoint = $derived(`/api/files/${encodeURIComponent(data.file.id)}/title-region`);
   const canEditTitleRegion = $derived(Boolean(data.fileAccess?.canModify && isPdf && !data.file.id.startsWith('storage:')));
   const canEditActiveSheet = $derived(Boolean(data.fileAccess?.canModify && isPdf && !data.file.id.startsWith('storage:')));
+  const canMarkupActiveSheet = $derived(Boolean(data.fileAccess?.canMarkup && isPdf && !data.file.id.startsWith('storage:')));
 
   $effect(() => {
     if (!showTitleRegionTool) {
@@ -272,10 +273,10 @@
   <header class="viewer-topbar">
     <div class="viewer-left">
       {#if hasSheetIndex}
-        <a class:disabled={activePage <= 1} class="nav-icon" href={viewerPageHref(previousPage)} aria-label="Previous sheet">
+        <a class:disabled={activePage <= 1} class="nav-icon" href={viewerPageHref(previousPage)} aria-label="Previous sheet" title="Previous sheet">
           <ChevronLeft size={18} />
         </a>
-        <button class:active={showSheets} class="nav-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index">
+        <button class:active={showSheets} class="nav-icon" type="button" onclick={() => (showSheets = !showSheets)} aria-label="Toggle sheet index" title="Toggle sheet index">
           <PanelLeft size={18} />
         </button>
         <div class="sheet-pill">
@@ -293,15 +294,15 @@
             >
               <input class="viewer-title-number" bind:value={editSheetNumber} disabled={editSheetSaving} aria-label="Sheet number" />
               <input class="viewer-title-name" bind:value={editSheetTitle} disabled={editSheetSaving} aria-label="Sheet title" />
-              <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title">
+              <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title" title="Save sheet title">
                 <Check size={14} />
               </button>
-              <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit">
+              <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit" title="Cancel edit">
                 <X size={14} />
               </button>
             </form>
           {:else}
-            <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title">
+            <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title" title={canEditActiveSheet ? 'Edit sheet number and title' : 'Sheet number and title'}>
               <strong>{activeSheetNumber}</strong>
               <span>{activeSheetTitle}</span>
               {#if canEditActiveSheet}
@@ -314,7 +315,7 @@
           {/if}
         </div>
         <span class="revision-pill">{activeRevision ? `Rev ${activeRevision}` : 'Current'}</span>
-        <a class:disabled={activePage >= sheetCount} class="nav-icon" href={viewerPageHref(nextPage)} aria-label="Next sheet">
+        <a class:disabled={activePage >= sheetCount} class="nav-icon" href={viewerPageHref(nextPage)} aria-label="Next sheet" title="Next sheet">
           <ChevronRight size={18} />
         </a>
       {:else}
@@ -334,15 +335,15 @@
               >
                 <input class="viewer-title-number" bind:value={editSheetNumber} disabled={editSheetSaving} aria-label="Sheet number" />
                 <input class="viewer-title-name" bind:value={editSheetTitle} disabled={editSheetSaving} aria-label="Sheet title" />
-                <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title">
+                <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title" title="Save sheet title">
                   <Check size={14} />
                 </button>
-                <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit">
+                <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit" title="Cancel edit">
                   <X size={14} />
                 </button>
               </form>
             {:else}
-              <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title">
+              <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title" title={canEditActiveSheet ? 'Edit sheet number and title' : 'Sheet number and title'}>
                 <strong>{activeSheetNumber}</strong>
                 <span>{activeSheetTitle}</span>
                 {#if canEditActiveSheet}
@@ -359,18 +360,18 @@
     </div>
     <div class="viewer-right">
       {#if canEditTitleRegion}
-        <button class:active={showTitleRegionTool} class="top-action" type="button" onclick={openTitleRegionTool}>
+        <button class:active={showTitleRegionTool} class="top-action" type="button" onclick={openTitleRegionTool} title="Select OCR title area">
           <Pencil size={14} />
           Title area
         </button>
       {/if}
-      {#if data.fileAccess?.canModify}
+      {#if canMarkupActiveSheet}
         <span class="markup-status"><Pencil size={14} /> Markup enabled</span>
       {/if}
       <a class="top-icon" href={activeDownloadUrl} aria-label="Download original PDF" title="Download original">
         <Download size={16} />
       </a>
-      <a class="exit-link" href={data.backUrl}>
+      <a class="exit-link" href={data.backUrl} title="Exit viewer">
         <X size={15} />
         Exit
       </a>
@@ -400,7 +401,7 @@
             title={title}
             page={activePage}
             markupsUrl={activeMarkupsUrl}
-            editable={Boolean(data.fileAccess?.canModify)}
+            editable={canMarkupActiveSheet}
             originalDownloadUrl={activeDownloadUrl}
           />
         {/key}
@@ -432,7 +433,7 @@
             <strong id="title-region-heading">Title area</strong>
             <span>{sheetLabel}</span>
           </div>
-          <button class="region-close" type="button" onclick={() => (showTitleRegionTool = false)} aria-label="Close title area selector">
+          <button class="region-close" type="button" onclick={() => (showTitleRegionTool = false)} aria-label="Close title area selector" title="Close">
             <X size={16} />
           </button>
         </header>
@@ -457,9 +458,9 @@
           <div class="region-notice">{titleRegionNotice}</div>
         {/if}
         <footer class="region-actions">
-          <button class="region-button" type="button" disabled={titleRegionSaving} onclick={() => (draftTitleRegion = defaultTitleRegion())}>Reset</button>
-          <button class="region-button" type="button" disabled={titleRegionSaving || !titleRegion} onclick={clearTitleRegion}>Clear</button>
-          <button class="region-button primary" type="button" disabled={titleRegionSaving || !normalizedRegion(draftTitleRegion)} onclick={saveTitleRegion}>
+          <button class="region-button" type="button" disabled={titleRegionSaving} onclick={() => (draftTitleRegion = defaultTitleRegion())} title="Reset title area">Reset</button>
+          <button class="region-button" type="button" disabled={titleRegionSaving || !titleRegion} onclick={clearTitleRegion} title="Clear saved title area">Clear</button>
+          <button class="region-button primary" type="button" disabled={titleRegionSaving || !normalizedRegion(draftTitleRegion)} onclick={saveTitleRegion} title="Save title area and rerun OCR">
             {titleRegionSaving ? 'Working...' : 'Save and OCR'}
           </button>
         </footer>

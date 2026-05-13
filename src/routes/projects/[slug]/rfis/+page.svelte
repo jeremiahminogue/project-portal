@@ -371,7 +371,7 @@
           </div>
           <div class="modal-header-actions">
             <StatusPill label={selectedRfi.status} />
-            <button class="icon-row-button" type="button" aria-label="Close RFI" onclick={closeRfiModal}>
+            <button class="icon-row-button" type="button" aria-label="Close RFI" title="Close RFI" onclick={closeRfiModal}>
               <X size={17} />
             </button>
           </div>

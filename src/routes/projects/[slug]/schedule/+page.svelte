@@ -297,7 +297,7 @@
               <td>
                 {#if data.scheduleAccess?.canManage}
                   <div class="row-actions">
-                    <button class="mini-button" type="button" onclick={() => { editingId = item.id; showForm = true; }}>Edit</button>
+                    <button class="mini-button" type="button" title={`Edit ${item.title}`} onclick={() => { editingId = item.id; showForm = true; }}>Edit</button>
                     {#if data.scheduleAccess?.canDelete}
                       <form method="post" action="?/deleteActivity" use:enhance onsubmit={(event) => { if (!confirm(`Delete "${item.title}"?`)) event.preventDefault(); }}>
                         <input type="hidden" name="id" value={item.id} />

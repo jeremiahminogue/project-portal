@@ -82,9 +82,11 @@
   );
   const toolTitle = $derived(documentTool === 'specifications' ? 'Specifications' : documentTool === 'documents' ? 'Documents' : 'Drawings');
   const canModifyFiles = $derived(Boolean(data.fileAccess?.canModify));
+  const canMarkupFiles = $derived(Boolean(data.fileAccess?.canMarkup));
   const canUploadFiles = $derived(Boolean(data.fileAccess?.canUpload));
   const canDeleteFiles = $derived(Boolean(data.fileAccess?.canDelete));
   const canReindexFiles = $derived(Boolean(data.fileAccess?.canReindex));
+  const accessChipLabel = $derived(canMarkupFiles ? 'View + markup access' : 'Read-only access');
   const folderOrganizationEnabled = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadDocumentKind = $derived(documentTool === 'specifications' ? 'specification' : documentTool === 'documents' ? 'file' : 'drawing');
   const defaultUploadFolder = $derived(documentTool === 'specifications' ? 'Specifications' : '');
@@ -1138,7 +1140,7 @@
           folderOptions={uploadFolderOptions}
         />
       {:else}
-        <span class="readonly-chip">Read-only access</span>
+        <span class="readonly-chip" title={accessChipLabel}>{accessChipLabel}</span>
       {/if}
     </div>
   </section>
@@ -1171,7 +1173,7 @@
                   {/each}
                 </select>
                 <input class="field compact folder-name-field" bind:value={newFolderName} placeholder="Folder name" aria-label="New folder name" />
-                <button class="mini-button" type="submit" disabled={busy || !newFolderName.trim()}>
+                <button class="mini-button" type="submit" disabled={busy || !newFolderName.trim()} title="Create folder">
                   <Check size={14} />
                   Create
                 </button>
@@ -1185,12 +1187,13 @@
                     newFolderParentId = GENERAL_FOLDER_VALUE;
                   }}
                   aria-label="Cancel new folder"
+                  title="Cancel new folder"
                 >
                   <X size={15} />
                 </button>
               </form>
             {:else}
-              <button class="mini-button" type="button" disabled={busy} onclick={() => (showNewFolderForm = true)}>
+              <button class="mini-button" type="button" disabled={busy} onclick={() => (showNewFolderForm = true)} title="Create new folder">
                 <FolderPlus size={14} />
                 New folder
               </button>
@@ -1202,7 +1205,7 @@
                   <option value={folder.id}>{folder.path ?? folder.name}</option>
                 {/each}
               </select>
-              <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedFiles}>
+              <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedFiles} title="Move selected files">
                 <MoveRight size={14} />
                 Move
               </button>
@@ -1213,16 +1216,16 @@
         {#if documentTool === 'drawings' && selectedPageIds.length}
           <div class="bulk-actions" aria-label="Selected drawing page actions">
             <span>{selectedPageIds.length} selected</span>
-            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('combined')}>
+            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('combined')} title="Download selected pages as one PDF">
               <Download size={14} />
               Combined PDF
             </button>
-            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('separate')}>
+            <button class="mini-button" type="button" disabled={busy} onclick={() => exportSelectedPages('separate')} title="Download selected pages as individual files">
               <Download size={14} />
               Single pages
             </button>
             {#if canDeleteFiles}
-              <button class="mini-button danger" type="button" disabled={busy} onclick={deleteSelectedPages}>
+              <button class="mini-button danger" type="button" disabled={busy} onclick={deleteSelectedPages} title="Delete selected pages">
                 <Trash2 size={14} />
                 Delete
               </button>
@@ -1294,6 +1297,7 @@
                     type="button"
                     onclick={() => toggleGroupCollapsed(group)}
                     aria-label={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}
+                    title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}
                   >
                     {#if groupIsCollapsed(group)}
                       <ChevronRight size={15} />
@@ -1325,7 +1329,7 @@
                   {:else}
                     <div class="group-label" style={`padding-left: calc(var(--folder-depth) * 1.15rem);`}>
                       <span class="folder-icon"><Folder size={14} /></span>
-                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)}>
+                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)} title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}>
                         <span>{group.name} ({group.count})</span>
                         {#if folderParentLabel(group)}
                           <small>{folderParentLabel(group)}</small>
@@ -1337,7 +1341,7 @@
                 <td class="group-action-cell">
                   <div class="row-actions group-actions">
                     {#if renameGroupId === groupRenameKey(group)}
-                      <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save folder name">
+                      <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameGroup} aria-label="Save folder name" title="Save folder name">
                         <Check size={15} />
                       </button>
                       <button
@@ -1350,24 +1354,25 @@
                           renameGroupOriginalName = '';
                         }}
                         aria-label="Cancel folder edit"
+                        title="Cancel folder edit"
                       >
                         <X size={15} />
                       </button>
                     {:else}
                       {#if canModifyFiles && groupCanRename(group)}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.path} folder`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.path} folder`} title={`Rename ${group.path} folder`}>
                           <Pencil size={12} />
                           <span>Edit</span>
                         </button>
                       {/if}
-                      {#if canModifyFiles && group.folderId}
-                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.path} folder`}>
+                      {#if canDeleteFiles && group.folderId}
+                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.path} folder`} title={`Delete ${group.path} folder`}>
                           <Trash2 size={12} />
                           <span>Delete</span>
                         </button>
                       {/if}
                       {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.path} group`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.path} group`} title={`Run OCR for ${group.path}`}>
                           <RefreshCw size={12} />
                           <span>OCR</span>
                         </button>
@@ -1444,7 +1449,7 @@
                           <td>
                             <div class="row-actions">
                               {#if renamePageId === pageRow.id}
-                                <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page">
+                                <button class="icon-row-button primary success" type="button" disabled={busy} onclick={() => renamePage(file)} aria-label="Save drawing page" title="Save drawing page">
                                   <Check size={15} />
                                 </button>
                                 <button
@@ -1456,24 +1461,25 @@
                                     renamePageRevision = '';
                                   }}
                                   aria-label="Cancel drawing page edit"
+                                  title="Cancel drawing page edit"
                                 >
                                   <X size={15} />
                                 </button>
                               {:else if fileHasStorage(file)}
-                                <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${pageRow.name}`}>
+                                <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${pageRow.name}`} title={`Download ${pageRow.name}`}>
                                   <Download size={15} />
                                 </a>
-                                <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${pageRow.name}`}>
+                                <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${pageRow.name}`} title={`Copy link for ${pageRow.name}`}>
                                   <Copy size={15} />
                                 </button>
                                 {#if canDeleteFiles && !fileIsStorageOnly(file)}
-                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${pageRow.name}`}>
+                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${pageRow.name}`} title={`Create external share link for ${pageRow.name}`}>
                                     <Link size={15} />
                                   </button>
                                 {/if}
                               {/if}
                               {#if renamePageId !== pageRow.id && canModifyFiles && !fileIsStorageOnly(file)}
-                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`}>
+                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`} title={`Rename ${pageRow.name}`}>
                                   <Pencil size={15} />
                                 </button>
                               {/if}
@@ -1535,20 +1541,20 @@
                         <td>
                           <div class="row-actions">
                             {#if fileHasStorage(file)}
-                              <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
+                              <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`} title={`Download ${file.name}`}>
                                 <Download size={15} />
                               </a>
-                              <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
+                              <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`} title={`Copy link for ${file.name}`}>
                                 <Copy size={15} />
                               </button>
                               {#if canDeleteFiles && !fileIsStorageOnly(file)}
-                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`}>
+                                <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`} title={`Create external share link for ${file.name}`}>
                                   <Link size={15} />
                                 </button>
                               {/if}
                             {/if}
                             {#if renameId === file.id}
-                              <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">
+                              <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details" title="Save file details">
                                 <Check size={15} />
                               </button>
                               <button
@@ -1563,22 +1569,23 @@
                                   renameFileRevision = '';
                                 }}
                                 aria-label="Cancel file edit"
+                                title="Cancel file edit"
                               >
                                 <X size={15} />
                               </button>
                             {/if}
                             {#if renameId !== file.id && canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
-                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`} title={`Re-index OCR for ${file.name}`}>
                                 <RefreshCw size={15} />
                               </button>
                             {/if}
                             {#if renameId !== file.id && canModifyFiles && !fileIsStorageOnly(file)}
-                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`} title={`Rename ${file.name}`}>
                                 <Pencil size={15} />
                               </button>
                             {/if}
                             {#if canDeleteFiles}
-                              <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`}>
+                              <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`} title={`Delete ${file.name}`}>
                                 <Trash2 size={15} />
                               </button>
                             {/if}
@@ -1646,20 +1653,20 @@
                       <td>
                         <div class="row-actions">
                           {#if fileHasStorage(file)}
-                            <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`}>
+                            <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`} title={`Download ${file.name}`}>
                               <Download size={15} />
                             </a>
-                            <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`}>
+                            <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`} title={`Copy link for ${file.name}`}>
                               <Copy size={15} />
                             </button>
                             {#if canDeleteFiles && !fileIsStorageOnly(file)}
-                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`}>
+                              <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`} title={`Create external share link for ${file.name}`}>
                                 <Link size={15} />
                               </button>
                             {/if}
                           {/if}
                           {#if renameId === file.id}
-                            <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details">
+                            <button class="icon-row-button primary success" type="button" disabled={busy} onclick={renameFile} aria-label="Save file details" title="Save file details">
                               <Check size={15} />
                             </button>
                             <button
@@ -1674,22 +1681,23 @@
                                 renameFileRevision = '';
                               }}
                               aria-label="Cancel file edit"
+                              title="Cancel file edit"
                             >
                               <X size={15} />
                             </button>
                           {/if}
                           {#if renameId !== file.id && canReindexFiles && !fileIsStorageOnly(file) && fileIsPdf(file)}
-                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`}>
+                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => reindexFile(file)} aria-label={`Re-index OCR for ${file.name}`} title={`Re-index OCR for ${file.name}`}>
                               <RefreshCw size={15} />
                             </button>
                           {/if}
                           {#if renameId !== file.id && canModifyFiles && !fileIsStorageOnly(file)}
-                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`}>
+                            <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRename(file)} aria-label={`Rename ${file.name}`} title={`Rename ${file.name}`}>
                               <Pencil size={15} />
                             </button>
                           {/if}
                           {#if canDeleteFiles}
-                            <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`}>
+                            <button class="icon-row-button danger" type="button" disabled={busy} onclick={() => deleteFile(file)} aria-label={`Delete ${file.name}`} title={`Delete ${file.name}`}>
                               <Trash2 size={15} />
                             </button>
                           {/if}

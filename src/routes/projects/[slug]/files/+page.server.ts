@@ -18,6 +18,7 @@ export const load: PageServerLoad = async (event) => {
     fileAccess: {
       role,
       canModify: role ? projectRoleCapabilities[role].canEditFiles : !event.locals.supabase,
+      canMarkup: role ? projectRoleCapabilities[role].canMarkupFiles : !event.locals.supabase,
       canUpload: role ? projectRoleCapabilities[role].canUploadFiles : !event.locals.supabase,
       canDelete: role ? projectRoleCapabilities[role].canDeleteFiles : !event.locals.supabase,
       canReindex: role ? projectRoleCapabilities[role].canReindexFiles : !event.locals.supabase
