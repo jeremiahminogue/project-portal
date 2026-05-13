@@ -116,6 +116,9 @@ export interface FileEntry {
 export interface FolderEntry {
   id?: string;
   name: string;
+  path?: string;
+  parentFolderId?: string | null;
+  depth?: number;
   fileCount: number;
   documentKind?: 'drawing' | 'specification' | 'file' | string | null;
 }

@@ -20,8 +20,50 @@ export type DrawingAnalysis = {
   pages: DrawingPageAnalysis[];
 };
 
+export type TitleBlockRegion = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+export type DrawingOcrOptions = {
+  titleBlockRegion?: TitleBlockRegion | null;
+};
+
 export function normalizeDocumentKind(value: unknown): DocumentKind | null {
   return value === 'drawing' || value === 'specification' || value === 'file' ? value : null;
+}
+
+function finiteRegionNumber(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function clampRegionValue(value: number) {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+export function normalizeTitleBlockRegion(value: unknown): TitleBlockRegion | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as { x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+  const x = finiteRegionNumber(candidate.x);
+  const y = finiteRegionNumber(candidate.y);
+  const width = finiteRegionNumber(candidate.width);
+  const height = finiteRegionNumber(candidate.height);
+  if (x === null || y === null || width === null || height === null) return null;
+  if (width <= 0.02 || height <= 0.02) return null;
+  const left = clampRegionValue(x);
+  const top = clampRegionValue(y);
+  const right = clampRegionValue(x + width);
+  const bottom = clampRegionValue(y + height);
+  const normalized = {
+    x: Math.min(left, right),
+    y: Math.min(top, bottom),
+    width: Math.abs(right - left),
+    height: Math.abs(bottom - top)
+  };
+  return normalized.width > 0.02 && normalized.height > 0.02 ? normalized : null;
 }
 
 const MAX_PAGE_TEXT = 8000;
@@ -433,10 +475,16 @@ function needsTitleBlockOcr(titleBlockLines: string[], sheetNumberFromTitleBlock
   return titleBlockLines.length < 3;
 }
 
-function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock' | 'titleCandidate' = 'all') {
+function positionedLines(
+  textContent: any,
+  page: any,
+  zone: 'all' | 'titleBlock' | 'titleCandidate' | 'customTitleRegion' = 'all',
+  customRegion: TitleBlockRegion | null = null
+) {
   const viewport = page.getViewport({ scale: 1 });
   const width = viewport.width || 1;
   const height = viewport.height || 1;
+  const region = customRegion ? normalizeTitleBlockRegion(customRegion) : null;
   const items = (textContent.items ?? [])
     .map((item: unknown) => {
       const candidate = item as { str?: string; transform?: number[] };
@@ -448,6 +496,13 @@ function positionedLines(textContent: any, page: any, zone: 'all' | 'titleBlock'
     .filter((item: { text: string; x: number; y: number }) => {
       if (!item.text) return false;
       if (zone === 'all') return true;
+      if (zone === 'customTitleRegion' && region) {
+        const left = region.x * width;
+        const right = (region.x + region.width) * width;
+        const top = (1 - region.y) * height;
+        const bottom = (1 - region.y - region.height) * height;
+        return item.x >= left && item.x <= right && item.y >= bottom && item.y <= top;
+      }
       if (zone === 'titleCandidate') return item.x > width * 0.5 && item.y < height * 0.38;
       return item.x > width * 0.68 || item.y < height * 0.22 || (item.x > width * 0.52 && item.y < height * 0.34);
     })
@@ -481,7 +536,7 @@ async function ocrPdfPage(page: any) {
   return (await ocrPdfPageRegions(page)).text;
 }
 
-async function ocrPdfPageRegions(page: any) {
+async function ocrPdfPageRegions(page: any, titleBlockRegion: TitleBlockRegion | null = null) {
   try {
     const canvasKit = await import('@napi-rs/canvas');
     globalThis.DOMMatrix ??= canvasKit.DOMMatrix as typeof DOMMatrix;
@@ -492,12 +547,27 @@ async function ocrPdfPageRegions(page: any) {
     const viewport = page.getViewport({ scale: 2.3 });
     const canvas = canvasKit.createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
     const canvasContext = canvas.getContext('2d');
-    await page.render({ canvasContext, viewport }).promise;
+    await page.render({
+      canvas: canvas as unknown as HTMLCanvasElement,
+      canvasContext: canvasContext as unknown as CanvasRenderingContext2D,
+      viewport
+    }).promise;
+    const region = normalizeTitleBlockRegion(titleBlockRegion);
+    const titleBlockCrop = region
+      ? cropCanvas(
+          canvasKit,
+          canvas,
+          canvas.width * region.x,
+          canvas.height * region.y,
+          canvas.width * region.width,
+          canvas.height * region.height
+        )
+      : cropCanvas(canvasKit, canvas, canvas.width * 0.5, canvas.height * 0.62, canvas.width * 0.5, canvas.height * 0.38);
     const [rightText, titleBlockText, fullPageText] = await Promise.all([
       recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.68, 0, canvas.width * 0.32, canvas.height), {
         tessedit_pageseg_mode: '11'
       }),
-      recognizeImage(cropCanvas(canvasKit, canvas, canvas.width * 0.5, canvas.height * 0.62, canvas.width * 0.5, canvas.height * 0.38)),
+      recognizeImage(titleBlockCrop),
       recognizeImage(new Uint8Array(canvas.toBuffer('image/png')), {
         tessedit_pageseg_mode: '11'
       })
@@ -577,7 +647,7 @@ export async function basicDrawingAnalysisFromBytes(
   }
 }
 
-async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<DrawingPageAnalysis[]> {
+async function extractPdfPages(bytes: Uint8Array, filename: string, options: DrawingOcrOptions = {}): Promise<DrawingPageAnalysis[]> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
   const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(bytes)
@@ -589,6 +659,8 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
     for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
       const page = await pdf.getPage(pageNumber);
       const textContent = await page.getTextContent();
+      const titleBlockRegion = normalizeTitleBlockRegion(options.titleBlockRegion);
+      const selectedTitleLines = titleBlockRegion ? positionedLines(textContent, page, 'customTitleRegion', titleBlockRegion) : [];
       const titleBlockLines = positionedLines(textContent, page, 'titleBlock');
       const titleCandidateLines = positionedLines(textContent, page, 'titleCandidate');
       const positionedFullPageLines = positionedLines(textContent, page, 'all');
@@ -609,6 +681,7 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       let sheetNumberFromTitleBlock = Boolean(titleBlockSheetCandidate);
       const lowerPageLines = lines.slice(Math.floor(lines.length * 0.55));
       let sheetTitle =
+        extractSheetTitle(selectedTitleLines, sheetNumber) ??
         extractSheetTitle(titleCandidateLines, sheetNumber) ??
         extractSheetTitle(titleBlockLines, sheetNumber) ??
         extractSheetTitle(lowerPageLines, sheetNumber) ??
@@ -616,7 +689,7 @@ async function extractPdfPages(bytes: Uint8Array, filename: string): Promise<Dra
       let revision = extractRevision(titleBlockLines) ?? extractRevision(lines) ?? filenameFallback.revision;
 
       if (needsOcr(text, lines, sheetNumber, sheetTitle) || needsTitleBlockOcr(titleBlockLines, sheetNumberFromTitleBlock, sheetTitle)) {
-        const ocr = await ocrPdfPageRegions(page);
+        const ocr = await ocrPdfPageRegions(page, titleBlockRegion);
         const ocrText = ocr.text;
         if (ocrText) {
           const ocrLines = linesFromText(ocrText);
@@ -676,7 +749,8 @@ export async function analyzeDrawingUpload(
   filename: string,
   contentType: string,
   folderName = '',
-  documentKindOverride: DocumentKind | null = null
+  documentKindOverride: DocumentKind | null = null,
+  options: DrawingOcrOptions = {}
 ): Promise<DrawingAnalysis> {
   const documentKind = documentKindOverride ?? classifyDocument(filename, contentType, folderName);
   const fallback = parseSheetName(filename);
@@ -688,7 +762,7 @@ export async function analyzeDrawingUpload(
   }
 
   try {
-    const pages = isPdf ? await extractPdfPages(bytes, filename) : isImage ? [await extractImagePage(bytes, filename)] : [];
+    const pages = isPdf ? await extractPdfPages(bytes, filename, options) : isImage ? [await extractImagePage(bytes, filename)] : [];
     const firstPage = pages[0];
     const ocrText = pages.map((page) => page.text).join('\n\n').slice(0, MAX_FILE_TEXT);
     const allPagesHaveText = pages.every((page) => page.text.trim().length > 0);

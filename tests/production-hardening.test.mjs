@@ -137,7 +137,7 @@ test('OCR reindex preserves good metadata while allowing page skeleton repair', 
   assert.match(source, /replaceDrawingPages/);
   assert.match(source, /const force = Boolean/);
   assert.match(source, /requestedDocumentKind/);
-  assert.match(source, /analyzeDrawingUploadSafely\(bytes, file\.name, contentType, folderName, documentKind, \{ force \}\)/);
+  assert.match(source, /analyzeDrawingUploadSafely\(bytes, file\.name, contentType, folderName, documentKind, \{[\s\S]*force,[\s\S]*titleBlockRegion: normalizeTitleBlockRegion/);
   assert.match(ocrProcessing, /PORTAL_OCR_MANUAL_TIMEOUT_MS/);
   assert.match(ocrProcessing, /10 \* 60_000/);
   assert.match(ocrProcessing, /options\.force/);
@@ -207,6 +207,36 @@ test('PDF page indexing does not collapse when OCR fails or defers', () => {
   assert.match(reindex, /shouldReplaceDeferredPages/);
 });
 
+test('drawing OCR supports a saved title-area selector per drawing set', () => {
+  const viewer = file('src/routes/projects/[slug]/files/[id]/+page.svelte');
+  const viewerServer = file('src/routes/projects/[slug]/files/[id]/+page.server.ts');
+  const titleRegionRoute = file('src/routes/api/files/[id]/title-region/+server.ts');
+  const pageImageRoute = file('src/routes/api/files/[id]/page-image/+server.ts');
+  const drawingOcr = file('src/lib/server/drawing-ocr.ts');
+  const ocrProcessing = file('src/lib/server/ocr-processing.ts');
+  const reindex = file('src/routes/api/files/[id]/reindex/+server.ts');
+  const migration = file('supabase/migrations/0019_file_title_block_region.sql');
+
+  assert.match(viewer, /Title area/);
+  assert.match(viewer, /region-canvas/);
+  assert.match(viewer, /function saveTitleRegion/);
+  assert.match(viewer, /\/api\/files\/\$\{encodeURIComponent\(data\.file\.id\)\}\/page-image/);
+  assert.match(viewer, /\/api\/files\/\$\{encodeURIComponent\(data\.file\.id\)\}\/title-region/);
+  assert.match(viewer, /body: JSON\.stringify\(\{ force: true, documentKind: 'drawing' \}\)/);
+  assert.match(viewerServer, /title_block_region/);
+  assert.match(viewerServer, /normalizeTitleBlockRegion/);
+  assert.match(titleRegionRoute, /export const PUT/);
+  assert.match(titleRegionRoute, /export const DELETE/);
+  assert.match(titleRegionRoute, /writable: true/);
+  assert.match(pageImageRoute, /getDocument/);
+  assert.match(pageImageRoute, /'Content-Type': 'image\/png'/);
+  assert.match(drawingOcr, /customTitleRegion/);
+  assert.match(drawingOcr, /titleBlockRegion/);
+  assert.match(ocrProcessing, /titleBlockRegion: options\.titleBlockRegion/);
+  assert.match(reindex, /title_block_region/);
+  assert.match(migration, /add column if not exists title_block_region jsonb/);
+});
+
 test('file uploads carry tool context so specs and documents stay out of drawings', () => {
   const uploadButton = file('src/lib/components/FileUploadButton.svelte');
   const uploadClient = file('src/lib/client/project-file-upload.ts');
@@ -246,7 +276,7 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.doesNotMatch(filesPage, /data\.folders\.find/);
   assert.match(filesPage, /function groupRenameKey/);
   assert.match(filesPage, /function groupCanRename/);
-  assert.match(filesPage, /Rename \$\{group\.name\} folder/);
+  assert.match(filesPage, /Rename \$\{group\.path\} folder/);
   assert.match(filesPage, /<span>Edit<\/span>/);
   assert.match(filesPage, /\/api\/files\/groups\/rename/);
   assert.match(filesPage, /fileIds: group\.folderId \? \[\] : group\.files/);
@@ -298,7 +328,10 @@ test('documents and drawings support folder deletion and manual ordering', () =>
   assert.match(reorderRoute, /payload\.sort_order = \(index \+ 1\) \* 100/);
   assert.match(reorderRoute, /isMissingFileSortOrderError\(error\)/);
   assert.match(deleteFolderRoute, /export const DELETE/);
-  assert.match(deleteFolderRoute, /parent_folder_id: null/);
+  assert.match(deleteFolderRoute, /targetParentFolderId/);
+  assert.match(deleteFolderRoute, /movedFolders/);
+  assert.match(deleteFolderRoute, /export const PATCH/);
+  assert.match(deleteFolderRoute, /A folder cannot be moved into one of its subfolders/);
   assert.match(deleteFolderRoute, /\.delete\(\)/);
   assert.match(moveRoute, /nextFileSortOrder/);
   assert.match(moveRoute, /updatePayload\.sort_order = nextOrder/);
@@ -306,6 +339,10 @@ test('documents and drawings support folder deletion and manual ordering', () =>
   assert.match(ingest, /nextSortOrder === null \? \{\} : \{ sort_order: nextSortOrder \}/);
   assert.match(queries, /\.order\('sort_order', \{ ascending: true \}\)/);
   assert.match(queries, /isMissingFileSortOrderError\(filesResult\.error\)/);
+  assert.match(queries, /function folderPathMaps/);
+  assert.match(queries, /parentFolderId: folder\.parent_folder_id/);
+  assert.match(folderHelpers, /export function cleanFolderPath/);
+  assert.match(folderHelpers, /parent_folder_id: currentParentId/);
   assert.match(folderHelpers, /export async function nextFileSortOrder/);
   assert.match(folderHelpers, /isMissingFileSortOrderError\(error\)/);
   assert.match(schemaCompat, /export function isMissingFileSortOrderError/);
@@ -364,6 +401,10 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(viewer, /withQueryParam\(data\.downloadSrc, 'page', String\(activePage\)\)/);
   assert.match(viewer, /activeMarkupsUrl/);
   assert.match(viewer, /activeDownloadUrl/);
+  assert.match(viewer, /activeSheetTitle/);
+  assert.match(viewer, /function saveSheetMeta/);
+  assert.match(viewer, /Edit sheet number and title/);
+  assert.match(viewer, /\/api\/files\/\$\{encodeURIComponent\(data\.file\.id\)\}\/pages\/\$\{encodeURIComponent\(activeSheet\.id\)\}/);
   assert.match(viewer, /page=\$\{pageNumber\}/);
   assert.match(viewer, /markupsUrl=\{activeMarkupsUrl\}/);
   assert.match(viewer, /editable=\{Boolean\(data\.fileAccess\?\.canModify\)\}/);

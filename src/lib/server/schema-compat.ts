@@ -7,6 +7,7 @@ type DatabaseError = {
 
 const projectMemberManagerFlagColumns = ['is_submittal_manager', 'is_rfi_manager'];
 const fileSortOrderColumns = ['sort_order'];
+const fileTitleBlockRegionColumns = ['title_block_region'];
 
 function errorText(error: unknown) {
   const dbError = error as DatabaseError | null;
@@ -32,6 +33,20 @@ export function isMissingFileSortOrderError(error: unknown) {
   const text = errorText(error);
   const mentionsSortOrder = fileSortOrderColumns.some((column) => text.includes(column));
   if (!mentionsSortOrder) return false;
+
+  return (
+    dbError?.code === '42703' ||
+    dbError?.code === 'PGRST204' ||
+    text.includes('does not exist') ||
+    text.includes('schema cache')
+  );
+}
+
+export function isMissingFileTitleBlockRegionError(error: unknown) {
+  const dbError = error as DatabaseError | null;
+  const text = errorText(error);
+  const mentionsTitleBlockRegion = fileTitleBlockRegionColumns.some((column) => text.includes(column));
+  if (!mentionsTitleBlockRegion) return false;
 
   return (
     dbError?.code === '42703' ||

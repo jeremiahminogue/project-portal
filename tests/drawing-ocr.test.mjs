@@ -54,6 +54,19 @@ async function drawingPdfWithUnlabeledTitleBlock({ sheetNumber, sheetTitle, nois
   return new Uint8Array(await pdf.save());
 }
 
+async function drawingPdfWithSelectableTitleRegion() {
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const page = pdf.addPage([792, 612]);
+  page.drawText('MAIN LOBBY DEVICE PLAN', { x: 80, y: 500, size: 12, font });
+  page.drawText('PUEBLO ELECTRIC PROJECT', { x: 250, y: 300, size: 16, font });
+  page.drawText('DRAWING NUMBER', { x: 565, y: 95, size: 8, font });
+  page.drawText('FA-301', { x: 565, y: 80, size: 14, font });
+  page.drawText('REV', { x: 565, y: 60, size: 8, font });
+  page.drawText('0', { x: 565, y: 45, size: 10, font });
+  return new Uint8Array(await pdf.save());
+}
+
 async function withoutPdfjsStandardFontWarning(callback) {
   const originalWarn = console.warn;
   console.warn = (...args) => {
@@ -130,6 +143,21 @@ test('drawing OCR ignores title-block legend snippets when picking sheet titles'
 
   assert.equal(analysis.sheetTitle, 'FIRE ALARM RISER DIAGRAM');
   assert.equal(analysis.pages[0].sheetTitle, 'FIRE ALARM RISER DIAGRAM');
+});
+
+test('drawing OCR can use a saved title area when the title is outside the default block', async () => {
+  const { analyzeDrawingUpload } = await loadDrawingOcrModule();
+  const bytes = await drawingPdfWithSelectableTitleRegion();
+
+  const analysis = await withoutPdfjsStandardFontWarning(() =>
+    analyzeDrawingUpload(bytes, 'Ag Palace Fire Alarm.pdf', 'application/pdf', 'AG Palace', 'drawing', {
+      titleBlockRegion: { x: 0.06, y: 0.12, width: 0.42, height: 0.18 }
+    })
+  );
+
+  assert.equal(analysis.sheetNumber, 'FA-301');
+  assert.equal(analysis.sheetTitle, 'MAIN LOBBY DEVICE PLAN');
+  assert.equal(analysis.pages[0].sheetTitle, 'MAIN LOBBY DEVICE PLAN');
 });
 
 test('drawing OCR keeps full-page raster fallback for scanned title blocks', () => {

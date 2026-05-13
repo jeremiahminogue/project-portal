@@ -36,7 +36,7 @@ export const POST: RequestHandler = async (event) => {
     if (folderId) {
       const { data: folder, error: folderError } = await client
         .from('files')
-        .select('id, name')
+        .select('id, name, parent_folder_id')
         .eq('id', folderId)
         .eq('project_id', access.project.id)
         .eq('is_folder', true)
@@ -44,33 +44,43 @@ export const POST: RequestHandler = async (event) => {
       if (folderError) return json({ error: folderError.message }, { status: 500 });
       if (!folder) return json({ error: 'Folder not found.' }, { status: 404 });
 
-      const { data: target, error: targetError } = await client
+      let targetQuery = client
         .from('files')
         .select('id')
         .eq('project_id', access.project.id)
         .eq('is_folder', true)
         .ilike('name', name)
         .neq('id', folderId)
-        .limit(1)
-        .maybeSingle();
+        .limit(1);
+      targetQuery = folder.parent_folder_id ? targetQuery.eq('parent_folder_id', folder.parent_folder_id) : targetQuery.is('parent_folder_id', null);
+      const { data: target, error: targetError } = await targetQuery.maybeSingle();
       if (targetError) return json({ error: targetError.message }, { status: 500 });
 
-      if (target?.id) {
+      let targetFolder = target as { id: string } | null;
+      if (targetFolder?.id) {
         if (documentKind) {
-          const { error: kindError } = await client.from('files').update({ document_kind: documentKind }).eq('id', target.id).eq('is_folder', true);
+          const { error: kindError } = await client.from('files').update({ document_kind: documentKind }).eq('id', targetFolder.id).eq('is_folder', true);
           if (kindError) return json({ error: kindError.message }, { status: 500 });
         }
         const { error: moveError } = await client
           .from('files')
-          .update({ parent_folder_id: target.id })
+          .update({ parent_folder_id: targetFolder.id })
           .eq('project_id', access.project.id)
           .eq('parent_folder_id', folderId)
           .eq('is_folder', false);
         if (moveError) return json({ error: moveError.message }, { status: 500 });
 
+        const { error: folderMoveError } = await client
+          .from('files')
+          .update({ parent_folder_id: targetFolder.id })
+          .eq('project_id', access.project.id)
+          .eq('parent_folder_id', folderId)
+          .eq('is_folder', true);
+        if (folderMoveError) return json({ error: folderMoveError.message }, { status: 500 });
+
         const { error: deleteError } = await client.from('files').delete().eq('id', folderId);
         if (deleteError) return json({ error: deleteError.message }, { status: 500 });
-        return json({ id: target.id, name, merged: true });
+        return json({ id: targetFolder.id, name, merged: true });
       }
 
       const updates: { name: string; document_kind?: string } = { name };

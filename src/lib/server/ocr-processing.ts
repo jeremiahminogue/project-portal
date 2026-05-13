@@ -4,7 +4,8 @@ import {
   basicDrawingAnalysisFromBytes,
   isPdfDocument,
   type DocumentKind,
-  type DrawingAnalysis
+  type DrawingAnalysis,
+  type TitleBlockRegion
 } from './drawing-ocr';
 import { serverEnv } from './env';
 
@@ -16,6 +17,7 @@ type OcrOutcome = {
 
 type AnalyzeOcrOptions = {
   force?: boolean;
+  titleBlockRegion?: TitleBlockRegion | null;
   timeoutMs?: number;
 };
 
@@ -65,7 +67,9 @@ export async function analyzeDrawingUploadSafely(
   try {
     const timeoutMs = options.timeoutMs ?? (options.force ? MANUAL_OCR_TIMEOUT_MS : OCR_TIMEOUT_MS);
     const analysis = await Promise.race([
-      analyzeDrawingUpload(bytes, filename, contentType, folderName, documentKindOverride),
+      analyzeDrawingUpload(bytes, filename, contentType, folderName, documentKindOverride, {
+        titleBlockRegion: options.titleBlockRegion
+      }),
       timeout(timeoutMs)
     ]);
     return { analysis, completed: true };

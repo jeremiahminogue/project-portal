@@ -9,6 +9,15 @@ export function cleanFolderName(value: unknown) {
     .slice(0, 160);
 }
 
+export function cleanFolderPath(value: unknown) {
+  return String(value ?? '')
+    .split(/[\\/]+/)
+    .map((part) => cleanFolderName(part))
+    .filter(Boolean)
+    .slice(0, 8)
+    .join('/');
+}
+
 async function updateFolderKind(
   client: NonNullable<App.Locals['supabase']>,
   folderId: string,
@@ -20,60 +29,73 @@ async function updateFolderKind(
   if (error) throw new Error(error.message);
 }
 
+async function findFolderByName(
+  client: NonNullable<App.Locals['supabase']>,
+  projectId: string,
+  name: string,
+  parentFolderId: string | null,
+  caseInsensitive = false
+) {
+  let query = client
+    .from('files')
+    .select('id, document_kind')
+    .eq('project_id', projectId)
+    .eq('is_folder', true);
+
+  query = caseInsensitive ? query.ilike('name', name) : query.eq('name', name);
+  query = parentFolderId ? query.eq('parent_folder_id', parentFolderId) : query.is('parent_folder_id', null);
+
+  return query.limit(1).maybeSingle();
+}
+
 export async function folderIdFor(
   client: NonNullable<App.Locals['supabase']>,
   projectId: string,
   folderName: unknown,
   userId: string,
-  documentKind?: DocumentKind | string | null
+  documentKind?: DocumentKind | string | null,
+  parentFolderId: string | null = null
 ) {
-  const name = cleanFolderName(folderName);
-  if (!name) return null;
-
+  const path = cleanFolderPath(folderName);
+  if (!path) return null;
   const normalizedKind = normalizeDocumentKind(documentKind) ?? 'file';
-  const { data: existing, error: existingError } = await client
-    .from('files')
-    .select('id, document_kind')
-    .eq('project_id', projectId)
-    .eq('is_folder', true)
-    .eq('name', name)
-    .maybeSingle();
+  let currentParentId = parentFolderId;
 
-  if (existingError) throw new Error(existingError.message);
-  if (existing?.id) {
-    await updateFolderKind(client, existing.id as string, normalizedKind, existing.document_kind);
-    return existing.id as string;
+  for (const name of path.split('/')) {
+    const { data: existing, error: existingError } = await findFolderByName(client, projectId, name, currentParentId);
+    if (existingError) throw new Error(existingError.message);
+    if (existing?.id) {
+      await updateFolderKind(client, existing.id as string, normalizedKind, existing.document_kind);
+      currentParentId = existing.id as string;
+      continue;
+    }
+
+    const { data: caseMatch, error: caseMatchError } = await findFolderByName(client, projectId, name, currentParentId, true);
+    if (caseMatchError) throw new Error(caseMatchError.message);
+    if (caseMatch?.id) {
+      await updateFolderKind(client, caseMatch.id as string, normalizedKind, caseMatch.document_kind);
+      currentParentId = caseMatch.id as string;
+      continue;
+    }
+
+    const { data: created, error: createError } = await client
+      .from('files')
+      .insert({
+        project_id: projectId,
+        parent_folder_id: currentParentId,
+        name,
+        is_folder: true,
+        document_kind: normalizedKind,
+        uploaded_by: userId
+      })
+      .select('id')
+      .single();
+
+    if (createError) throw new Error(createError.message);
+    currentParentId = created.id as string;
   }
 
-  const { data: caseMatch, error: caseMatchError } = await client
-    .from('files')
-    .select('id, document_kind')
-    .eq('project_id', projectId)
-    .eq('is_folder', true)
-    .ilike('name', name)
-    .limit(1)
-    .maybeSingle();
-
-  if (caseMatchError) throw new Error(caseMatchError.message);
-  if (caseMatch?.id) {
-    await updateFolderKind(client, caseMatch.id as string, normalizedKind, caseMatch.document_kind);
-    return caseMatch.id as string;
-  }
-
-  const { data: created, error: createError } = await client
-    .from('files')
-    .insert({
-      project_id: projectId,
-      name,
-      is_folder: true,
-      document_kind: normalizedKind,
-      uploaded_by: userId
-    })
-    .select('id')
-    .single();
-
-  if (createError) throw new Error(createError.message);
-  return created.id as string;
+  return currentParentId;
 }
 
 export async function nextFileSortOrder(

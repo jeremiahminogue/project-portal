@@ -8,6 +8,7 @@
     Copy,
     Download,
     FileText,
+    Folder,
     FolderPlus,
     Link,
     MoveRight,
@@ -22,7 +23,6 @@
   import PageShell from '$lib/components/PageShell.svelte';
   import {
     fileMatchesTool,
-    folderName as libraryFolderName,
     isDrawingFile,
     isGeneralDocumentFile,
     isSpecificationFile
@@ -51,17 +51,24 @@
   let dropGroupId = $state('');
   let orderDropFileId = $state('');
   let draggingFileIds = $state<string[]>([]);
+  let draggingFolderId = $state('');
   const GENERAL_FOLDER_VALUE = '__general__';
   const INTERNAL_FILE_DRAG_TYPE = 'application/x-project-portal-file-ids';
+  const INTERNAL_FOLDER_DRAG_TYPE = 'application/x-project-portal-folder-id';
   let showNewFolderForm = $state(false);
   let newFolderName = $state('');
+  let newFolderParentId = $state(GENERAL_FOLDER_VALUE);
   let moveTargetFolderId = $state(GENERAL_FOLDER_VALUE);
 
   type FileRow = (typeof data.files)[number];
   type PageRow = NonNullable<FileRow['pages']>[number];
   type FileGroup = {
     name: string;
+    path: string;
+    parentPath: string;
+    parentFolderId: string | null;
     folderId: string;
+    depth: number;
     files: FileRow[];
     count: number;
   };
@@ -90,12 +97,20 @@
   const toolFolders = $derived(
     data.folders
       .filter((folder) => folder.name !== 'General' && folderMatchesCurrentTool(folder))
-      .sort((a, b) => a.name.localeCompare(b.name))
+      .sort((a, b) => folderPathForFolder(a).localeCompare(folderPathForFolder(b)))
   );
   const toolFolderNames = $derived(
-    uniqueFolderOptions([...toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General'), ...toolFolders.map((folder) => folder.name)])
+    uniqueFolderOptions([
+      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== 'General'),
+      ...toolFolders.map((folder) => folderPathForFolder(folder))
+    ])
   );
-  const documentUploadFolderNames = $derived(uniqueFolderOptions(toolFiles.map((file) => folderName(file)).filter((name) => name !== 'General')));
+  const documentUploadFolderNames = $derived(
+    uniqueFolderOptions([
+      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== 'General'),
+      ...toolFolders.map((folder) => folderPathForFolder(folder))
+    ])
+  );
   const uploadFolderOptions = $derived(
     documentTool === 'documents'
       ? documentUploadFolderNames
@@ -108,26 +123,34 @@
       return !query || `${file.name} ${file.path} ${file.tags?.join(' ') ?? ''}`.toLowerCase().includes(query.toLowerCase());
     })
   );
-  const folderRowsByName = $derived(new Map(data.folders.map((folder) => [folder.name.toLowerCase(), folder])));
+  const folderRowsByPath = $derived(new Map(data.folders.map((folder) => [folderPathForFolder(folder).toLowerCase(), folder])));
+  const folderRowsById = $derived(new Map(data.folders.filter(hasFolderId).map((folder) => [folder.id, folder])));
   const groupedFiles = $derived(
     uniqueFolderOptions([
-      ...filteredFiles.map((file) => folderName(file)),
+      ...(folderOrganizationEnabled ? ['General'] : []),
+      ...filteredFiles.map((file) => folderPathForFile(file)),
       ...toolFolders
         .filter((folder) => !query || folder.name.toLowerCase().includes(query.toLowerCase()))
-        .map((folder) => folder.name)
+        .map((folder) => folderPathForFolder(folder))
     ])
       .sort((a, b) => a.localeCompare(b))
-      .map((name) => {
-        const files = filteredFiles.filter((file) => folderName(file) === name);
-        const folderRow = folderRowsByName.get(name.toLowerCase());
+      .map((path) => {
+        const files = filteredFiles.filter((file) => folderPathForFile(file) === path);
+        const folderRow = folderRowsByPath.get(path.toLowerCase());
+        const segments = path.split('/').filter(Boolean);
         return {
-          name,
+          name: path === 'General' ? 'General' : (segments.at(-1) ?? path),
+          path,
+          parentPath: segments.length > 1 ? segments.slice(0, -1).join('/') : '',
+          parentFolderId: folderRow?.parentFolderId ?? null,
           folderId: folderRow?.id ?? files.find((file) => file.parentFolderId)?.parentFolderId ?? '',
+          depth: folderRow?.depth ?? Math.max(0, segments.length - 1),
           files,
           count: documentTool === 'drawings' ? files.reduce((total, file) => total + drawingSheetCount(file), 0) : files.length
         };
       })
   );
+  const visibleGroups = $derived(groupedFiles.filter((group) => !groupHiddenByCollapsedAncestor(group)));
   const visibleDrawingPages = $derived(
     documentTool === 'drawings'
       ? filteredFiles.flatMap((file) => (file.pages ?? []).map((page) => ({ file, page })))
@@ -172,13 +195,35 @@
     return typeof folder.id === 'string' && folder.id.length > 0;
   }
 
-  function folderName(file: (typeof data.files)[number]) {
-    return libraryFolderName(file);
+  function folderPathForFile(file: (typeof data.files)[number]) {
+    const parts = file.path.split('/').filter(Boolean);
+    return parts.length > 1 ? parts.slice(0, -1).join('/') : 'General';
+  }
+
+  function folderPathForFolder(folder: (typeof data.folders)[number]) {
+    return (folder.path ?? folder.name).trim() || folder.name;
+  }
+
+  function groupKey(group: FileGroup) {
+    return group.folderId || `virtual:${group.path}`;
+  }
+
+  function folderParentLabel(group: FileGroup) {
+    return group.parentPath && group.path !== 'General' ? group.parentPath : '';
+  }
+
+  function groupHiddenByCollapsedAncestor(group: FileGroup) {
+    if (group.path === 'General') return false;
+    const parts = group.path.split('/').filter(Boolean);
+    for (let index = 1; index < parts.length; index += 1) {
+      if (collapsedGroups.includes(parts.slice(0, index).join('/'))) return true;
+    }
+    return false;
   }
 
   function folderMatchesCurrentTool(folder: (typeof data.folders)[number]) {
-    const folderKey = folder.name.toLowerCase();
-    if (toolFiles.some((file) => folderName(file).toLowerCase() === folderKey)) return true;
+    const folderKey = folderPathForFolder(folder).toLowerCase();
+    if (toolFiles.some((file) => folderPathForFile(file).toLowerCase() === folderKey)) return true;
     return folder.documentKind === uploadDocumentKind && folder.fileCount === 0;
   }
 
@@ -319,12 +364,12 @@
       : selectedFileIds.filter((id) => !ids.includes(id));
   }
 
-  function groupIsCollapsed(name: string) {
-    return collapsedGroups.includes(name);
+  function groupIsCollapsed(group: FileGroup) {
+    return collapsedGroups.includes(group.path);
   }
 
-  function toggleGroupCollapsed(name: string) {
-    collapsedGroups = groupIsCollapsed(name) ? collapsedGroups.filter((value) => value !== name) : [...collapsedGroups, name];
+  function toggleGroupCollapsed(group: FileGroup) {
+    collapsedGroups = groupIsCollapsed(group) ? collapsedGroups.filter((value) => value !== group.path) : [...collapsedGroups, group.path];
   }
 
   function groupPageIds(group: FileGroup) {
@@ -332,7 +377,7 @@
   }
 
   function groupRenameKey(group: FileGroup) {
-    return group.folderId || `virtual:${group.name}`;
+    return groupKey(group);
   }
 
   function groupCanRename(group: FileGroup) {
@@ -350,7 +395,7 @@
   }
 
   function groupUploadFolderName(group: FileGroup) {
-    return group.name === 'General' && !group.folderId ? '' : group.name;
+    return group.path === 'General' && !group.folderId ? '' : group.path;
   }
 
   function hasDraggedFiles(event: DragEvent) {
@@ -366,6 +411,12 @@
     return Array.from(transfer.types ?? []).includes(INTERNAL_FILE_DRAG_TYPE) || draggingFileIds.length > 0;
   }
 
+  function hasInternalFolderDrag(event: DragEvent) {
+    const transfer = event.dataTransfer;
+    if (!transfer) return draggingFolderId.length > 0;
+    return Array.from(transfer.types ?? []).includes(INTERNAL_FOLDER_DRAG_TYPE) || draggingFolderId.length > 0;
+  }
+
   function draggedFileIds(event: DragEvent) {
     const raw = event.dataTransfer?.getData(INTERNAL_FILE_DRAG_TYPE);
     if (raw) {
@@ -377,6 +428,10 @@
       }
     }
     return draggingFileIds;
+  }
+
+  function draggedFolderId(event: DragEvent) {
+    return event.dataTransfer?.getData(INTERNAL_FOLDER_DRAG_TYPE) || draggingFolderId;
   }
 
   function movableFileIds(ids: string[]) {
@@ -399,16 +454,41 @@
     event.dataTransfer.setData('text/plain', ids.join(','));
   }
 
+  function folderIsDescendant(candidateId: string, ancestorId: string) {
+    let cursor = folderRowsById.get(candidateId)?.parentFolderId ?? null;
+    while (cursor) {
+      if (cursor === ancestorId) return true;
+      cursor = folderRowsById.get(cursor)?.parentFolderId ?? null;
+    }
+    return false;
+  }
+
+  function groupCanReceiveFolderDrop(group: FileGroup, sourceFolderId = draggingFolderId) {
+    if (!sourceFolderId || !canModifyFiles || !folderOrganizationEnabled || busy) return false;
+    if (group.folderId === sourceFolderId) return false;
+    if (group.folderId && folderIsDescendant(group.folderId, sourceFolderId)) return false;
+    return true;
+  }
+
+  function startFolderDrag(event: DragEvent, group: FileGroup) {
+    if (!folderOrganizationEnabled || !canModifyFiles || !group.folderId || !event.dataTransfer) return;
+    draggingFolderId = group.folderId;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(INTERNAL_FOLDER_DRAG_TYPE, group.folderId);
+    event.dataTransfer.setData('text/plain', group.path);
+  }
+
   function endFileDrag() {
     draggingFileIds = [];
+    draggingFolderId = '';
     dropGroupId = '';
     orderDropFileId = '';
   }
 
   function folderPayloadForGroup(group: FileGroup) {
     if (group.folderId) return { folderId: group.folderId };
-    if (group.name === 'General') return { folderId: null };
-    return { folderName: group.name };
+    if (group.path === 'General') return { folderId: null };
+    return { folderName: group.path };
   }
 
   function orderedFileIdsForDrop(group: FileGroup, movingIds: string[], beforeFileId = '') {
@@ -450,8 +530,8 @@
       if (!response.ok) throw new Error(result.error ?? 'Files could not be organized.');
       const moved = result.moved ?? ids.length;
       notice = orderedFileIds?.length
-        ? `Updated ${group.name} order.`
-        : `Moved ${moved} file${moved === 1 ? '' : 's'} to ${group.name}.`;
+        ? `Updated ${group.path} order.`
+        : `Moved ${moved} file${moved === 1 ? '' : 's'} to ${group.path}.`;
       selectedPageIds = [];
       selectedFileIds = [];
       await invalidateAll();
@@ -463,8 +543,43 @@
     }
   }
 
+  async function moveFolderToGroup(folderId: string, group: FileGroup) {
+    if (!folderId || !groupCanReceiveFolderDrop(group, folderId)) {
+      endFileDrag();
+      return;
+    }
+    busy = true;
+    notice = '';
+    try {
+      const response = await fetch(`/api/files/folders/${encodeURIComponent(folderId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          projectSlug: data.project.id,
+          parentFolderId: group.folderId || null,
+          documentKind: uploadDocumentKind
+        })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Folder could not be moved.');
+      notice = group.path === 'General' ? 'Folder moved to General.' : `Folder moved into ${group.path}.`;
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Folder could not be moved.';
+    } finally {
+      busy = false;
+      endFileDrag();
+    }
+  }
+
   function markGroupDrop(event: DragEvent, group: FileGroup) {
     if (!groupCanReceiveDrops(group)) return;
+    if (folderOrganizationEnabled && canModifyFiles && hasInternalFolderDrag(event) && groupCanReceiveFolderDrop(group, draggedFolderId(event))) {
+      event.preventDefault();
+      event.dataTransfer!.dropEffect = 'move';
+      dropGroupId = groupRenameKey(group);
+      return;
+    }
     if (folderOrganizationEnabled && canModifyFiles && hasInternalFileDrag(event)) {
       event.preventDefault();
       event.dataTransfer!.dropEffect = 'move';
@@ -528,7 +643,7 @@
     const folder = groupUploadFolderName(group);
     try {
       for (const file of files) {
-        notice = `Uploading ${file.name} to ${group.name}...`;
+        notice = `Uploading ${file.name} to ${group.path}...`;
         const result = await uploadProjectFile({
           projectSlug: data.project.id,
           file,
@@ -537,7 +652,7 @@
         });
         notice = result.warning ? `${result.name} uploaded. ${result.warning}` : `${result.name} uploaded.`;
       }
-      notice = files.length === 1 ? notice : `${files.length} files uploaded to ${group.name}.`;
+      notice = files.length === 1 ? notice : `${files.length} files uploaded to ${group.path}.`;
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'Upload failed.';
@@ -548,6 +663,11 @@
 
   function dropFilesOnGroup(event: DragEvent, group: FileGroup) {
     if (!groupCanReceiveDrops(group)) return;
+    if (folderOrganizationEnabled && canModifyFiles && hasInternalFolderDrag(event)) {
+      event.preventDefault();
+      void moveFolderToGroup(draggedFolderId(event), group);
+      return;
+    }
     if (folderOrganizationEnabled && canModifyFiles && hasInternalFileDrag(event)) {
       event.preventDefault();
       const ids = movableFileIds(draggedFileIds(event));
@@ -605,6 +725,7 @@
         body: JSON.stringify({
           projectSlug: data.project.id,
           name,
+          parentFolderId: newFolderParentId === GENERAL_FOLDER_VALUE ? null : newFolderParentId,
           documentKind: uploadDocumentKind
         })
       });
@@ -613,6 +734,7 @@
       if (typeof result.id === 'string' && result.id.length > 0) moveTargetFolderId = result.id;
       notice = 'Folder created.';
       newFolderName = '';
+      newFolderParentId = GENERAL_FOLDER_VALUE;
       showNewFolderForm = false;
       await invalidateAll();
     } catch (error) {
@@ -646,7 +768,7 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'Files could not be moved.');
-      const destination = moveToGeneral ? 'General' : folder?.name;
+      const destination = moveToGeneral ? 'General' : (folder ? folderPathForFolder(folder) : '');
       const moved = result.moved ?? selectedMovableFileIds.length;
       const label = documentTool === 'drawings' ? 'drawing set' : 'file';
       notice = `Moved ${moved} ${label}${moved === 1 ? '' : 's'} to ${destination}.`;
@@ -667,7 +789,7 @@
     }
     renameGroupId = groupRenameKey(group);
     renameGroupName = group.name;
-    renameGroupOriginalName = group.name;
+    renameGroupOriginalName = group.path;
     notice = '';
   }
 
@@ -711,7 +833,8 @@
         })
       });
       if (!response.ok) throw new Error((await response.json()).error ?? 'Group rename failed.');
-      collapsedGroups = collapsedGroups.map((value) => (value === renameGroupOriginalName ? name : value));
+      const nextPath = group.parentPath ? `${group.parentPath}/${name}` : name;
+      collapsedGroups = collapsedGroups.map((value) => (value === renameGroupOriginalName ? nextPath : value));
       renameGroupId = '';
       renameGroupName = '';
       renameGroupOriginalName = '';
@@ -800,7 +923,7 @@
 
   async function deleteFolder(group: FileGroup) {
     if (!group.folderId) return;
-    const ok = confirm(`Delete the "${group.name}" folder? Files inside it will move to General.`);
+    const ok = confirm(`Delete the "${group.path}" folder? Files and subfolders inside it will move up one level.`);
     if (!ok) return;
 
     busy = true;
@@ -813,8 +936,12 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'Folder could not be deleted.');
       const moved = result.moved ?? 0;
-      notice = moved ? `Folder deleted. ${moved} file${moved === 1 ? '' : 's'} moved to General.` : 'Folder deleted.';
-      collapsedGroups = collapsedGroups.filter((name) => name !== group.name);
+      const movedFolders = result.movedFolders ?? 0;
+      notice =
+        moved || movedFolders
+          ? `Folder deleted. ${moved} file${moved === 1 ? '' : 's'} and ${movedFolders} folder${movedFolders === 1 ? '' : 's'} moved up.`
+          : 'Folder deleted.';
+      collapsedGroups = collapsedGroups.filter((name) => name !== group.path);
       selectedPageIds = [];
       selectedFileIds = [];
       await invalidateAll();
@@ -856,11 +983,11 @@
   async function reindexGroup(group: FileGroup) {
     const files = groupOcrFiles(group);
     if (!files.length) return;
-    const ok = confirm(`Run OCR for ${files.length} PDF drawing set${files.length === 1 ? '' : 's'} in "${group.name}"? This will replace detected sheet numbers and titles.`);
+    const ok = confirm(`Run OCR for ${files.length} PDF drawing set${files.length === 1 ? '' : 's'} in "${group.path}"? This will replace detected sheet numbers and titles.`);
     if (!ok) return;
 
     busy = true;
-    notice = `Running OCR for ${group.name}...`;
+    notice = `Running OCR for ${group.path}...`;
     let completed = 0;
     let deferred = 0;
     let failed = 0;
@@ -1037,6 +1164,12 @@
                   void createFolder();
                 }}
               >
+                <select class="field compact folder-parent-select" bind:value={newFolderParentId} aria-label="Parent folder">
+                  <option value={GENERAL_FOLDER_VALUE}>Top level</option>
+                  {#each moveFolderOptions as folder}
+                    <option value={folder.id}>{folder.path ?? folder.name}</option>
+                  {/each}
+                </select>
                 <input class="field compact folder-name-field" bind:value={newFolderName} placeholder="Folder name" aria-label="New folder name" />
                 <button class="mini-button" type="submit" disabled={busy || !newFolderName.trim()}>
                   <Check size={14} />
@@ -1049,6 +1182,7 @@
                   onclick={() => {
                     showNewFolderForm = false;
                     newFolderName = '';
+                    newFolderParentId = GENERAL_FOLDER_VALUE;
                   }}
                   aria-label="Cancel new folder"
                 >
@@ -1065,7 +1199,7 @@
               <select class="field compact folder-select" bind:value={moveTargetFolderId} aria-label="Move selected files to folder">
                 <option value={GENERAL_FOLDER_VALUE}>General</option>
                 {#each moveFolderOptions as folder}
-                  <option value={folder.id}>{folder.name}</option>
+                  <option value={folder.id}>{folder.path ?? folder.name}</option>
                 {/each}
               </select>
               <button class="mini-button" type="button" disabled={busy} onclick={moveSelectedFiles}>
@@ -1138,12 +1272,17 @@
             </tr>
           </thead>
           <tbody>
-            {#each groupedFiles as group}
+            {#each visibleGroups as group}
               <tr
                 class="group-row"
-                class:collapsed-row={groupIsCollapsed(group.name)}
+                class:collapsed-row={groupIsCollapsed(group)}
                 class:drop-target={groupCanReceiveDrops(group)}
                 class:drop-active={dropGroupId === groupRenameKey(group)}
+                class:folder-dragging-row={draggingFolderId === group.folderId}
+                draggable={folderOrganizationEnabled && canModifyFiles && Boolean(group.folderId)}
+                style={`--folder-depth:${Math.min(group.depth, 6)}`}
+                ondragstart={(event) => startFolderDrag(event, group)}
+                ondragend={endFileDrag}
                 ondragenter={(event) => markGroupDrop(event, group)}
                 ondragover={(event) => markGroupDrop(event, group)}
                 ondragleave={(event) => clearGroupDrop(event, group)}
@@ -1153,10 +1292,10 @@
                   <button
                     class="group-toggle"
                     type="button"
-                    onclick={() => toggleGroupCollapsed(group.name)}
-                    aria-label={`${groupIsCollapsed(group.name) ? 'Expand' : 'Collapse'} ${group.name}`}
+                    onclick={() => toggleGroupCollapsed(group)}
+                    aria-label={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}
                   >
-                    {#if groupIsCollapsed(group.name)}
+                    {#if groupIsCollapsed(group)}
                       <ChevronRight size={15} />
                     {:else}
                       <ChevronDown size={15} />
@@ -1165,7 +1304,7 @@
                   {#if documentTool === 'drawings'}
                     <input
                       type="checkbox"
-                      aria-label={`Select all sheets in ${group.name}`}
+                      aria-label={`Select all sheets in ${group.path}`}
                       checked={groupPagesSelected(group)}
                       disabled={!groupPageIds(group).length}
                       onchange={(event) => toggleGroupPages(group, event.currentTarget.checked)}
@@ -1173,7 +1312,7 @@
                   {:else if documentTool === 'documents'}
                     <input
                       type="checkbox"
-                      aria-label={`Select all documents in ${group.name}`}
+                      aria-label={`Select all documents in ${group.path}`}
                       checked={groupFilesSelected(group)}
                       disabled={!groupFileIds(group).length}
                       onchange={(event) => toggleGroupFiles(group, event.currentTarget.checked)}
@@ -1184,9 +1323,13 @@
                   {#if renameGroupId === groupRenameKey(group)}
                     <input class="field group-rename-field" bind:value={renameGroupName} aria-label="Folder name" />
                   {:else}
-                    <div class="group-label">
-                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group.name)}>
-                        {group.name} ({group.count})
+                    <div class="group-label" style={`padding-left: calc(var(--folder-depth) * 1.15rem);`}>
+                      <span class="folder-icon"><Folder size={14} /></span>
+                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)}>
+                        <span>{group.name} ({group.count})</span>
+                        {#if folderParentLabel(group)}
+                          <small>{folderParentLabel(group)}</small>
+                        {/if}
                       </button>
                     </div>
                   {/if}
@@ -1212,19 +1355,19 @@
                       </button>
                     {:else}
                       {#if canModifyFiles && groupCanRename(group)}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.name} folder`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.path} folder`}>
                           <Pencil size={12} />
                           <span>Edit</span>
                         </button>
                       {/if}
                       {#if canModifyFiles && group.folderId}
-                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.name} folder`}>
+                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.path} folder`}>
                           <Trash2 size={12} />
                           <span>Delete</span>
                         </button>
                       {/if}
                       {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.name} group`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.path} group`}>
                           <RefreshCw size={12} />
                           <span>OCR</span>
                         </button>
@@ -1234,11 +1377,11 @@
                 </td>
               </tr>
 
-              {#if !groupIsCollapsed(group.name)}
+              {#if !groupIsCollapsed(group)}
                 {#if !group.files.length}
                   <tr class="empty-folder-row">
                     <td class="select-cell"></td>
-                    <td colspan="6">No {toolTitle.toLowerCase()} in this folder yet.</td>
+                    <td colspan="6">No {toolTitle.toLowerCase()} directly in this folder yet.</td>
                   </tr>
                 {:else if documentTool === 'drawings'}
                   {#each group.files as file}
@@ -1595,8 +1738,12 @@
     width: min(13rem, 100%);
   }
 
-  .folder-select {
+  .folder-parent-select {
     width: min(12rem, 100%);
+  }
+
+  .folder-select {
+    width: min(15rem, 100%);
   }
 
   .drawings-table {
@@ -1686,8 +1833,14 @@
   .group-label {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
+    gap: 0.35rem;
     min-width: 0;
+  }
+
+  .folder-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: #59615a;
   }
 
   .group-name-cell {
@@ -1695,10 +1848,25 @@
   }
 
   .group-name-button {
+    display: grid;
+    gap: 0.05rem;
     min-width: 0;
     padding: 0;
     font-weight: 850;
     text-align: left;
+  }
+
+  .group-name-button span,
+  .group-name-button small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .group-name-button small {
+    color: #687068;
+    font-size: 0.68rem;
+    font-weight: 750;
   }
 
   .group-action-cell {
@@ -1782,6 +1950,10 @@
 
   .drawings-table tr.dragging-row td {
     opacity: 0.58;
+  }
+
+  .drawings-table tr.folder-dragging-row td {
+    opacity: 0.62;
   }
 
   .drawings-table tr.order-drop-target td {

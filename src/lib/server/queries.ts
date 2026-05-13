@@ -445,6 +445,35 @@ function cleanStorageName(name: string) {
   return name.replace(/^[a-f0-9]{8}-/i, '');
 }
 
+type FileFolderRow = {
+  id: string;
+  name: string;
+  parent_folder_id: string | null;
+  document_kind?: string | null;
+};
+
+function folderPathMaps(folderRows: FileFolderRow[]) {
+  const byId = new Map(folderRows.map((folder) => [folder.id, folder]));
+  const pathById = new Map<string, string>();
+  const depthById = new Map<string, number>();
+
+  function pathFor(folderId: string, seen = new Set<string>()): string {
+    if (pathById.has(folderId)) return pathById.get(folderId) ?? '';
+    const folder = byId.get(folderId);
+    if (!folder || seen.has(folderId)) return '';
+    seen.add(folderId);
+
+    const parentPath = folder.parent_folder_id ? pathFor(folder.parent_folder_id, seen) : '';
+    const path = parentPath ? `${parentPath}/${folder.name}` : folder.name;
+    pathById.set(folderId, path);
+    depthById.set(folderId, path.split('/').filter(Boolean).length - 1);
+    return path;
+  }
+
+  for (const folder of folderRows) pathFor(folder.id);
+  return { pathById, depthById };
+}
+
 function isMissingAttachmentLinkTable(error: unknown) {
   const code = (error as { code?: string } | null)?.code;
   const message = (error as { message?: string } | null)?.message ?? '';
@@ -527,13 +556,31 @@ async function getStorageFallbackFolders(slug: string): Promise<FolderEntry[] | 
 
   const counts = new Map<string, number>();
   for (const file of files) {
-    const folder = file.path.includes('/') ? file.path.split('/')[0] : 'Root';
-    counts.set(folder, (counts.get(folder) ?? 0) + 1);
+    const parts = file.path.split('/').slice(0, -1).filter(Boolean);
+    if (!parts.length) {
+      counts.set('Root', (counts.get('Root') ?? 0) + 1);
+      continue;
+    }
+    for (let index = 0; index < parts.length; index += 1) {
+      const path = parts.slice(0, index + 1).join('/');
+      const directFile = index === parts.length - 1 ? 1 : 0;
+      counts.set(path, (counts.get(path) ?? 0) + directFile);
+    }
   }
 
   return [...counts.entries()]
-    .map(([name, fileCount]) => ({ name, fileCount, documentKind: null }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .map(([path, fileCount]) => {
+      const parts = path.split('/');
+      return {
+        name: parts.at(-1) ?? path,
+        path,
+        parentFolderId: null,
+        depth: Math.max(0, parts.length - 1),
+        fileCount,
+        documentKind: null
+      };
+    })
+    .sort((a, b) => (a.path ?? a.name).localeCompare(b.path ?? b.name));
 }
 
 export async function getFiles(event: EventLike, slug: string): Promise<PortalFile[]> {
@@ -543,8 +590,12 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
   const projectId = await getProjectId(event, slug);
   if (!projectId) return [];
 
-  const { data: folderRows } = await db.from('files').select('id, name').eq('project_id', projectId).eq('is_folder', true);
-  const folderById = new Map((folderRows ?? []).map((folder: any) => [folder.id, folder.name]));
+  const { data: folderRows } = await db
+    .from('files')
+    .select('id, name, parent_folder_id, document_kind')
+    .eq('project_id', projectId)
+    .eq('is_folder', true);
+  const { pathById } = folderPathMaps((folderRows ?? []) as FileFolderRow[]);
 
   const selectColumns = `id, name, size_bytes, mime_type, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
       document_kind, sheet_number, sheet_title, revision, page_count, ocr_status`;
@@ -594,7 +645,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
 
   const databaseFiles = rows.map((row: any) => {
     const profile = profiles.get(row.uploaded_by);
-    const folder = row.parent_folder_id ? folderById.get(row.parent_folder_id) : null;
+    const folder = row.parent_folder_id ? pathById.get(row.parent_folder_id) : null;
     return {
       id: row.id,
       name: row.name,
@@ -634,7 +685,7 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
 
   const { data: folders, error } = await client
     .from('files')
-    .select('id, name, document_kind')
+    .select('id, name, parent_folder_id, document_kind')
     .eq('project_id', projectId)
     .eq('is_folder', true)
     .order('name');
@@ -658,25 +709,36 @@ export async function getFolders(event: EventLike, slug: string): Promise<Folder
   }
 
   const merged = new Map<string, FolderEntry>();
-  for (const folder of folders ?? []) {
-    merged.set(folder.name, {
+  const folderRows = (folders ?? []) as FileFolderRow[];
+  const { pathById, depthById } = folderPathMaps(folderRows);
+
+  for (const folder of folderRows) {
+    const path = pathById.get(folder.id) ?? folder.name;
+    merged.set(path, {
       id: folder.id,
       name: folder.name,
+      path,
+      parentFolderId: folder.parent_folder_id,
+      depth: depthById.get(folder.id) ?? 0,
       fileCount: counts.get(folder.id) ?? 0,
       documentKind: folder.document_kind ?? null
     });
   }
   for (const folder of (await getStorageFallbackFolders(slug)) ?? []) {
-    const existing = merged.get(folder.name);
-    merged.set(folder.name, {
+    const key = folder.path ?? folder.name;
+    const existing = merged.get(key);
+    merged.set(key, {
       id: existing?.id,
       name: folder.name,
+      path: key,
+      parentFolderId: existing?.parentFolderId ?? folder.parentFolderId ?? null,
+      depth: existing?.depth ?? folder.depth ?? 0,
       fileCount: (existing?.fileCount ?? 0) + folder.fileCount,
       documentKind: existing?.documentKind ?? folder.documentKind ?? null
     });
   }
 
-  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...merged.values()].sort((a, b) => (a.path ?? a.name).localeCompare(b.path ?? b.name));
 }
 
 export async function getUpdates(event: EventLike, slug: string): Promise<Update[]> {

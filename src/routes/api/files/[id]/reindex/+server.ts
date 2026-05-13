@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import { getObject, storageErrorMessage, storageErrorStatus } from '$lib/server/object-storage';
 import { analyzeDrawingUploadSafely } from '$lib/server/ocr-processing';
-import { classifyDocument, normalizeDocumentKind, type DrawingPageAnalysis } from '$lib/server/drawing-ocr';
+import { classifyDocument, normalizeDocumentKind, normalizeTitleBlockRegion, type DrawingPageAnalysis } from '$lib/server/drawing-ocr';
+import { isMissingFileTitleBlockRegionError } from '$lib/server/schema-compat';
 import {
   databaseClientForCurrentUser,
   databaseClientForProjectAccess,
@@ -74,13 +75,36 @@ export const POST: RequestHandler = async (event) => {
   const requestedDocumentKind = normalizeDocumentKind(requestBody.documentKind);
   let client = await databaseClientForCurrentUser(event);
   if (!client) return json({ error: 'Supabase is not configured yet.' }, { status: 400 });
+  const lookupClient = client;
 
-  const { data: file, error: fileError } = await client
-    .from('files')
-    .select('id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count')
-    .eq('id', event.params.id)
-    .eq('is_folder', false)
-    .maybeSingle();
+  type ReindexFileRow = {
+    id: string;
+    project_id: string;
+    name: string;
+    storage_key: string | null;
+    mime_type: string | null;
+    document_kind: string | null;
+    parent_folder_id: string | null;
+    page_count: number | null;
+    title_block_region?: unknown;
+  };
+
+  async function loadFile(includeTitleBlockRegion: boolean) {
+    const selectColumns = includeTitleBlockRegion
+      ? 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count, title_block_region'
+      : 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count';
+    return lookupClient
+      .from('files')
+      .select(selectColumns as '*')
+      .eq('id', event.params.id)
+      .eq('is_folder', false)
+      .maybeSingle();
+  }
+
+  let fileResult = await loadFile(true);
+  if (isMissingFileTitleBlockRegionError(fileResult.error)) fileResult = await loadFile(false);
+  const file = fileResult.data as ReindexFileRow | null;
+  const fileError = fileResult.error;
 
   if (fileError) return json({ error: fileError.message }, { status: 500 });
   if (!file?.storage_key) return json({ error: 'File not found.' }, { status: 404 });
@@ -127,7 +151,10 @@ export const POST: RequestHandler = async (event) => {
   const contextualDocumentKind = classifyDocument(file.name, contentType, folderName);
   const documentKind =
     requestedDocumentKind ?? (storedDocumentKind === 'drawing' && contextualDocumentKind !== 'drawing' ? contextualDocumentKind : storedDocumentKind);
-  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind, { force });
+  const ocr = await analyzeDrawingUploadSafely(bytes, file.name, contentType, folderName, documentKind, {
+    force,
+    titleBlockRegion: normalizeTitleBlockRegion('title_block_region' in file ? file.title_block_region : null)
+  });
   const analysis = ocr.analysis;
 
   if (!ocr.completed) {

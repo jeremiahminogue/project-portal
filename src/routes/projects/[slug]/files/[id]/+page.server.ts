@@ -1,11 +1,13 @@
 import { error } from '@sveltejs/kit';
 import { contentDisposition, decodeStorageId } from '$lib/server/object-storage';
+import { normalizeTitleBlockRegion } from '$lib/server/drawing-ocr';
 import {
   databaseClientForProjectAccess,
   isProjectAccessError,
   projectRoleCapabilities,
   requireProjectAccess
 } from '$lib/server/project-access';
+import { isMissingFileTitleBlockRegionError } from '$lib/server/schema-compat';
 import type { PageServerLoad } from './$types';
 
 function filenameFromStorageKey(key: string) {
@@ -45,6 +47,7 @@ export const load: PageServerLoad = async (event) => {
         sheetTitle: name.replace(/\.[^.]+$/, ''),
         revision: null,
         mimeType: contentTypeFromName(name),
+        titleBlockRegion: null,
         pages: []
       },
       downloadSrc,
@@ -58,14 +61,39 @@ export const load: PageServerLoad = async (event) => {
 
   const client = databaseClientForProjectAccess(event, access);
   if (!client) throw error(400, 'Supabase is not configured yet.');
+  const fileClient = client;
+  const projectId = access.project.id;
 
-  const { data: file, error: fileError } = await client
-    .from('files')
-    .select('id, name, project_id, mime_type, storage_key, sheet_number, sheet_title, revision, page_count')
-    .eq('id', event.params.id)
-    .eq('project_id', access.project.id)
-    .eq('is_folder', false)
-    .maybeSingle();
+  type ViewerFileRow = {
+    id: string;
+    name: string;
+    project_id: string;
+    mime_type: string | null;
+    storage_key: string | null;
+    sheet_number: string | null;
+    sheet_title: string | null;
+    revision: string | null;
+    page_count: number | null;
+    title_block_region?: unknown;
+  };
+
+  async function loadFile(includeTitleBlockRegion: boolean) {
+    const selectColumns = includeTitleBlockRegion
+      ? 'id, name, project_id, mime_type, storage_key, sheet_number, sheet_title, revision, page_count, title_block_region'
+      : 'id, name, project_id, mime_type, storage_key, sheet_number, sheet_title, revision, page_count';
+    return fileClient
+      .from('files')
+      .select(selectColumns as '*')
+      .eq('id', event.params.id)
+      .eq('project_id', projectId)
+      .eq('is_folder', false)
+      .maybeSingle();
+  }
+
+  let fileResult = await loadFile(true);
+  if (isMissingFileTitleBlockRegionError(fileResult.error)) fileResult = await loadFile(false);
+  const file = fileResult.data as ViewerFileRow | null;
+  const fileError = fileResult.error;
 
   if (fileError) throw error(500, fileError.message);
   if (!file?.storage_key) throw error(404, 'File not found.');
@@ -87,6 +115,7 @@ export const load: PageServerLoad = async (event) => {
       revision: file.revision,
       mimeType: file.mime_type,
       pageCount: file.page_count,
+      titleBlockRegion: normalizeTitleBlockRegion('title_block_region' in file ? file.title_block_region : null),
       pages: (pages ?? []).map((page) => ({
         id: page.id,
         pageNumber: page.page_number,
