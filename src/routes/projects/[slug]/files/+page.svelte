@@ -210,8 +210,27 @@
     return group.folderId || `virtual:${group.path}`;
   }
 
-  function folderParentLabel(group: FileGroup) {
-    return group.parentPath && group.path !== 'General' ? group.parentPath : '';
+  function groupBranchFiles(group: FileGroup) {
+    const prefix = `${group.path}/`;
+    return groupedFiles
+      .filter((candidate) => candidate.path === group.path || (group.path !== 'General' && candidate.path.startsWith(prefix)))
+      .flatMap((candidate) => candidate.files);
+  }
+
+  function groupBranchCount(group: FileGroup) {
+    return documentTool === 'drawings'
+      ? groupBranchFiles(group).reduce((total, file) => total + drawingSheetCount(file), 0)
+      : groupBranchFiles(group).length;
+  }
+
+  function groupCountLabel(group: FileGroup) {
+    const branchCount = groupBranchCount(group);
+    return branchCount === group.count ? String(group.count) : `${branchCount} total`;
+  }
+
+  function groupHasVisibleChildGroups(group: FileGroup) {
+    const prefix = `${group.path}/`;
+    return group.path !== 'General' && visibleGroups.some((candidate) => candidate.path !== group.path && candidate.path.startsWith(prefix));
   }
 
   function groupHiddenByCollapsedAncestor(group: FileGroup) {
@@ -375,7 +394,7 @@
   }
 
   function groupPageIds(group: FileGroup) {
-    return group.files.flatMap((file) => filePageIds(file));
+    return groupBranchFiles(group).flatMap((file) => filePageIds(file));
   }
 
   function groupRenameKey(group: FileGroup) {
@@ -700,7 +719,7 @@
   }
 
   function groupFileIds(group: FileGroup) {
-    return group.files.filter((file) => !fileIsStorageOnly(file)).map((file) => file.id);
+    return groupBranchFiles(group).filter((file) => !fileIsStorageOnly(file)).map((file) => file.id);
   }
 
   function groupFilesSelected(group: FileGroup) {
@@ -1282,6 +1301,7 @@
                 class:drop-target={groupCanReceiveDrops(group)}
                 class:drop-active={dropGroupId === groupRenameKey(group)}
                 class:folder-dragging-row={draggingFolderId === group.folderId}
+                class:nested-group-row={group.depth > 0}
                 draggable={folderOrganizationEnabled && canModifyFiles && Boolean(group.folderId)}
                 style={`--folder-depth:${Math.min(group.depth, 6)}`}
                 ondragstart={(event) => startFolderDrag(event, group)}
@@ -1327,13 +1347,10 @@
                   {#if renameGroupId === groupRenameKey(group)}
                     <input class="field group-rename-field" bind:value={renameGroupName} aria-label="Folder name" />
                   {:else}
-                    <div class="group-label" style={`padding-left: calc(var(--folder-depth) * 1.15rem);`}>
+                    <div class:nested-folder={group.depth > 0} class="group-label" style={`padding-left: calc(var(--folder-depth) * 1.45rem);`}>
                       <span class="folder-icon"><Folder size={14} /></span>
                       <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)} title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}>
-                        <span>{group.name} ({group.count})</span>
-                        {#if folderParentLabel(group)}
-                          <small>{folderParentLabel(group)}</small>
-                        {/if}
+                        <span>{group.name} ({groupCountLabel(group)})</span>
                       </button>
                     </div>
                   {/if}
@@ -1383,7 +1400,7 @@
               </tr>
 
               {#if !groupIsCollapsed(group)}
-                {#if !group.files.length}
+                {#if !group.files.length && !groupHasVisibleChildGroups(group)}
                   <tr class="empty-folder-row">
                     <td class="select-cell"></td>
                     <td colspan="6">No {toolTitle.toLowerCase()} directly in this folder yet.</td>
@@ -1809,6 +1826,15 @@
     padding-inline: 0.35rem !important;
   }
 
+  .drawings-table .group-row td {
+    height: 2.55rem;
+    padding-block: 0.42rem;
+  }
+
+  .drawings-table .nested-group-row td {
+    background: #f4f8ff;
+  }
+
   .group-control-cell input {
     width: 1rem;
     height: 1rem;
@@ -1839,10 +1865,24 @@
   }
 
   .group-label {
+    position: relative;
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
     min-width: 0;
+    min-height: 1.7rem;
+  }
+
+  .group-label.nested-folder::before {
+    content: '';
+    position: absolute;
+    left: calc(var(--folder-depth) * 1.45rem - 1rem);
+    top: -0.58rem;
+    width: 0.9rem;
+    height: 1.45rem;
+    border-left: 1px solid #aeb9b0;
+    border-bottom: 1px solid #aeb9b0;
+    pointer-events: none;
   }
 
   .folder-icon {
@@ -1856,25 +1896,18 @@
   }
 
   .group-name-button {
-    display: grid;
-    gap: 0.05rem;
+    display: inline-flex;
+    align-items: center;
     min-width: 0;
     padding: 0;
     font-weight: 850;
     text-align: left;
   }
 
-  .group-name-button span,
-  .group-name-button small {
+  .group-name-button span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .group-name-button small {
-    color: #687068;
-    font-size: 0.68rem;
-    font-weight: 750;
   }
 
   .group-action-cell {
