@@ -21,6 +21,7 @@
   let editingSheetMeta = $state(false);
   let editSheetNumber = $state('');
   let editSheetTitle = $state('');
+  let editSheetRevision = $state('');
   let editSheetSaving = $state(false);
   let sheetMetaNotice = $state('');
   let titleRegion = $state<TitleBlockRegion | null>(null);
@@ -42,7 +43,7 @@
   const activeSheet = $derived(data.file.pages?.find((sheet) => sheet.pageNumber === activePage) ?? null);
   const activeSheetNumber = $derived(activeSheet?.sheetNumber ?? data.file.sheetNumber ?? `Sheet ${activePage}`);
   const activeSheetTitle = $derived(activeSheet?.sheetTitle ?? activeSheet?.name ?? data.file.sheetTitle ?? data.file.name);
-  const activeRevision = $derived(activeSheet?.revision ?? data.file.revision);
+  const activeRevision = $derived(revisionLabel(activeSheet?.revision ?? data.file.revision));
   const title = $derived(
     activeSheet
       ? `${activeSheet.sheetNumber ?? `Page ${activeSheet.pageNumber}`} - ${activeSheet.sheetTitle ?? activeSheet.name}`
@@ -94,9 +95,14 @@
     return activeSheet ? `/api/files/${encodeURIComponent(data.file.id)}/pages/${encodeURIComponent(activeSheet.id)}` : fileEndpoint();
   }
 
+  function revisionLabel(value: string | null | undefined) {
+    return value?.trim() || '1';
+  }
+
   function startEditSheetMeta() {
     editSheetNumber = activeSheetNumber;
     editSheetTitle = activeSheetTitle;
+    editSheetRevision = activeRevision;
     sheetMetaNotice = '';
     editingSheetMeta = true;
   }
@@ -105,12 +111,13 @@
     editingSheetMeta = false;
     editSheetNumber = '';
     editSheetTitle = '';
+    editSheetRevision = '';
     sheetMetaNotice = '';
   }
 
   async function saveSheetMeta() {
-    if (!editSheetNumber.trim() && !editSheetTitle.trim()) {
-      sheetMetaNotice = 'Add a sheet number or title before saving.';
+    if (!editSheetNumber.trim() && !editSheetTitle.trim() && !editSheetRevision.trim()) {
+      sheetMetaNotice = 'Add a sheet number, title, or revision before saving.';
       return;
     }
 
@@ -122,7 +129,8 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sheetNumber: editSheetNumber.trim(),
-          sheetTitle: editSheetTitle.trim()
+          sheetTitle: editSheetTitle.trim(),
+          revision: editSheetRevision.trim()
         })
       });
       const result = await response.json().catch(() => ({}));
@@ -294,7 +302,8 @@
             >
               <input class="viewer-title-number" bind:value={editSheetNumber} disabled={editSheetSaving} aria-label="Sheet number" />
               <input class="viewer-title-name" bind:value={editSheetTitle} disabled={editSheetSaving} aria-label="Sheet title" />
-              <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title" title="Save sheet title">
+              <input class="viewer-title-revision" bind:value={editSheetRevision} disabled={editSheetSaving} aria-label="Revision" />
+              <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim() && !editSheetRevision.trim())} aria-label="Save sheet title" title="Save sheet title">
                 <Check size={14} />
               </button>
               <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit" title="Cancel edit">
@@ -302,7 +311,7 @@
               </button>
             </form>
           {:else}
-            <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title" title={canEditActiveSheet ? 'Edit sheet number and title' : 'Sheet number and title'}>
+            <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number, title, and revision" title={canEditActiveSheet ? 'Edit sheet number, title, and revision' : 'Sheet number and title'}>
               <strong>{activeSheetNumber}</strong>
               <span>{activeSheetTitle}</span>
               {#if canEditActiveSheet}
@@ -314,7 +323,7 @@
             <small>{sheetMetaNotice}</small>
           {/if}
         </div>
-        <span class="revision-pill">{activeRevision ? `Rev ${activeRevision}` : 'Current'}</span>
+        <span class="revision-pill">Rev {activeRevision}</span>
         <a class:disabled={activePage >= sheetCount} class="nav-icon" href={viewerPageHref(nextPage)} aria-label="Next sheet" title="Next sheet">
           <ChevronRight size={18} />
         </a>
@@ -335,7 +344,8 @@
               >
                 <input class="viewer-title-number" bind:value={editSheetNumber} disabled={editSheetSaving} aria-label="Sheet number" />
                 <input class="viewer-title-name" bind:value={editSheetTitle} disabled={editSheetSaving} aria-label="Sheet title" />
-                <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim())} aria-label="Save sheet title" title="Save sheet title">
+                <input class="viewer-title-revision" bind:value={editSheetRevision} disabled={editSheetSaving} aria-label="Revision" />
+                <button class="title-icon success" type="submit" disabled={editSheetSaving || (!editSheetNumber.trim() && !editSheetTitle.trim() && !editSheetRevision.trim())} aria-label="Save sheet title" title="Save sheet title">
                   <Check size={14} />
                 </button>
                 <button class="title-icon" type="button" disabled={editSheetSaving} onclick={cancelEditSheetMeta} aria-label="Cancel sheet title edit" title="Cancel edit">
@@ -343,7 +353,7 @@
                 </button>
               </form>
             {:else}
-              <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number and title" title={canEditActiveSheet ? 'Edit sheet number and title' : 'Sheet number and title'}>
+              <button class="viewer-title-button" type="button" disabled={!canEditActiveSheet} onclick={startEditSheetMeta} aria-label="Edit sheet number, title, and revision" title={canEditActiveSheet ? 'Edit sheet number, title, and revision' : 'Sheet number and title'}>
                 <strong>{activeSheetNumber}</strong>
                 <span>{activeSheetTitle}</span>
                 {#if canEditActiveSheet}
@@ -647,7 +657,7 @@
 
   .viewer-title-edit {
     display: grid;
-    grid-template-columns: minmax(5rem, 7rem) minmax(9rem, 1fr) auto auto;
+    grid-template-columns: minmax(5rem, 7rem) minmax(9rem, 1fr) minmax(3.4rem, 4.5rem) auto auto;
     align-items: center;
     gap: 0.3rem;
     min-width: 0;

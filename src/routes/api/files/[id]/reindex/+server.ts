@@ -42,12 +42,24 @@ function contentTypeFor(filename: string, contentType?: string | null) {
   return /\.pdf$/i.test(filename) ? 'application/pdf' : 'application/octet-stream';
 }
 
+function stableDrawingRevision(value: string | null | undefined) {
+  const cleaned = value?.trim();
+  return cleaned && /^[1-9]\d*$/.test(cleaned) ? cleaned : '1';
+}
+
 async function replaceDrawingPages(
   client: NonNullable<App.Locals['supabase']>,
   projectId: string,
   fileId: string,
   pages: DrawingPageAnalysis[]
 ) {
+  const { data: existingPages, error: existingPagesError } = await client
+    .from('drawing_pages')
+    .select('page_number, revision')
+    .eq('file_id', fileId);
+  if (existingPagesError) return existingPagesError.message;
+  const revisionByPage = new Map((existingPages ?? []).map((page) => [page.page_number, stableDrawingRevision(page.revision)]));
+
   const { error: deleteError } = await client.from('drawing_pages').delete().eq('file_id', fileId);
   if (deleteError) return deleteError.message;
 
@@ -61,7 +73,7 @@ async function replaceDrawingPages(
       name: page.name,
       sheet_number: page.sheetNumber,
       sheet_title: page.sheetTitle,
-      revision: page.revision,
+      revision: revisionByPage.get(page.pageNumber) ?? stableDrawingRevision(null),
       ocr_text: page.text
     }))
   );
@@ -86,13 +98,14 @@ export const POST: RequestHandler = async (event) => {
     document_kind: string | null;
     parent_folder_id: string | null;
     page_count: number | null;
+    revision: string | null;
     title_block_region?: unknown;
   };
 
   async function loadFile(includeTitleBlockRegion: boolean) {
     const selectColumns = includeTitleBlockRegion
-      ? 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count, title_block_region'
-      : 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count';
+      ? 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count, revision, title_block_region'
+      : 'id, project_id, name, storage_key, mime_type, document_kind, parent_folder_id, page_count, revision';
     return lookupClient
       .from('files')
       .select(selectColumns as '*')
@@ -189,7 +202,7 @@ export const POST: RequestHandler = async (event) => {
       document_kind: analysis.documentKind,
       sheet_number: analysis.sheetNumber,
       sheet_title: analysis.sheetTitle,
-      revision: analysis.revision,
+      revision: analysis.documentKind === 'drawing' ? stableDrawingRevision(file.revision) : analysis.revision,
       page_count: analysis.pageCount,
       ocr_status: analysis.ocrStatus,
       ocr_text: analysis.ocrText

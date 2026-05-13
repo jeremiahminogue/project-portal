@@ -276,7 +276,8 @@ test('file uploads carry tool context so specs and documents stay out of drawing
   assert.doesNotMatch(filesPage, /data\.folders\.find/);
   assert.match(filesPage, /function groupRenameKey/);
   assert.match(filesPage, /function groupCanRename/);
-  assert.match(filesPage, /Rename \$\{group\.path\} folder/);
+  assert.match(filesPage, /function groupDisplayPath/);
+  assert.match(filesPage, /Rename \$\{groupDisplayPath\(group\)\} folder/);
   assert.match(filesPage, /<span>Edit<\/span>/);
   assert.match(filesPage, /\/api\/files\/groups\/rename/);
   assert.match(filesPage, /fileIds: group\.folderId \? \[\] : group\.files/);
@@ -405,7 +406,8 @@ test('viewer does not force non-PDF files into the PDF renderer', () => {
   assert.match(viewer, /activeDownloadUrl/);
   assert.match(viewer, /activeSheetTitle/);
   assert.match(viewer, /function saveSheetMeta/);
-  assert.match(viewer, /Edit sheet number and title/);
+  assert.match(viewer, /Edit sheet number, title, and revision/);
+  assert.match(viewer, /editSheetRevision/);
   assert.match(viewer, /\/api\/files\/\$\{encodeURIComponent\(data\.file\.id\)\}\/pages\/\$\{encodeURIComponent\(activeSheet\.id\)\}/);
   assert.match(viewer, /page=\$\{pageNumber\}/);
   assert.match(viewer, /markupsUrl=\{activeMarkupsUrl\}/);

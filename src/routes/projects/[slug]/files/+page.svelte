@@ -5,7 +5,6 @@
     Check,
     ChevronDown,
     ChevronRight,
-    Copy,
     Download,
     FileText,
     Folder,
@@ -16,6 +15,7 @@
     RefreshCw,
     Search,
     Trash2,
+    UploadCloud,
     X
   } from '@lucide/svelte';
   import FileUploadButton from '$lib/components/FileUploadButton.svelte';
@@ -52,6 +52,10 @@
   let orderDropFileId = $state('');
   let draggingFileIds = $state<string[]>([]);
   let draggingFolderId = $state('');
+  let replacePageInput = $state<HTMLInputElement | null>(null);
+  let replaceTarget = $state<{ file: FileRow; page: PageRow } | null>(null);
+  const ROOT_FOLDER_PATH = 'General';
+  const ROOT_FOLDER_LABEL = 'No folder';
   const GENERAL_FOLDER_VALUE = '__general__';
   const INTERNAL_FILE_DRAG_TYPE = 'application/x-project-portal-file-ids';
   const INTERNAL_FOLDER_DRAG_TYPE = 'application/x-project-portal-folder-id';
@@ -93,23 +97,23 @@
   const uploadFolder = $derived(defaultUploadFolder);
   const uploadFolderEditable = $derived(documentTool === 'drawings' || documentTool === 'documents');
   const uploadFolderLabel = $derived(documentTool === 'documents' ? 'Document folder' : 'Drawing group');
-  const uploadFolderPlaceholder = $derived(documentTool === 'documents' ? 'New document folder' : 'General, Civil, Electrical...');
+  const uploadFolderPlaceholder = $derived(documentTool === 'documents' ? 'New document folder' : 'Civil, Electrical...');
 
   const toolFiles = $derived(data.files.filter((file) => fileMatchesTool(file, documentTool)));
   const toolFolders = $derived(
     data.folders
-      .filter((folder) => folder.name !== 'General' && folderMatchesCurrentTool(folder))
+      .filter((folder) => folder.name !== ROOT_FOLDER_PATH && folderMatchesCurrentTool(folder))
       .sort((a, b) => folderPathForFolder(a).localeCompare(folderPathForFolder(b)))
   );
   const toolFolderNames = $derived(
     uniqueFolderOptions([
-      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== 'General'),
+      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== ROOT_FOLDER_PATH),
       ...toolFolders.map((folder) => folderPathForFolder(folder))
     ])
   );
   const documentUploadFolderNames = $derived(
     uniqueFolderOptions([
-      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== 'General'),
+      ...toolFiles.map((file) => folderPathForFile(file)).filter((name) => name !== ROOT_FOLDER_PATH),
       ...toolFolders.map((folder) => folderPathForFolder(folder))
     ])
   );
@@ -129,7 +133,6 @@
   const folderRowsById = $derived(new Map(data.folders.filter(hasFolderId).map((folder) => [folder.id, folder])));
   const groupedFiles = $derived(
     uniqueFolderOptions([
-      ...(folderOrganizationEnabled ? ['General'] : []),
       ...filteredFiles.map((file) => folderPathForFile(file)),
       ...toolFolders
         .filter((folder) => !query || folder.name.toLowerCase().includes(query.toLowerCase()))
@@ -141,7 +144,7 @@
         const folderRow = folderRowsByPath.get(path.toLowerCase());
         const segments = path.split('/').filter(Boolean);
         return {
-          name: path === 'General' ? 'General' : (segments.at(-1) ?? path),
+          name: path === ROOT_FOLDER_PATH ? ROOT_FOLDER_LABEL : (segments.at(-1) ?? path),
           path,
           parentPath: segments.length > 1 ? segments.slice(0, -1).join('/') : '',
           parentFolderId: folderRow?.parentFolderId ?? null,
@@ -199,7 +202,7 @@
 
   function folderPathForFile(file: (typeof data.files)[number]) {
     const parts = file.path.split('/').filter(Boolean);
-    return parts.length > 1 ? parts.slice(0, -1).join('/') : 'General';
+    return parts.length > 1 ? parts.slice(0, -1).join('/') : ROOT_FOLDER_PATH;
   }
 
   function folderPathForFolder(folder: (typeof data.folders)[number]) {
@@ -210,10 +213,18 @@
     return group.folderId || `virtual:${group.path}`;
   }
 
+  function groupIsRoot(group: FileGroup) {
+    return group.path === ROOT_FOLDER_PATH && !group.folderId;
+  }
+
+  function groupDisplayPath(group: FileGroup) {
+    return groupIsRoot(group) ? ROOT_FOLDER_LABEL : group.path;
+  }
+
   function groupBranchFiles(group: FileGroup) {
     const prefix = `${group.path}/`;
     return groupedFiles
-      .filter((candidate) => candidate.path === group.path || (group.path !== 'General' && candidate.path.startsWith(prefix)))
+      .filter((candidate) => candidate.path === group.path || (group.path !== ROOT_FOLDER_PATH && candidate.path.startsWith(prefix)))
       .flatMap((candidate) => candidate.files);
   }
 
@@ -230,11 +241,11 @@
 
   function groupHasVisibleChildGroups(group: FileGroup) {
     const prefix = `${group.path}/`;
-    return group.path !== 'General' && visibleGroups.some((candidate) => candidate.path !== group.path && candidate.path.startsWith(prefix));
+    return group.path !== ROOT_FOLDER_PATH && visibleGroups.some((candidate) => candidate.path !== group.path && candidate.path.startsWith(prefix));
   }
 
   function groupHiddenByCollapsedAncestor(group: FileGroup) {
-    if (group.path === 'General') return false;
+    if (group.path === ROOT_FOLDER_PATH) return false;
     const parts = group.path.split('/').filter(Boolean);
     for (let index = 1; index < parts.length; index += 1) {
       if (collapsedGroups.includes(parts.slice(0, index).join('/'))) return true;
@@ -273,7 +284,7 @@
   }
 
   function revisionLabel(value: string | null | undefined) {
-    return value?.trim() || '0';
+    return value?.trim() || '1';
   }
 
   function revisionFromText(value: string) {
@@ -294,10 +305,10 @@
   }
 
   function revisionFor(file: (typeof data.files)[number]) {
-    if (file.revision) return file.revision;
+    if (file.revision) return revisionLabel(file.revision);
     const tag = file.tags?.find((value) => /^rev(?:ision)?[:\s-]/i.test(value));
-    if (tag) return tag.replace(/^rev(?:ision)?[:\s-]*/i, '').trim() || '0';
-    return revisionFromText(file.name) ?? '0';
+    if (tag) return revisionLabel(tag.replace(/^rev(?:ision)?[:\s-]*/i, ''));
+    return revisionLabel(revisionFromText(file.name));
   }
 
   function fileHasStorage(file: (typeof data.files)[number]) {
@@ -402,7 +413,7 @@
   }
 
   function groupCanRename(group: FileGroup) {
-    return Boolean(group.folderId || group.files.some((file) => !fileIsStorageOnly(file)));
+    return Boolean(group.folderId || (group.path !== ROOT_FOLDER_PATH && group.files.some((file) => !fileIsStorageOnly(file))));
   }
 
   function toggleFileSelection(fileId: string, checked: boolean) {
@@ -416,7 +427,7 @@
   }
 
   function groupUploadFolderName(group: FileGroup) {
-    return group.path === 'General' && !group.folderId ? '' : group.path;
+    return groupIsRoot(group) ? '' : group.path;
   }
 
   function hasDraggedFiles(event: DragEvent) {
@@ -508,7 +519,7 @@
 
   function folderPayloadForGroup(group: FileGroup) {
     if (group.folderId) return { folderId: group.folderId };
-    if (group.path === 'General') return { folderId: null };
+    if (group.path === ROOT_FOLDER_PATH) return { folderId: null };
     return { folderName: group.path };
   }
 
@@ -551,8 +562,8 @@
       if (!response.ok) throw new Error(result.error ?? 'Files could not be organized.');
       const moved = result.moved ?? ids.length;
       notice = orderedFileIds?.length
-        ? `Updated ${group.path} order.`
-        : `Moved ${moved} file${moved === 1 ? '' : 's'} to ${group.path}.`;
+        ? `Updated ${groupDisplayPath(group)} order.`
+        : `Moved ${moved} file${moved === 1 ? '' : 's'} to ${groupDisplayPath(group)}.`;
       selectedPageIds = [];
       selectedFileIds = [];
       await invalidateAll();
@@ -583,7 +594,7 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'Folder could not be moved.');
-      notice = group.path === 'General' ? 'Folder moved to General.' : `Folder moved into ${group.path}.`;
+      notice = groupIsRoot(group) ? `Folder moved to ${ROOT_FOLDER_LABEL}.` : `Folder moved into ${group.path}.`;
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'Folder could not be moved.';
@@ -662,9 +673,10 @@
     busy = true;
     notice = '';
     const folder = groupUploadFolderName(group);
+    const destination = groupDisplayPath(group);
     try {
       for (const file of files) {
-        notice = `Uploading ${file.name} to ${group.path}...`;
+        notice = `Uploading ${file.name} to ${destination}...`;
         const result = await uploadProjectFile({
           projectSlug: data.project.id,
           file,
@@ -673,7 +685,7 @@
         });
         notice = result.warning ? `${result.name} uploaded. ${result.warning}` : `${result.name} uploaded.`;
       }
-      notice = files.length === 1 ? notice : `${files.length} files uploaded to ${group.path}.`;
+      notice = files.length === 1 ? notice : `${files.length} files uploaded to ${destination}.`;
       await invalidateAll();
     } catch (error) {
       notice = error instanceof Error ? error.message : 'Upload failed.';
@@ -789,7 +801,7 @@
       });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? 'Files could not be moved.');
-      const destination = moveToGeneral ? 'General' : (folder ? folderPathForFolder(folder) : '');
+      const destination = moveToGeneral ? ROOT_FOLDER_LABEL : (folder ? folderPathForFolder(folder) : '');
       const moved = result.moved ?? selectedMovableFileIds.length;
       const label = documentTool === 'drawings' ? 'drawing set' : 'file';
       notice = `Moved ${moved} ${label}${moved === 1 ? '' : 's'} to ${destination}.`;
@@ -924,6 +936,47 @@
     }
   }
 
+  function chooseReplacementPage(file: FileRow, pageRow: PageRow) {
+    if (!canModifyFiles || fileIsStorageOnly(file) || !fileIsPdf(file)) return;
+    replaceTarget = { file, page: pageRow };
+    replacePageInput?.click();
+  }
+
+  async function replaceDrawingPage(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const replacement = input.files?.[0];
+    const target = replaceTarget;
+    input.value = '';
+    if (!target || !replacement) {
+      replaceTarget = null;
+      return;
+    }
+
+    const sheetLabel = target.page.sheetNumber ?? `Page ${target.page.pageNumber}`;
+    const ok = confirm(`Replace ${sheetLabel} in "${target.file.name}"? The page revision will increase automatically.`);
+    if (!ok) {
+      replaceTarget = null;
+      return;
+    }
+
+    busy = true;
+    notice = '';
+    try {
+      const form = new FormData();
+      form.set('file', replacement);
+      const response = await fetch(pageEndpoint(target.file.id, target.page.id), { method: 'PUT', body: form });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? 'Sheet page could not be replaced.');
+      notice = `Replaced ${sheetLabel}. Revision is now ${result.revision ?? '1'}.`;
+      await invalidateAll();
+    } catch (error) {
+      notice = error instanceof Error ? error.message : 'Sheet page could not be replaced.';
+    } finally {
+      replaceTarget = null;
+      busy = false;
+    }
+  }
+
   async function deleteFile(file: (typeof data.files)[number]) {
     const ok = confirm(`Delete "${file.name}" from this project?`);
     if (!ok) return;
@@ -944,7 +997,7 @@
 
   async function deleteFolder(group: FileGroup) {
     if (!group.folderId) return;
-    const ok = confirm(`Delete the "${group.path}" folder? Files and subfolders inside it will move up one level.`);
+    const ok = confirm(`Delete the "${groupDisplayPath(group)}" folder? Files and subfolders inside it will move up one level.`);
     if (!ok) return;
 
     busy = true;
@@ -1004,11 +1057,11 @@
   async function reindexGroup(group: FileGroup) {
     const files = groupOcrFiles(group);
     if (!files.length) return;
-    const ok = confirm(`Run OCR for ${files.length} PDF drawing set${files.length === 1 ? '' : 's'} in "${group.path}"? This will replace detected sheet numbers and titles.`);
+    const ok = confirm(`Run OCR for ${files.length} PDF drawing set${files.length === 1 ? '' : 's'} in "${groupDisplayPath(group)}"? This will replace detected sheet numbers and titles.`);
     if (!ok) return;
 
     busy = true;
-    notice = `Running OCR for ${group.path}...`;
+    notice = `Running OCR for ${groupDisplayPath(group)}...`;
     let completed = 0;
     let deferred = 0;
     let failed = 0;
@@ -1034,11 +1087,6 @@
     } finally {
       busy = false;
     }
-  }
-
-  async function copyFileLink(file: (typeof data.files)[number]) {
-    await navigator.clipboard?.writeText(location.origin + `/api/files/${encodeURIComponent(file.id)}/download`);
-    notice = 'Link copied.';
   }
 
   async function createShareLink(file: (typeof data.files)[number]) {
@@ -1136,6 +1184,14 @@
 </svelte:head>
 
 <PageShell wide>
+  <input
+    bind:this={replacePageInput}
+    class="sr-only"
+    type="file"
+    accept="application/pdf,.pdf"
+    onchange={replaceDrawingPage}
+  />
+
   <section class="tool-heading">
     <div class="min-w-0">
       <h1>{toolTitle}</h1>
@@ -1219,7 +1275,7 @@
             {/if}
             {#if selectedMovableFileIds.length}
               <select class="field compact folder-select" bind:value={moveTargetFolderId} aria-label="Move selected files to folder">
-                <option value={GENERAL_FOLDER_VALUE}>General</option>
+                <option value={GENERAL_FOLDER_VALUE}>{ROOT_FOLDER_LABEL}</option>
                 {#each moveFolderOptions as folder}
                   <option value={folder.id}>{folder.path ?? folder.name}</option>
                 {/each}
@@ -1261,7 +1317,6 @@
             <col class="title-col" />
             <col class="revision-col" />
             <col class="date-col" />
-            <col class="location-col" />
             <col class="actions-col" />
           </colgroup>
           <thead>
@@ -1288,8 +1343,7 @@
               <th>{documentTool === 'specifications' ? 'Section' : documentTool === 'documents' ? 'File' : 'Number'}</th>
               <th>{documentTool === 'specifications' ? 'Specification Title' : documentTool === 'documents' ? 'Document' : 'Drawing Title'}</th>
               <th>{documentTool === 'documents' ? 'Type' : 'Revision'}</th>
-              <th>{documentTool === 'drawings' ? 'Drawing Date' : 'Uploaded'}</th>
-              <th>{documentTool === 'drawings' ? 'Set' : 'Folder'}</th>
+              <th>Date Uploaded</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -1316,8 +1370,8 @@
                     class="group-toggle"
                     type="button"
                     onclick={() => toggleGroupCollapsed(group)}
-                    aria-label={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}
-                    title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}
+                    aria-label={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${groupDisplayPath(group)}`}
+                    title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${groupDisplayPath(group)}`}
                   >
                     {#if groupIsCollapsed(group)}
                       <ChevronRight size={15} />
@@ -1328,7 +1382,7 @@
                   {#if documentTool === 'drawings'}
                     <input
                       type="checkbox"
-                      aria-label={`Select all sheets in ${group.path}`}
+                      aria-label={`Select all sheets in ${groupDisplayPath(group)}`}
                       checked={groupPagesSelected(group)}
                       disabled={!groupPageIds(group).length}
                       onchange={(event) => toggleGroupPages(group, event.currentTarget.checked)}
@@ -1336,20 +1390,20 @@
                   {:else if documentTool === 'documents'}
                     <input
                       type="checkbox"
-                      aria-label={`Select all documents in ${group.path}`}
+                      aria-label={`Select all documents in ${groupDisplayPath(group)}`}
                       checked={groupFilesSelected(group)}
                       disabled={!groupFileIds(group).length}
                       onchange={(event) => toggleGroupFiles(group, event.currentTarget.checked)}
                     />
                   {/if}
                 </td>
-                <td class="group-name-cell" colspan="5">
+                <td class="group-name-cell" colspan="4">
                   {#if renameGroupId === groupRenameKey(group)}
                     <input class="field group-rename-field" bind:value={renameGroupName} aria-label="Folder name" />
                   {:else}
                     <div class:nested-folder={group.depth > 0} class="group-label" style={`padding-left: calc(var(--folder-depth) * 1.45rem);`}>
                       <span class="folder-icon"><Folder size={14} /></span>
-                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)} title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${group.path}`}>
+                      <button class="group-name-button" type="button" onclick={() => toggleGroupCollapsed(group)} title={`${groupIsCollapsed(group) ? 'Expand' : 'Collapse'} ${groupDisplayPath(group)}`}>
                         <span>{group.name} ({groupCountLabel(group)})</span>
                       </button>
                     </div>
@@ -1377,19 +1431,19 @@
                       </button>
                     {:else}
                       {#if canModifyFiles && groupCanRename(group)}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${group.path} folder`} title={`Rename ${group.path} folder`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => startRenameGroup(group)} aria-label={`Rename ${groupDisplayPath(group)} folder`} title={`Rename ${groupDisplayPath(group)} folder`}>
                           <Pencil size={12} />
                           <span>Edit</span>
                         </button>
                       {/if}
                       {#if canDeleteFiles && group.folderId}
-                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${group.path} folder`} title={`Delete ${group.path} folder`}>
+                        <button class="group-edit-button danger" type="button" disabled={busy} onclick={() => deleteFolder(group)} aria-label={`Delete ${groupDisplayPath(group)} folder`} title={`Delete ${groupDisplayPath(group)} folder`}>
                           <Trash2 size={12} />
                           <span>Delete</span>
                         </button>
                       {/if}
                       {#if documentTool === 'drawings' && canReindexFiles && groupOcrFiles(group).length}
-                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${group.path} group`} title={`Run OCR for ${group.path}`}>
+                        <button class="group-edit-button" type="button" disabled={busy} onclick={() => reindexGroup(group)} aria-label={`Run OCR for ${groupDisplayPath(group)} group`} title={`Run OCR for ${groupDisplayPath(group)}`}>
                           <RefreshCw size={12} />
                           <span>OCR</span>
                         </button>
@@ -1403,7 +1457,7 @@
                 {#if !group.files.length && !groupHasVisibleChildGroups(group)}
                   <tr class="empty-folder-row">
                     <td class="select-cell"></td>
-                    <td colspan="6">No {toolTitle.toLowerCase()} directly in this folder yet.</td>
+                    <td colspan="5">No {toolTitle.toLowerCase()} directly in this folder yet.</td>
                   </tr>
                 {:else if documentTool === 'drawings'}
                   {#each group.files as file}
@@ -1450,19 +1504,12 @@
                           </td>
                           <td>
                             {#if renamePageId === pageRow.id}
-                              <input class="field revision-edit" bind:value={renamePageRevision} placeholder="0" aria-label="Revision" />
+                              <input class="field revision-edit" bind:value={renamePageRevision} placeholder="1" aria-label="Revision" />
                             {:else}
                               {revisionLabel(pageRow.revision)}
                             {/if}
                           </td>
                           <td>{formatDate(file.updatedAt)}</td>
-                          <td>
-                            {#if fileHasStorage(file) && fileIsPdf(file)}
-                              <a class="set-link" href={viewerHref(file.id)}>{file.name}</a>
-                            {:else}
-                              <span class="set-link">{file.name}</span>
-                            {/if}
-                          </td>
                           <td>
                             <div class="row-actions">
                               {#if renamePageId === pageRow.id}
@@ -1483,19 +1530,21 @@
                                   <X size={15} />
                                 </button>
                               {:else if fileHasStorage(file)}
-                                <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${pageRow.name}`} title={`Download ${pageRow.name}`}>
+                                <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1&page=${pageRow.pageNumber}`} aria-label={`Download ${pageRow.name}`} title={`Download ${pageRow.name}`}>
                                   <Download size={15} />
                                 </a>
-                                <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${pageRow.name}`} title={`Copy link for ${pageRow.name}`}>
-                                  <Copy size={15} />
-                                </button>
                                 {#if canDeleteFiles && !fileIsStorageOnly(file)}
-                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${pageRow.name}`} title={`Create external share link for ${pageRow.name}`}>
+                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`} title={`Create external share link for ${file.name}`}>
                                     <Link size={15} />
                                   </button>
                                 {/if}
                               {/if}
                               {#if renamePageId !== pageRow.id && canModifyFiles && !fileIsStorageOnly(file)}
+                                {#if fileHasStorage(file) && fileIsPdf(file)}
+                                  <button class="icon-row-button" type="button" disabled={busy} onclick={() => chooseReplacementPage(file, pageRow)} aria-label={`Replace ${pageRow.name}`} title={`Replace ${pageRow.name}`}>
+                                    <UploadCloud size={15} />
+                                  </button>
+                                {/if}
                                 <button class="icon-row-button" type="button" disabled={busy} onclick={() => startRenamePage(pageRow)} aria-label={`Rename ${pageRow.name}`} title={`Rename ${pageRow.name}`}>
                                   <Pencil size={15} />
                                 </button>
@@ -1548,22 +1597,18 @@
                         </td>
                         <td>
                           {#if renameId === file.id}
-                            <input class="field revision-edit" bind:value={renameFileRevision} placeholder="0" aria-label="Revision" />
+                            <input class="field revision-edit" bind:value={renameFileRevision} placeholder="1" aria-label="Revision" />
                           {:else}
                             {revisionFor(file)}
                           {/if}
                         </td>
                         <td>{formatDate(file.updatedAt)}</td>
-                        <td><span class="set-link">{file.path}</span></td>
                         <td>
                           <div class="row-actions">
                             {#if fileHasStorage(file)}
                               <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`} title={`Download ${file.name}`}>
                                 <Download size={15} />
                               </a>
-                              <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`} title={`Copy link for ${file.name}`}>
-                                <Copy size={15} />
-                              </button>
                               {#if canDeleteFiles && !fileIsStorageOnly(file)}
                                 <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`} title={`Create external share link for ${file.name}`}>
                                   <Link size={15} />
@@ -1660,22 +1705,18 @@
                         {#if documentTool === 'documents'}
                           {file.type.toUpperCase()}
                         {:else if renameId === file.id}
-                          <input class="field revision-edit" bind:value={renameFileRevision} placeholder="0" aria-label="Revision" />
+                          <input class="field revision-edit" bind:value={renameFileRevision} placeholder="1" aria-label="Revision" />
                         {:else}
                           {revisionFor(file)}
                         {/if}
                       </td>
                       <td>{formatDate(file.updatedAt)}</td>
-                      <td><span class="set-link">{file.path}</span></td>
                       <td>
                         <div class="row-actions">
                           {#if fileHasStorage(file)}
                             <a class="icon-row-button" href={`/api/files/${encodeURIComponent(file.id)}/download?download=1`} aria-label={`Download ${file.name}`} title={`Download ${file.name}`}>
                               <Download size={15} />
                             </a>
-                            <button class="icon-row-button" type="button" onclick={() => copyFileLink(file)} aria-label={`Copy link for ${file.name}`} title={`Copy link for ${file.name}`}>
-                              <Copy size={15} />
-                            </button>
                             {#if canDeleteFiles && !fileIsStorageOnly(file)}
                               <button class="icon-row-button" type="button" disabled={busy} onclick={() => createShareLink(file)} aria-label={`Create external share link for ${file.name}`} title={`Create external share link for ${file.name}`}>
                                 <Link size={15} />
@@ -1726,7 +1767,7 @@
               {/if}
             {:else}
               <tr>
-                <td colspan="7">
+                <td colspan="6">
                   <div class="empty-log">
                     <strong>No {toolTitle.toLowerCase()} match this view.</strong>
                     <span>Upload files to this project, or adjust search and filters.</span>
@@ -1800,12 +1841,8 @@
     width: 8.5rem;
   }
 
-  .location-col {
-    width: 12rem;
-  }
-
   .actions-col {
-    width: 15rem;
+    width: 13rem;
   }
 
   .select-cell {
@@ -2055,18 +2092,10 @@
     text-align: left;
   }
 
-  .record-title span,
-  .set-link {
+  .record-title span {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .set-link {
-    display: block;
-    max-width: 100%;
-    color: #1a5fb4;
-    text-decoration: underline;
   }
 
   .muted-link {
@@ -2134,14 +2163,8 @@
   }
 
   @media (max-width: 1050px) {
-    .location-col,
-    .drawings-table th:nth-child(6),
-    .drawings-table td:nth-child(6) {
-      display: none;
-    }
-
     .actions-col {
-      width: 13rem;
+      width: 12rem;
     }
   }
 

@@ -597,7 +597,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
     .eq('is_folder', true);
   const { pathById } = folderPathMaps((folderRows ?? []) as FileFolderRow[]);
 
-  const selectColumns = `id, name, size_bytes, mime_type, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
+  const selectColumns = `id, name, size_bytes, mime_type, created_at, updated_at, tags, parent_folder_id, storage_key, uploaded_by,
       document_kind, sheet_number, sheet_title, revision, page_count, ocr_status`;
   async function loadRows(includeSortOrder: boolean) {
     let query = db
@@ -652,7 +652,7 @@ export async function getFiles(event: EventLike, slug: string): Promise<PortalFi
       path: folder ? `${folder}/${row.name}` : row.name,
       size: bytesToSize(row.size_bytes),
       type: fileTypeFromName(row.name, row.mime_type),
-      updatedAt: row.updated_at,
+      updatedAt: row.created_at ?? row.updated_at,
       uploadedBy: profileDisplayName(profile),
       parentFolderId: row.parent_folder_id,
       tags: row.tags ?? undefined,

@@ -24,6 +24,10 @@ async function objectBytes(storageKey: string) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+function initialDrawingRevision() {
+  return '1';
+}
+
 async function replaceDrawingPages(
   client: NonNullable<App.Locals['supabase']>,
   projectId: string,
@@ -43,7 +47,7 @@ async function replaceDrawingPages(
       name: page.name,
       sheet_number: page.sheetNumber,
       sheet_title: page.sheetTitle,
-      revision: page.revision,
+      revision: initialDrawingRevision(),
       ocr_text: page.text
     }))
   );
@@ -91,7 +95,7 @@ export async function registerUploadedFile({
     document_kind: analysis.documentKind,
     sheet_number: analysis.sheetNumber,
     sheet_title: analysis.sheetTitle,
-    revision: analysis.revision,
+    revision: analysis.documentKind === 'drawing' ? initialDrawingRevision() : analysis.revision,
     page_count: analysis.pageCount,
     ocr_status: analysis.ocrStatus,
     ocr_text: analysis.ocrText,
