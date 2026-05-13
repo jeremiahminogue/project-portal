@@ -10,7 +10,6 @@
     Home,
     LogOut,
     MessageSquare,
-    Newspaper,
     Settings,
     Shield,
     UserRound,
@@ -26,22 +25,40 @@
     owner?: string;
   };
 
+  type ProjectToolAccess = {
+    role?: string | null;
+    canCreateCommunication?: boolean;
+    canReviewCommunication?: boolean;
+    canManageSchedule?: boolean;
+    canManageDirectory?: boolean;
+    canManageProjectUsers?: boolean;
+    canManageNotifications?: boolean;
+  };
+
   let {
     me,
     project,
     projects = [],
     slug,
+    projectAccess = {},
     canManageProjectUsers = false
   }: {
     me?: App.PageData['me'];
     project?: HeaderProject;
     projects?: HeaderProject[];
     slug?: string;
+    projectAccess?: ProjectToolAccess | null;
     canManageProjectUsers?: boolean;
   } = $props();
 
   const initials = $derived(initialsFor(me?.profile, me?.user?.email ?? null));
   const email = $derived(me?.user?.email ?? 'Guest');
+  const canSeeCommunication = $derived(Boolean(projectAccess?.canCreateCommunication || projectAccess?.canReviewCommunication));
+  const canSeeChat = $derived(Boolean(projectAccess?.canCreateCommunication));
+  const canSeeSchedule = $derived(Boolean(projectAccess?.canManageSchedule));
+  const canSeeDirectory = $derived(Boolean(projectAccess?.canManageDirectory));
+  const canSeeNotifications = $derived(Boolean(projectAccess?.canManageNotifications));
+  const canManageUsers = $derived(Boolean(projectAccess?.canManageProjectUsers ?? canManageProjectUsers));
   const projectTools = $derived(
     slug
       ? [
@@ -65,14 +82,17 @@
             icon: FileText,
             active: (url: URL) => url.pathname === `/projects/${slug}/files` && url.searchParams.get('tool') === 'documents'
           },
-          { href: `/projects/${slug}/submittals`, label: 'Submittals', icon: FileText },
-          { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare },
-          { href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays },
-          { href: `/projects/${slug}/updates`, label: 'Updates', icon: Newspaper },
-          { href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell },
-          { href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare },
-          { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users },
-          ...(canManageProjectUsers
+          ...(canSeeCommunication
+            ? [
+                { href: `/projects/${slug}/submittals`, label: 'Submittals', icon: FileText },
+                { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare }
+              ]
+            : []),
+          ...(canSeeSchedule ? [{ href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays }] : []),
+          ...(canSeeNotifications ? [{ href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell }] : []),
+          ...(canSeeChat ? [{ href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare }] : []),
+          ...(canSeeDirectory ? [{ href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }] : []),
+          ...(canManageUsers
             ? [{ href: `/projects/${slug}/members`, label: 'Members', icon: Shield }]
             : [])
         ]

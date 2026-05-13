@@ -7,12 +7,24 @@
     Home,
     Menu,
     MessageSquare,
-    Newspaper,
     Users
   } from '@lucide/svelte';
   import { page } from '$app/stores';
 
-  let { slug, title }: { slug: string; title?: string } = $props();
+  type ProjectToolAccess = {
+    canCreateCommunication?: boolean;
+    canReviewCommunication?: boolean;
+    canManageSchedule?: boolean;
+    canManageDirectory?: boolean;
+    canManageNotifications?: boolean;
+  };
+
+  let { slug, title, projectAccess = null }: { slug: string; title?: string; projectAccess?: ProjectToolAccess | null } = $props();
+  const canSeeCommunication = $derived(Boolean(projectAccess?.canCreateCommunication || projectAccess?.canReviewCommunication));
+  const canSeeChat = $derived(Boolean(projectAccess?.canCreateCommunication));
+  const canSeeSchedule = $derived(Boolean(projectAccess?.canManageSchedule));
+  const canSeeDirectory = $derived(Boolean(projectAccess?.canManageDirectory));
+  const canSeeNotifications = $derived(Boolean(projectAccess?.canManageNotifications));
 
   const items = $derived([
     { href: `/projects/${slug}`, label: 'Overview', icon: Home },
@@ -34,13 +46,16 @@
       icon: FileText,
       active: (url: URL) => url.pathname === `/projects/${slug}/files` && url.searchParams.get('tool') === 'documents'
     },
-    { href: `/projects/${slug}/submittals`, label: 'Submittals', icon: FileText },
-    { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare },
-    { href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays },
-    { href: `/projects/${slug}/updates`, label: 'Updates', icon: Newspaper },
-    { href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell },
-    { href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare },
-    { href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }
+    ...(canSeeCommunication
+      ? [
+          { href: `/projects/${slug}/submittals`, label: 'Submittals', icon: FileText },
+          { href: `/projects/${slug}/rfis`, label: 'RFIs', icon: MessageSquare }
+        ]
+      : []),
+    ...(canSeeSchedule ? [{ href: `/projects/${slug}/schedule`, label: 'Schedule', icon: CalendarDays }] : []),
+    ...(canSeeNotifications ? [{ href: `/projects/${slug}/notifications`, label: 'Notifications', icon: Bell }] : []),
+    ...(canSeeChat ? [{ href: `/projects/${slug}/chat`, label: 'Chat', icon: MessageSquare }] : []),
+    ...(canSeeDirectory ? [{ href: `/projects/${slug}/directory`, label: 'Directory', icon: Users }] : [])
   ]);
   const activeItem = $derived(items.find((item) => item.active?.($page.url) ?? $page.url.pathname === item.href) ?? items[0]);
 </script>

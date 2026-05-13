@@ -13,6 +13,7 @@
     project={data.project}
     projects={data.projects}
     slug={data.slug}
+    projectAccess={data.projectAccess}
     canManageProjectUsers={data.projectAccess?.canManageProjectUsers ?? false}
   />
 {/if}

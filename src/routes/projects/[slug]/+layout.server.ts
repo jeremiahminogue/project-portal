@@ -3,7 +3,8 @@ import { getProject, getProjects } from '$lib/server/queries';
 import {
   isProjectAccessError,
   projectRoleCapabilities,
-  requireProjectAccess
+  requireProjectAccess,
+  type ProjectRole
 } from '$lib/server/project-access';
 import type { LayoutServerLoad } from './$types';
 
@@ -23,12 +24,35 @@ export const load: LayoutServerLoad = async (event) => {
   if (!project) throw error(404, 'Project not found');
 
   // Resolve the viewer's role on this project so the header can show the
-  // Members tab to admins/superadmins. Non-members fall through to null.
-  let projectRole: string | null = null;
-  let canManageProjectUsers = false;
+  // right tool set for each role. Non-members fall through to null.
+  let projectRole: ProjectRole | null = null;
+  let capabilities = {
+    canCreateCommunication: false,
+    canReviewCommunication: false,
+    canManageSchedule: false,
+    canManageDirectory: false,
+    canManageProjectUsers: false
+  };
   if (accessResult && !isProjectAccessError(accessResult)) {
     projectRole = accessResult.role;
-    canManageProjectUsers = projectRoleCapabilities[accessResult.role].canManageProjectUsers;
+    const roleCapabilities = projectRoleCapabilities[accessResult.role];
+    capabilities = {
+      canCreateCommunication: roleCapabilities.canCreateCommunication,
+      canReviewCommunication: roleCapabilities.canReviewCommunication,
+      canManageSchedule: roleCapabilities.canManageSchedule,
+      canManageDirectory: roleCapabilities.canManageDirectory,
+      canManageProjectUsers: roleCapabilities.canManageProjectUsers
+    };
+  } else if (!event.locals.supabase && me.user) {
+    projectRole = me.isSuperadmin ? 'superadmin' : 'admin';
+    const roleCapabilities = projectRoleCapabilities[projectRole];
+    capabilities = {
+      canCreateCommunication: roleCapabilities.canCreateCommunication,
+      canReviewCommunication: roleCapabilities.canReviewCommunication,
+      canManageSchedule: roleCapabilities.canManageSchedule,
+      canManageDirectory: roleCapabilities.canManageDirectory,
+      canManageProjectUsers: roleCapabilities.canManageProjectUsers
+    };
   }
 
   return {
@@ -38,7 +62,8 @@ export const load: LayoutServerLoad = async (event) => {
     me,
     projectAccess: {
       role: projectRole,
-      canManageProjectUsers
+      ...capabilities,
+      canManageNotifications: projectRole === 'superadmin' || projectRole === 'admin'
     }
   };
 };

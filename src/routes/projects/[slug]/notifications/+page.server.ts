@@ -1,5 +1,7 @@
-import { error as kitError, fail } from '@sveltejs/kit';
+import { error as kitError, fail, redirect } from '@sveltejs/kit';
 import { actionError } from '$lib/server/auth';
+import { escapeHtml, sendPortalEmail } from '$lib/server/email';
+import { serverEnv } from '$lib/server/env';
 import {
   defaultNotificationRules,
   loadPhotoSubscription,
@@ -24,6 +26,8 @@ type DeliveryLogRow = {
   error: string | null;
   metadata: Record<string, unknown> | null;
 };
+
+const DEFAULT_EMAIL_FROM = 'Pueblo Electric Portal <noreply@send.puebloelectrics.com>';
 
 function tableMissing(error: unknown) {
   const candidate = error as { code?: string; message?: string } | null;
@@ -58,11 +62,18 @@ export const load: PageServerLoad = async (event) => {
   const project = await getProject(event, event.params.slug);
   const access = await requireProjectAccess(event, event.params.slug);
   if (isProjectAccessError(access)) throw kitError(access.status, access.message);
+  if (!['superadmin', 'admin'].includes(access.role)) throw redirect(303, `/projects/${event.params.slug}`);
+
+  const emailFrom = serverEnv('RESEND_FROM') ?? DEFAULT_EMAIL_FROM;
+  const emailProviderConfigured = Boolean(serverEnv('RESEND_API_KEY'));
 
   if (!event.locals.supabase) {
     return {
       project,
       access: { role: access.role, canManageRules: true },
+      adminEmail: access.user.email,
+      emailFrom,
+      emailProviderConfigured,
       eventDefinitions: notificationEventDefinitions,
       recipientDefinitions: recipientKindDefinitions,
       preferences: Object.fromEntries(notificationEventDefinitions.map((definition) => [definition.type, definition.userConfigurable])),
@@ -89,13 +100,16 @@ export const load: PageServerLoad = async (event) => {
       role: access.role,
       canManageRules: ['superadmin', 'admin'].includes(access.role)
     },
+    adminEmail: access.user.email,
+    emailFrom,
+    emailProviderConfigured,
     eventDefinitions: notificationEventDefinitions,
     recipientDefinitions: recipientKindDefinitions,
     preferences: Object.fromEntries(preferences),
     photoSubscribed,
     rules,
     deliveries,
-    deliveriesScope: ['superadmin', 'admin'].includes(access.role) ? 'project' : 'mine'
+    deliveriesScope: 'project'
   };
 };
 
@@ -168,5 +182,44 @@ export const actions: Actions = {
     }
 
     return { ok: true };
+  },
+
+  sendTestEmail: async (event) => {
+    const access = await requireProjectAccess(event, event.params.slug, {
+      roles: ['superadmin', 'admin'],
+      action: 'send project notification test emails'
+    });
+    if (isProjectAccessError(access)) return actionError(access.message, access.status);
+
+    const form = await event.request.formData();
+    const recipient = typeof form.get('recipient') === 'string' && String(form.get('recipient')).trim()
+      ? String(form.get('recipient')).trim()
+      : access.user.email;
+    if (!recipient) return fail(400, { error: 'Enter an email address for the test.' });
+
+    const projectName = access.project.name ?? access.project.slug;
+    const sentAt = new Date().toLocaleString('en-US', {
+      timeZone: 'America/Denver',
+      dateStyle: 'medium',
+      timeStyle: 'short'
+    });
+    const result = await sendPortalEmail({
+      to: recipient,
+      subject: `Test notification - ${projectName}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.5;color:#191b19">
+          <h2 style="margin:0 0 12px">Pueblo Electric Portal test notification</h2>
+          <p>This confirms the portal can send notification email for <strong>${escapeHtml(projectName)}</strong>.</p>
+          <p>Requested by ${escapeHtml(access.user.email ?? 'a project admin')} on ${escapeHtml(sentAt)}.</p>
+        </div>
+      `
+    });
+
+    const providerError = result && typeof result === 'object' && 'error' in result ? String((result as { error?: unknown }).error ?? '') : '';
+    if (providerError) return fail(400, { error: `Test email failed: ${providerError}` });
+    const skipped = result && typeof result === 'object' && 'skipped' in result && (result as { skipped?: unknown }).skipped === true;
+    if (skipped) return { ok: true, message: 'Email provider is not configured yet, so no test email was sent.' };
+
+    return { ok: true, message: `Test email sent to ${recipient}.` };
   }
 };

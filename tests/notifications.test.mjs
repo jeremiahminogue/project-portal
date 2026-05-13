@@ -214,10 +214,15 @@ test('photo uploads queue digest notifications and the project has a notificatio
   assert.match(header, /Notifications/);
   assert.match(pageServer, /saveUserNotificationPreferences/);
   assert.match(pageServer, /saveProjectNotificationRules/);
+  assert.match(pageServer, /sendTestEmail/);
+  assert.match(pageServer, /sendPortalEmail/);
+  assert.match(pageServer, /redirect\(303, `\/projects\/\$\{event\.params\.slug\}`\)/);
   assert.match(pageServer, /notification_deliveries/);
+  assert.match(pageUi, /Admin tools/);
+  assert.match(pageUi, /Send test email/);
   assert.match(pageUi, /Project matrix/);
   assert.match(pageUi, /Delivery log/);
-  assert.match(pageUi, /My recent deliveries/);
+  assert.match(pageUi, /Recent notification deliveries/);
   assert.match(pageUi, /activeSection/);
   assert.match(pageUi, /definition\.type !== 'photo\.uploaded'/);
   assert.match(pageUi, /photoDigest/);

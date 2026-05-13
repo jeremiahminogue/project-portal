@@ -1,4 +1,4 @@
-import { fail } from '@sveltejs/kit';
+import { fail, redirect } from '@sveltejs/kit';
 import { actionError, formString } from '$lib/server/auth';
 import { writeAdminAudit } from '$lib/server/admin-audit';
 import {
@@ -55,10 +55,7 @@ export const load: PageServerLoad = async (event) => {
   // it returns 503; in dev-without-supabase it returns a mock admin role.
   // Either way, never grant canManage just because the supabase client is
   // missing — that was a real security hole in an earlier draft.
-  const access = await requireProjectAccess(event, slug, {
-    roles: ['superadmin', 'admin'],
-    action: 'manage members for this project'
-  });
+  const access = await requireProjectAccess(event, slug);
   if (isProjectAccessError(access)) {
     return {
       members: [] as MemberRow[],
@@ -68,6 +65,7 @@ export const load: PageServerLoad = async (event) => {
       accessError: access.message
     };
   }
+  if (!projectRoleCapabilities[access.role].canManageProjectUsers) throw redirect(303, `/projects/${slug}`);
 
   const projectClient = databaseClientForProjectAccess(event, access);
   if (!projectClient) {

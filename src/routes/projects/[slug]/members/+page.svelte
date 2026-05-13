@@ -3,7 +3,9 @@
 
   Lets project admins (and superadmins) manage their own roster: change
   role, flip submittal-manager / RFI-manager flags, and remove members
-  without leaving the project. Members the gates in
+  without leaving the project. Member-only viewers are redirected back to
+  the project overview so they do not land on a permission-error screen.
+  The write gates still live in
     - server: requireProjectAccess({ roles: ['superadmin', 'admin'] })
     - update/remove actions write through the user's supabase client; RLS
       policies (migrations 0003 + 0017) enforce project-admin scope.

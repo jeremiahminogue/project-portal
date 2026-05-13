@@ -43,6 +43,7 @@
       <h1>Notifications</h1>
       <p>Manage workflow emails, action-required alerts, and daily photo digests for this project.</p>
       <div class="tool-tabs" aria-label="Notification sections">
+        {#if data.access.canManageRules}<a class:active={activeSection === 'admin-tools'} href="#admin-tools" onclick={() => (activeSection = 'admin-tools')}>Admin tools</a>{/if}
         <a class:active={activeSection === 'my-notifications'} href="#my-notifications" onclick={() => (activeSection = 'my-notifications')}>My notifications</a>
         {#if data.access.canManageRules}<a class:active={activeSection === 'matrix'} href="#matrix" onclick={() => (activeSection = 'matrix')}>Project matrix</a>{/if}
         <a class:active={activeSection === 'deliveries'} href="#deliveries" onclick={() => (activeSection = 'deliveries')}>Delivery log</a>
@@ -54,7 +55,47 @@
     <div class="mb-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{form.error}</div>
   {/if}
   {#if form?.ok}
-    <div class="mb-3 rounded-md border border-pe-green/20 bg-pe-green/10 px-3 py-2 text-sm font-semibold text-pe-green-dark">Notification settings saved.</div>
+    <div class="mb-3 rounded-md border border-pe-green/20 bg-pe-green/10 px-3 py-2 text-sm font-semibold text-pe-green-dark">{form.message ?? 'Notification settings saved.'}</div>
+  {/if}
+
+  {#if data.access.canManageRules}
+    <section id="admin-tools" class="utility-panel admin-tools mb-4">
+      <div class="section-title">
+        <div>
+          <span class="eyebrow">Admin tools</span>
+          <h2>Notification setup</h2>
+        </div>
+        <span class="readonly-chip provider-chip" class:offline={!data.emailProviderConfigured}>
+          {data.emailProviderConfigured ? 'Email provider connected' : 'Email provider not configured'}
+        </span>
+      </div>
+
+      <div class="settings-breakdown" aria-label="Notification settings breakdown">
+        <article>
+          <strong>My notifications</strong>
+          <span>Each user controls optional email events and daily photo digests. Action-required emails stay locked on.</span>
+        </article>
+        <article>
+          <strong>Project matrix</strong>
+          <span>Admins choose which recipient groups receive each event. Required workflow rows stay enabled.</span>
+        </article>
+        <article>
+          <strong>Delivery log</strong>
+          <span>Admins can see recent project deliveries and retry failed or skipped messages.</span>
+        </article>
+      </div>
+
+      <form class="test-email-form" method="post" action="?/sendTestEmail" use:enhance>
+        <label>
+          <span>Test recipient</span>
+          <input class="field" name="recipient" type="email" value={data.adminEmail ?? ''} placeholder="name@example.com" />
+        </label>
+        <div class="test-email-meta">
+          <span>From: {data.emailFrom}</span>
+          <button class="btn btn-secondary" type="submit"><Send size={16} />Send test email</button>
+        </div>
+      </form>
+    </section>
   {/if}
 
   <section id="my-notifications" class="utility-panel mb-4">
@@ -155,7 +196,7 @@
   <section id="deliveries" class="workbench delivery-workbench">
     <div class="matrix-heading">
       <span class="eyebrow">Delivery log</span>
-      <h2>{data.deliveriesScope === 'project' ? 'Recent notification deliveries' : 'My recent deliveries'}</h2>
+      <h2>Recent notification deliveries</h2>
     </div>
     <div class="dense-table-shell">
       <table class="dense-table delivery-table">
@@ -226,6 +267,72 @@
     color: #191b19;
     font-size: 1rem;
     font-weight: 850;
+  }
+
+  .admin-tools {
+    padding: 0.9rem;
+  }
+
+  .provider-chip {
+    border-color: rgba(18, 129, 45, 0.24);
+    background: #e9f8ee;
+    color: #12812d;
+  }
+
+  .provider-chip.offline {
+    border-color: #f5d3b3;
+    background: #fff7e7;
+    color: #946200;
+  }
+
+  .settings-breakdown {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.6rem;
+  }
+
+  .settings-breakdown article {
+    display: grid;
+    gap: 0.22rem;
+    min-height: 6.2rem;
+    border: 1px solid rgba(25, 27, 25, 0.1);
+    border-radius: 0.35rem;
+    background: #fff;
+    padding: 0.75rem;
+  }
+
+  .settings-breakdown strong {
+    color: #191b19;
+    font-size: 0.82rem;
+    font-weight: 850;
+  }
+
+  .settings-breakdown span,
+  .test-email-meta span,
+  .test-email-form label span {
+    color: #4e574f;
+    font-size: 0.74rem;
+    line-height: 1.35;
+  }
+
+  .test-email-form {
+    display: grid;
+    grid-template-columns: minmax(16rem, 1fr) auto;
+    align-items: end;
+    gap: 0.7rem;
+    margin-top: 0.75rem;
+    border-top: 1px solid rgba(25, 27, 25, 0.08);
+    padding-top: 0.75rem;
+  }
+
+  .test-email-form label,
+  .test-email-meta {
+    display: grid;
+    gap: 0.32rem;
+  }
+
+  .test-email-meta {
+    justify-items: end;
   }
 
   .preference-grid {
@@ -362,6 +469,18 @@
   }
 
   @media (max-width: 860px) {
+    .settings-breakdown {
+      grid-template-columns: 1fr;
+    }
+
+    .test-email-form {
+      grid-template-columns: 1fr;
+    }
+
+    .test-email-meta {
+      justify-items: stretch;
+    }
+
     .preference-grid {
       grid-template-columns: 1fr;
     }

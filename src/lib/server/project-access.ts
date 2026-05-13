@@ -15,7 +15,7 @@ export const projectRoleLabels: Record<ProjectRole, string> = {
 export const projectRoleDescriptions: Record<ProjectRole, string> = {
   superadmin: 'Pueblo Electric portal owner with access to every project and admin console.',
   admin: 'Project lead who can upload, edit, delete, manage chat, and manage project users.',
-  member: 'Internal project contributor who can upload files and work RFIs, submittals, chat, and updates.',
+  member: 'Internal project contributor who can upload files and work RFIs, submittals, chat, schedule, and directory items.',
   guest: 'External collaborator who can view, download, and save PDF markups without upload or delete access.',
   readonly: 'Viewer who can read and download project information without changing records.'
 };

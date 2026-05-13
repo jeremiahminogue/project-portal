@@ -2,10 +2,13 @@
   import { CalendarDays, FileText, FolderOpen, MessageSquare, Users } from '@lucide/svelte';
   import PageShell from '$lib/components/PageShell.svelte';
   import { fileMatchesTool } from '$lib/file-library';
-  import { formatDate, relativeTime } from '$lib/utils';
+  import { formatDate } from '$lib/utils';
 
   let { data } = $props();
   const project = $derived(data.project);
+  const canSeeCommunication = $derived(Boolean(data.projectAccess?.canCreateCommunication || data.projectAccess?.canReviewCommunication));
+  const canSeeSchedule = $derived(Boolean(data.projectAccess?.canManageSchedule));
+  const canSeeDirectory = $derived(Boolean(data.projectAccess?.canManageDirectory));
   const openSubmittals = $derived(data.submittals.filter((item) => !['Approved', 'Rejected'].includes(item.status)));
   const openRfis = $derived(data.rfis.filter((item) => item.status === 'Open'));
   const nextActivities = $derived(data.schedule.slice(0, 6));
@@ -27,85 +30,70 @@
       <h1>{project.title}</h1>
       <p>{project.address} · {project.owner}</p>
     </div>
-    <a class="btn btn-primary" href={`/projects/${data.slug}/schedule`}>
-      <CalendarDays size={16} />
-      Open schedule
+    <a class="btn btn-primary" href={canSeeSchedule ? `/projects/${data.slug}/schedule` : `/projects/${data.slug}/files`}>
+      {#if canSeeSchedule}<CalendarDays size={16} />{:else}<FolderOpen size={16} />{/if}
+      {canSeeSchedule ? 'Open schedule' : 'Open drawings'}
     </a>
   </section>
 
   <section class="dashboard-metrics">
-    <a href={`/projects/${data.slug}/schedule`}>
-      <CalendarDays size={19} />
-      <span>Schedule activities</span>
-      <strong>{data.schedule.length}</strong>
-    </a>
-    <a href={`/projects/${data.slug}/submittals`}>
-      <FileText size={19} />
-      <span>Open submittals</span>
-      <strong>{openSubmittals.length}</strong>
-    </a>
-    <a href={`/projects/${data.slug}/rfis`}>
-      <MessageSquare size={19} />
-      <span>Open RFIs</span>
-      <strong>{openRfis.length}</strong>
-    </a>
+    {#if canSeeSchedule}
+      <a href={`/projects/${data.slug}/schedule`}>
+        <CalendarDays size={19} />
+        <span>Schedule activities</span>
+        <strong>{data.schedule.length}</strong>
+      </a>
+    {/if}
+    {#if canSeeCommunication}
+      <a href={`/projects/${data.slug}/submittals`}>
+        <FileText size={19} />
+        <span>Open submittals</span>
+        <strong>{openSubmittals.length}</strong>
+      </a>
+      <a href={`/projects/${data.slug}/rfis`}>
+        <MessageSquare size={19} />
+        <span>Open RFIs</span>
+        <strong>{openRfis.length}</strong>
+      </a>
+    {/if}
     <a href={`/projects/${data.slug}/files`}>
       <FolderOpen size={19} />
       <span>Drawings</span>
       <strong>{drawingCount}</strong>
     </a>
-    <a href={`/projects/${data.slug}/directory`}>
-      <Users size={19} />
-      <span>Team</span>
-      <strong>{data.directory.length}</strong>
-    </a>
+    {#if canSeeDirectory}
+      <a href={`/projects/${data.slug}/directory`}>
+        <Users size={19} />
+        <span>Team</span>
+        <strong>{data.directory.length}</strong>
+      </a>
+    {/if}
   </section>
 
-  <section class="dashboard-grid">
-    <div class="panel dashboard-panel">
-      <div class="panel-heading">
-        <div>
-          <span class="eyebrow">Look ahead</span>
-          <h2>Upcoming schedule</h2>
+  {#if canSeeSchedule}
+    <section class="dashboard-grid">
+      <div class="panel dashboard-panel">
+        <div class="panel-heading">
+          <div>
+            <span class="eyebrow">Look ahead</span>
+            <h2>Upcoming schedule</h2>
+          </div>
+          <a href={`/projects/${data.slug}/schedule`}>View Gantt</a>
         </div>
-        <a href={`/projects/${data.slug}/schedule`}>View Gantt</a>
-      </div>
-      <div class="schedule-list">
-        {#each nextActivities as item}
-          <a href={`/projects/${data.slug}/schedule`}>
-            <span>{formatDate(item.startDate)} - {formatDate(item.endDate)}</span>
-            <strong>{item.title}</strong>
-            <small>{item.phase}</small>
-          </a>
-        {:else}
-          <p class="empty-note">No schedule activities have been imported yet.</p>
-        {/each}
-      </div>
-    </div>
-
-    <div class="panel dashboard-panel">
-      <div class="panel-heading">
-        <div>
-          <span class="eyebrow">Updates</span>
-          <h2>Latest project notes</h2>
+        <div class="schedule-list">
+          {#each nextActivities as item}
+            <a href={`/projects/${data.slug}/schedule`}>
+              <span>{formatDate(item.startDate)} - {formatDate(item.endDate)}</span>
+              <strong>{item.title}</strong>
+              <small>{item.phase}</small>
+            </a>
+          {:else}
+            <p class="empty-note">No schedule activities have been imported yet.</p>
+          {/each}
         </div>
-        <a href={`/projects/${data.slug}/updates`}>All updates</a>
       </div>
-      <div class="updates-list">
-        {#each data.updates.slice(0, 4) as update}
-          <article>
-            <div>
-              <h3>{update.title}</h3>
-              <span>{relativeTime(update.postedDate)}</span>
-            </div>
-            <p>{update.body}</p>
-          </article>
-        {:else}
-          <p class="empty-note">No updates posted yet.</p>
-        {/each}
-      </div>
-    </div>
-  </section>
+    </section>
+  {/if}
 </PageShell>
 
 <style>
@@ -137,7 +125,7 @@
 
   .dashboard-metrics {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
     gap: 0.75rem;
     margin-bottom: 1rem;
   }
@@ -182,7 +170,7 @@
 
   .dashboard-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+    grid-template-columns: minmax(0, 1fr);
     gap: 1rem;
   }
 
@@ -212,14 +200,12 @@
     font-weight: 850;
   }
 
-  .schedule-list,
-  .updates-list {
+  .schedule-list {
     display: grid;
     gap: 0.55rem;
   }
 
-  .schedule-list a,
-  .updates-list article {
+  .schedule-list a {
     padding: 0.85rem;
     border: 1px solid rgba(31, 35, 32, 0.08);
     border-radius: 0.55rem;
@@ -232,8 +218,7 @@
     font-weight: 850;
   }
 
-  .schedule-list strong,
-  .updates-list h3 {
+  .schedule-list strong {
     display: block;
     margin-top: 0.18rem;
     color: #191b19;
@@ -242,31 +227,10 @@
   }
 
   .schedule-list small,
-  .updates-list span,
-  .updates-list p,
   .empty-note {
     color: #687168;
     font-size: 0.82rem;
     line-height: 1.45;
-  }
-
-  .updates-list article > div {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-  }
-
-  .updates-list h3 {
-    margin: 0;
-  }
-
-  .updates-list p {
-    display: -webkit-box;
-    margin: 0.35rem 0 0;
-    overflow: hidden;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
   }
 
   @media (max-width: 980px) {
@@ -278,10 +242,6 @@
 
     .dashboard-hero .btn {
       width: 100%;
-    }
-
-    .dashboard-metrics {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .dashboard-grid {
